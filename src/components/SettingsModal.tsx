@@ -6,27 +6,21 @@ import {
   Gauge,
   Info,
   LockKeyhole,
-  LogOut,
-  Mail,
   RefreshCw,
   ScanSearch,
   ShieldCheck,
   SlidersHorizontal,
   Trash2,
-  UserRound,
   X,
 } from 'lucide-react'
 import { MODEL_TYPES, MODELS, modelsByType, typeInfo } from '../lib/data'
 import type { ProviderStatus } from '../lib/provider'
-import type { User } from '../lib/auth'
-import { userDisplayName, userInitials, userPicture } from '../lib/auth'
 
-export type SettingsTab = 'general' | 'privacy' | 'account' | 'about'
+export type SettingsTab = 'general' | 'privacy' | 'about'
 
 type SettingsModalProps = {
   open: boolean
   initialTab: SettingsTab
-  user: User | null
   shieldOn: boolean
   modelId: string
   provider: ProviderStatus
@@ -39,15 +33,11 @@ type SettingsModalProps = {
   onOpenPayload: () => void
   onClearChats: () => void
   onRefreshProvider: () => void
-  onSignIn: () => void
-  onSignOut: () => void
-  onOpenEmailAuth?: (mode: 'login' | 'signup' | 'link' | 'forgot') => void
 }
 
 const TABS: Array<{ id: SettingsTab; label: string; icon: typeof Info }> = [
   { id: 'general', label: 'General', icon: SlidersHorizontal },
   { id: 'privacy', label: 'Privacy & shield', icon: ShieldCheck },
-  { id: 'account', label: 'Account', icon: UserRound },
   { id: 'about', label: 'About', icon: Info },
 ]
 
@@ -77,7 +67,6 @@ function Toggle({
 export function SettingsModal({
   open,
   initialTab,
-  user,
   shieldOn,
   modelId,
   provider,
@@ -90,9 +79,6 @@ export function SettingsModal({
   onOpenPayload,
   onClearChats,
   onRefreshProvider,
-  onSignIn,
-  onSignOut,
-  onOpenEmailAuth,
 }: SettingsModalProps) {
   const [tab, setTab] = useState<SettingsTab>(initialTab)
   const panelRef = useRef<HTMLDivElement>(null)
@@ -269,8 +255,7 @@ export function SettingsModal({
               <div className="settings-callout">
                 <LockKeyhole size={15} />
                 <p>
-                  Chats and preferences live in this tab&apos;s memory. Reloading starts a clean
-                  session.
+                  Chats and preferences are saved on this device. Nothing is tied to an account.
                 </p>
               </div>
             </div>
@@ -291,7 +276,7 @@ export function SettingsModal({
                   <strong>PII shield {shieldOn ? 'is on' : 'is off'}</strong>
                   <p>
                     {shieldOn
-                      ? 'Names, emails, and phone numbers become placeholders. Answers are restored only in this tab.'
+                      ? 'Names, emails, and phone numbers become placeholders. Answers are restored only in this browser.'
                       : 'Prompts and file text will be sent as written. Names can identify you.'}
                   </p>
                 </div>
@@ -361,140 +346,6 @@ export function SettingsModal({
             </div>
           )}
 
-          {tab === 'account' && (
-            <div className="settings-pane">
-              <div className="settings-pane-head">
-                <h3>Account</h3>
-                <p>Sign-in is optional. It adds an identity to this session, not a data trail.</p>
-              </div>
-
-              {user ? (
-                <>
-                  <div className="account-card">
-                    {userPicture(user) ? (
-                      <img
-                        src={userPicture(user)}
-                        alt=""
-                        className="avatar account-card-avatar"
-                        referrerPolicy="no-referrer"
-                      />
-                    ) : (
-                      <span className="avatar avatar-fallback account-card-avatar">{userInitials(user)}</span>
-                    )}
-                    <div className="account-card-copy">
-                      <strong>{userDisplayName(user)}</strong>
-                      <span>{user.email}</span>
-                      <small>
-                        <Check size={11} /> Signed in with {user.provider === 'both' ? 'Google & Email' : user.provider === 'email' ? 'Email' : 'Google'}
-                      </small>
-                    </div>
-                  </div>
-
-                  {user.accountId && (
-                    <div className="settings-section" style={{ marginTop: 8 }}>
-                      <h4>Account ID (sign-in key)</h4>
-                      <div className="input-wrapper">
-                        <input
-                          type="text"
-                          value={user.accountId}
-                          readOnly
-                          style={{ fontFamily: 'monospace', fontSize: 11, letterSpacing: '0.05em', paddingRight: 12 }}
-                        />
-                        <button
-                          type="button"
-                          className="password-toggle"
-                          onClick={() => {
-                            try { navigator.clipboard.writeText(user.accountId as string) } catch { /* ignore */ }
-                          }}
-                          aria-label="Copy account ID"
-                          title="Copy"
-                        >
-                          Copy
-                        </button>
-                      </div>
-                      <p className="auth-note" style={{ marginTop: 6 }}>
-                        Save this 20-character ID. You can sign in with it from the email login screen ("Sign in with account ID") without a password.
-                      </p>
-                    </div>
-                  )}
-
-                  <div className="settings-facts">
-                    <div>
-                      <UserRound size={15} />
-                      <span>Profile storage</span>
-                      <strong>Memory only</strong>
-                    </div>
-                    <div>
-                      <LockKeyhole size={15} />
-                      <span>Password</span>
-                      <strong>Never stored</strong>
-                    </div>
-                    <div>
-                      <ShieldCheck size={15} />
-                      <span>Account data</span>
-                      <strong>Not sold</strong>
-                    </div>
-                  </div>
-
-                  {user.provider === 'google' && onOpenEmailAuth && (
-                    <button className="settings-action" onClick={() => onOpenEmailAuth('link')}>
-                      <Mail size={15} /> Link email account
-                    </button>
-                  )}
-                  {user.provider === 'google' && onOpenEmailAuth && (
-                    <button className="settings-action" onClick={() => onOpenEmailAuth('forgot')}>
-                      <Mail size={15} /> Send sign-in code
-                    </button>
-                  )}
-
-
-
-                  <button className="settings-action danger" onClick={onSignOut}>
-                    <LogOut size={15} /> Sign out
-                  </button>
-                </>
-              ) : (
-                <>
-                  <div className="account-card guest">
-                    <span className="avatar avatar-guest account-card-avatar">
-                      <UserRound size={20} />
-                    </span>
-                    <div className="account-card-copy">
-                      <strong>You&apos;re using Mint as a guest</strong>
-                      <span>No account is required to run a private request.</span>
-                    </div>
-                  </div>
-
-                  <div className="settings-section">
-                    <h4>Why sign in?</h4>
-                    <ul className="settings-list">
-                      <li>Attach a name and avatar to this session.</li>
-                      <li>Keep chat history tied to your identity while the tab is open.</li>
-                      <li>Google handles authentication — Mint never sees a password.</li>
-                    </ul>
-                  </div>
-
-                  <button className="google-button settings-google" onClick={onSignIn}>
-                    <span className="google-g" aria-hidden="true">
-                      <svg viewBox="0 0 48 48">
-                        <path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.7 32.7 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 13 4 4 13 4 24s9 20 20 20 20-9 20-20c0-1.3-.1-2.6-.4-3.9z" />
-                        <path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z" />
-                        <path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z" />
-                        <path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3c-.8 2.2-2.2 4.1-4.1 5.5l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.6-.4-3.9z" />
-                      </svg>
-                    </span>
-                    Sign in with Google
-                  </button>
-                  {onOpenEmailAuth && (
-                    <button className="settings-action" onClick={() => onOpenEmailAuth('login')} style={{ marginTop: 8 }}>
-                      <Mail size={15} /> Continue with email
-                    </button>
-                  )}
-                </>
-              )}
-            </div>
-          )}
-
           {tab === 'about' && (
             <div className="settings-pane">
               <div className="settings-pane-head">
@@ -511,7 +362,7 @@ export function SettingsModal({
               </div>
 
               <p className="about-copy">
-                Mint keeps prompts, files, redaction, and chat history in this tab. When a
+                Mint keeps prompts, files, redaction, and chat history on this device. When a
                 server-side NVIDIA key is available, answers stream from NVIDIA NIM through a local
                 proxy, so the key never enters the browser. Without a key, answers come from the
                 local demo engine.

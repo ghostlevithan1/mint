@@ -43,7 +43,7 @@ type ChatViewProps = {
   onStop: () => void
   onRegenerate: (assistantId: string) => void
   onInspectMessage: (assistantId: string) => void
-  onOpenSettings: (tab: 'general' | 'privacy' | 'account' | 'about') => void
+  onOpenSettings: (tab: 'general' | 'privacy' | 'about') => void
   onOpenSidebar: () => void
 }
 

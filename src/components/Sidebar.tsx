@@ -1,42 +1,29 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   ChevronRight,
-  ChevronsUpDown,
   LockKeyhole,
-  LogOut,
-  Mail,
   MessageSquare,
   PanelLeftClose,
   Plus,
   Search,
-  Settings,
   ShieldCheck,
   Trash2,
-  UserRound,
   X,
 } from 'lucide-react'
 import { Logo } from './Logo'
 import type { Conversation } from '../lib/chat'
-import type { User } from '../lib/auth'
-import { userDisplayName, userInitials, userPicture } from '../lib/auth'
 
 type SidebarProps = {
   chats: Conversation[]
   activeId: string
   open: boolean
   shieldOn: boolean
-  user: User | null
   onClose: () => void
   onOpen: () => void
   onNewChat: () => void
   onSelectChat: (id: string) => void
   onDeleteChat: (id: string) => void
-  onOpenSettings: (tab: 'general' | 'privacy' | 'account' | 'about') => void
-  onOpenEmailAuth?: (mode: 'login' | 'signup' | 'link' | 'forgot') => void
-  recentAccounts?: User[]
-  onSwitchAccount?: (user: User) => void
-  onSignIn: () => void
-  onSignOut: () => void
+  onOpenSettings: (tab: 'general' | 'privacy' | 'about') => void
 }
 
 function timeLabel(timestamp: number) {
@@ -48,23 +35,15 @@ export function Sidebar({
   activeId,
   open,
   shieldOn,
-  user,
   onClose,
   onOpen,
   onNewChat,
   onSelectChat,
   onDeleteChat,
   onOpenSettings,
-  onOpenEmailAuth,
-  recentAccounts,
-  onSwitchAccount,
-  onSignIn,
-  onSignOut,
 }: SidebarProps) {
   const [search, setSearch] = useState('')
-  const [accountOpen, setAccountOpen] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
-  const accountRef = useRef<HTMLDivElement>(null)
 
   const visibleChats = chats
     .filter((chat) => chat.messages.length > 0)
@@ -83,24 +62,10 @@ export function Sidebar({
     return () => document.removeEventListener('keydown', onKey)
   }, [onOpen])
 
-  useEffect(() => {
-    if (!accountOpen) return
-    const onPointer = (event: MouseEvent) => {
-      if (!accountRef.current?.contains(event.target as Node)) setAccountOpen(false)
-    }
-    document.addEventListener('mousedown', onPointer)
-    return () => document.removeEventListener('mousedown', onPointer)
-  }, [accountOpen])
-
-  const openSettings = (tab: 'general' | 'privacy' | 'account' | 'about') => {
-    setAccountOpen(false)
-    onOpenSettings(tab)
-  }
-
   return (
     <>
       {open && <div className="sidebar-scrim" onClick={onClose} aria-hidden="true" />}
-      <aside className={`sidebar ${open ? 'is-open' : ''}`} aria-label="Chats and account">
+      <aside className={`sidebar ${open ? 'is-open' : ''}`} aria-label="Chats">
         <div className="sidebar-head">
           <Logo />
           <button className="sidebar-close" onClick={onClose} aria-label="Close sidebar">
@@ -182,7 +147,7 @@ export function Sidebar({
         </div>
 
         <div className="sidebar-bottom">
-          <button className="privacy-row" onClick={() => openSettings('privacy')}>
+          <button className="privacy-row" onClick={() => onOpenSettings('privacy')}>
             <span className={`privacy-row-icon ${shieldOn ? 'on' : 'off'}`}>
               <ShieldCheck size={16} />
             </span>
@@ -193,130 +158,8 @@ export function Sidebar({
             <ChevronRight size={14} className="privacy-row-arrow" />
           </button>
 
-          <div className="account-wrap" ref={accountRef}>
-            {user ? (
-              <>
-                <button
-                  className="account-row"
-                  onClick={() => setAccountOpen((value) => !value)}
-                  aria-expanded={accountOpen}
-                  aria-haspopup="menu"
-                >
-                  {userPicture(user) ? (
-                    <img
-                      src={userPicture(user)}
-                      alt=""
-                      className="avatar"
-                      referrerPolicy="no-referrer"
-                    />
-                  ) : (
-                    <span className="avatar avatar-fallback">{userInitials(user)}</span>
-                  )}
-                  <span className="account-copy">
-                    <strong>{userDisplayName(user)}</strong>
-                    <small>{user.provider === 'email' ? 'Signed in with Email' : user.provider === 'both' ? 'Signed in with Google & Email' : 'Signed in with Google'}</small>
-                  </span>
-                  <ChevronsUpDown size={14} className="account-chevron" />
-                </button>
-                {accountOpen && (
-                  <div className="account-menu" role="menu">
-                    <div className="account-menu-id">
-                      <strong>{userDisplayName(user)}</strong>
-                      <span>{user.email}</span>
-                    </div>
-                    <button role="menuitem" onClick={() => openSettings('general')}>
-                      <Settings size={15} /> Settings
-                    </button>
-                    <button role="menuitem" onClick={() => openSettings('privacy')}>
-                      <ShieldCheck size={15} /> Privacy &amp; shield
-                    </button>
-                    {user.provider === 'google' && (
-                      <button
-                        role="menuitem"
-                        onClick={() => {
-                          setAccountOpen(false)
-                          onOpenEmailAuth?.('link')
-                        }}
-                      >
-                        <Mail size={15} /> Link email account
-                      </button>
-                    )}
-                    {recentAccounts && recentAccounts.filter((a) => a.id !== user.id).length > 0 && (
-                      <div className="account-switch-list">
-                        <span className="account-switch-label">Switch account</span>
-                        {recentAccounts
-                          .filter((a) => a.id !== user.id)
-                          .map((account) => (
-                            <button
-                              key={account.id}
-                              role="menuitem"
-                              onClick={() => {
-                                setAccountOpen(false)
-                                onSwitchAccount?.(account)
-                              }}
-                            >
-                              {userPicture(account) ? (
-                                <img src={userPicture(account)} alt="" className="avatar" style={{ width: 20, height: 20 }} referrerPolicy="no-referrer" />
-                              ) : (
-                                <span className="avatar avatar-fallback" style={{ width: 20, height: 20, fontSize: 8 }}>{userInitials(account)}</span>
-                              )}
-                              {userDisplayName(account)}
-                            </button>
-                          ))}
-                      </div>
-                    )}
-                    <button
-                      role="menuitem"
-                      className="account-signout"
-                      onClick={() => {
-                        setAccountOpen(false)
-                        onSignOut()
-                      }}
-                    >
-                      <LogOut size={15} /> Sign out
-                    </button>
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="account-guest-row">
-                <button className="account-row guest" onClick={onSignIn}>
-                  <span className="avatar avatar-guest">
-                    <UserRound size={16} />
-                  </span>
-                  <span className="account-copy">
-                    <strong>Sign in</strong>
-                    <small>Optional · Google</small>
-                  </span>
-                  <ChevronRight size={14} className="account-chevron" />
-                </button>
-                <button
-                  className="icon-button account-email-button"
-                  onClick={() => onOpenEmailAuth?.('login')}
-                  title="Sign in with email"
-                  aria-label="Sign in with email"
-                >
-                  <Mail size={15} />
-                </button>
-                {recentAccounts && recentAccounts.length > 0 && (
-                  <button
-                    className="account-row guest"
-                    onClick={() => onSwitchAccount?.(recentAccounts[0])}
-                    style={{ marginTop: 6 }}
-                  >
-                    <span className="account-copy">
-                      <strong>Continue as {userDisplayName(recentAccounts[0])}</strong>
-                      <small>Saved on this device</small>
-                    </span>
-                    <ChevronRight size={14} className="account-chevron" />
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-
           <p className="sidebar-note">
-            <LockKeyhole size={11} /> Chats are held in this tab only
+            <LockKeyhole size={11} /> Chats are saved on this device
           </p>
         </div>
       </aside>

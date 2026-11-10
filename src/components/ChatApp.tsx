@@ -5,22 +5,12 @@ import { redactText } from '../lib/privacy'
 import { useConversations } from '../hooks/useConversations'
 import { useProviderStatus } from '../hooks/useProviderStatus'
 import type { Attachment } from '../lib/files'
-import type { User } from '../lib/auth'
 import { Sidebar } from './Sidebar'
 import { ChatView } from './ChatView'
 import { SettingsModal, type SettingsTab } from './SettingsModal'
 import { PayloadModal } from './PayloadModal'
 
-type ChatAppProps = {
-  user: User | null
-  onSignInRequest: () => void
-  onSignOut: () => void
-  onOpenEmailAuth: (mode: 'login' | 'signup' | 'link' | 'forgot') => void
-  recentAccounts?: User[]
-  onSwitchAccount?: (user: User) => void
-}
-
-export function ChatApp({ user, onSignInRequest, onSignOut, onOpenEmailAuth, recentAccounts, onSwitchAccount }: ChatAppProps) {
+export function ChatApp() {
   const {
     chats,
     activeChat,
@@ -101,11 +91,6 @@ export function ChatApp({ user, onSignInRequest, onSignOut, onOpenEmailAuth, rec
     regenerate(assistantId, provider.mode)
   }
 
-  const handleSignIn = () => {
-    setSettingsOpen(false)
-    onSignInRequest()
-  }
-
   return (
     <div className="chat-app">
       <Sidebar
@@ -113,7 +98,6 @@ export function ChatApp({ user, onSignInRequest, onSignOut, onOpenEmailAuth, rec
         activeId={activeId}
         open={sidebarOpen}
         shieldOn={shieldOn}
-        user={user}
         onClose={() => setSidebarOpen(false)}
         onOpen={() => setSidebarOpen(true)}
         onNewChat={() => {
@@ -126,11 +110,6 @@ export function ChatApp({ user, onSignInRequest, onSignOut, onOpenEmailAuth, rec
         }}
         onDeleteChat={deleteChat}
         onOpenSettings={openSettings}
-        onSignIn={handleSignIn}
-        onSignOut={onSignOut}
-        onOpenEmailAuth={onOpenEmailAuth}
-        recentAccounts={recentAccounts}
-        onSwitchAccount={onSwitchAccount}
       />
 
       <ChatView
@@ -153,7 +132,6 @@ export function ChatApp({ user, onSignInRequest, onSignOut, onOpenEmailAuth, rec
       <SettingsModal
         open={settingsOpen}
         initialTab={settingsTab}
-        user={user}
         shieldOn={shieldOn}
         modelId={defaultModelId}
         provider={provider}
@@ -173,12 +151,6 @@ export function ChatApp({ user, onSignInRequest, onSignOut, onOpenEmailAuth, rec
           clearChats()
           setSettingsOpen(false)
         }}
-        onSignIn={handleSignIn}
-        onSignOut={() => {
-          setSettingsOpen(false)
-          onSignOut()
-        }}
-        onOpenEmailAuth={onOpenEmailAuth}
       />
 
       <PayloadModal

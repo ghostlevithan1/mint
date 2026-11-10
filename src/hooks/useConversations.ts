@@ -37,6 +37,42 @@ function createBlankChat(): Conversation {
   return { id: uid(), title: 'New chat', messages: [], createdAt: now, updatedAt: now }
 }
 
+const STORAGE_KEY = 'mint.chats.v1'
+
+// Persist chats to this device only. Image data URLs are dropped to stay within
+// localStorage limits; the rest of the conversation is kept.
+function serializeChats(chats: Conversation[], activeId: string): string {
+  const trimmed = chats.map((chat) => ({
+    ...chat,
+    title: chat.title,
+    messages: chat.messages.map((message) =>
+      message.attachments?.length
+        ? {
+            ...message,
+            attachments: message.attachments.map(({ dataUrl: _dataUrl, ...rest }) => rest),
+          }
+        : message,
+    ),
+  }))
+  return JSON.stringify({ chats: trimmed, activeId })
+}
+
+function loadStoredChats(): { chats: Conversation[]; activeId: string } | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as { chats?: Conversation[]; activeId?: string }
+    const chats = Array.isArray(parsed.chats) ? parsed.chats : []
+    if (!chats.length) return null
+    const activeId = chats.some((chat) => chat.id === parsed.activeId)
+      ? (parsed.activeId as string)
+      : chats[0].id
+    return { chats, activeId }
+  } catch {
+    return null
+  }
+}
+
 function wait(ms: number) {
   return new Promise<void>((resolve) => window.setTimeout(resolve, ms))
 }
@@ -68,9 +104,14 @@ function buildLiveContent(
 }
 
 export function useConversations() {
-  const [initialChat] = useState<Conversation>(() => createBlankChat())
-  const [chats, setChats] = useState<Conversation[]>([initialChat])
-  const [activeId, setActiveId] = useState(initialChat.id)
+  const [initial] = useState<{ chats: Conversation[]; activeId: string }>(() => {
+    const stored = loadStoredChats()
+    if (stored) return stored
+    const blank = createBlankChat()
+    return { chats: [blank], activeId: blank.id }
+  })
+  const [chats, setChats] = useState<Conversation[]>(initial.chats)
+  const [activeId, setActiveId] = useState(initial.activeId)
   const [isGenerating, setIsGenerating] = useState(false)
   const [generatingChatId, setGeneratingChatId] = useState<string | null>(null)
 
@@ -103,6 +144,18 @@ export function useConversations() {
       cleanupRun()
     }
   }, [])
+
+  // Debounced save so streaming updates don't write on every tick.
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      try {
+        localStorage.setItem(STORAGE_KEY, serializeChats(chats, activeId))
+      } catch {
+        // ignore quota errors — chats stay in memory for this session
+      }
+    }, 400)
+    return () => window.clearTimeout(handle)
+  }, [chats, activeId])
 
   const patchMessage = (chatId: string, messageId: string, patch: Partial<ChatMessage>) => {
     setChats((current) =>
