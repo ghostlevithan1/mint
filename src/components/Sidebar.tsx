@@ -33,6 +33,8 @@ type SidebarProps = {
   onDeleteChat: (id: string) => void
   onOpenSettings: (tab: 'general' | 'privacy' | 'account' | 'about') => void
   onOpenEmailAuth?: (mode: 'login' | 'signup' | 'link') => void
+  recentAccounts?: User[]
+  onSwitchAccount?: (user: User) => void
   onSignIn: () => void
   onSignOut: () => void
 }
@@ -54,6 +56,8 @@ export function Sidebar({
   onDeleteChat,
   onOpenSettings,
   onOpenEmailAuth,
+  recentAccounts,
+  onSwitchAccount,
   onSignIn,
   onSignOut,
 }: SidebarProps) {
@@ -237,6 +241,30 @@ export function Sidebar({
                         <Mail size={15} /> Link email account
                       </button>
                     )}
+                    {recentAccounts && recentAccounts.filter((a) => a.id !== user.id).length > 0 && (
+                      <div className="account-switch-list">
+                        <span className="account-switch-label">Switch account</span>
+                        {recentAccounts
+                          .filter((a) => a.id !== user.id)
+                          .map((account) => (
+                            <button
+                              key={account.id}
+                              role="menuitem"
+                              onClick={() => {
+                                setAccountOpen(false)
+                                onSwitchAccount?.(account)
+                              }}
+                            >
+                              {userPicture(account) ? (
+                                <img src={userPicture(account)} alt="" className="avatar" style={{ width: 20, height: 20 }} referrerPolicy="no-referrer" />
+                              ) : (
+                                <span className="avatar avatar-fallback" style={{ width: 20, height: 20, fontSize: 8 }}>{userInitials(account)}</span>
+                              )}
+                              {userDisplayName(account)}
+                            </button>
+                          ))}
+                      </div>
+                    )}
                     <button
                       role="menuitem"
                       className="account-signout"
@@ -270,6 +298,19 @@ export function Sidebar({
                 >
                   <Mail size={15} />
                 </button>
+                {recentAccounts && recentAccounts.length > 0 && (
+                  <button
+                    className="account-row guest"
+                    onClick={() => onSwitchAccount?.(recentAccounts[0])}
+                    style={{ marginTop: 6 }}
+                  >
+                    <span className="account-copy">
+                      <strong>Continue as {userDisplayName(recentAccounts[0])}</strong>
+                      <small>Saved on this device</small>
+                    </span>
+                    <ChevronRight size={14} className="account-chevron" />
+                  </button>
+                )}
               </div>
             )}
           </div>

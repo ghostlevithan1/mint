@@ -16,9 +16,11 @@ type ChatAppProps = {
   onSignInRequest: () => void
   onSignOut: () => void
   onOpenEmailAuth: (mode: 'login' | 'signup' | 'link') => void
+  recentAccounts?: User[]
+  onSwitchAccount?: (user: User) => void
 }
 
-export function ChatApp({ user, onSignInRequest, onSignOut, onOpenEmailAuth }: ChatAppProps) {
+export function ChatApp({ user, onSignInRequest, onSignOut, onOpenEmailAuth, recentAccounts, onSwitchAccount }: ChatAppProps) {
   const {
     chats,
     activeChat,
@@ -127,6 +129,8 @@ export function ChatApp({ user, onSignInRequest, onSignOut, onOpenEmailAuth }: C
         onSignIn={handleSignIn}
         onSignOut={onSignOut}
         onOpenEmailAuth={onOpenEmailAuth}
+        recentAccounts={recentAccounts}
+        onSwitchAccount={onSwitchAccount}
       />
 
       <ChatView

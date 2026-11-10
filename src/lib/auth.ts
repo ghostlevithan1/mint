@@ -295,8 +295,92 @@ export function clearAllUsers(): void {
     try {
       localStorage.removeItem(USERS_KEY)
       localStorage.removeItem(TOKENS_KEY)
+      localStorage.removeItem('mint.session.v1')
+      localStorage.removeItem('mint.recentAccounts.v1')
     } catch {
       // ignore
     }
+  }
+}
+
+
+const SESSION_KEY = 'mint.session.v1'
+const RECENT_KEY = 'mint.recentAccounts.v1'
+const MAX_RECENT = 5
+
+export function saveSession(userId: string): void {
+  if (!hasStorage()) return
+  try {
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ userId, savedAt: Date.now() }))
+  } catch {
+    // ignore
+  }
+}
+
+export function loadSession(): User | null {
+  if (!hasStorage()) return null
+  try {
+    const raw = localStorage.getItem(SESSION_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as { userId?: string }
+    if (!parsed.userId) return null
+    const user = users.get(parsed.userId)
+    if (!user) {
+      clearSession()
+      return null
+    }
+    return user
+  } catch {
+    return null
+  }
+}
+
+export function clearSession(): void {
+  if (!hasStorage()) return
+  try {
+    localStorage.removeItem(SESSION_KEY)
+  } catch {
+    // ignore
+  }
+}
+
+export function getRecentAccounts(): User[] {
+  if (!hasStorage()) return []
+  try {
+    const raw = localStorage.getItem(RECENT_KEY)
+    if (!raw) return []
+    const ids = JSON.parse(raw) as string[]
+    const result: User[] = []
+    for (const id of ids) {
+      const user = users.get(id)
+      if (user) result.push(user)
+    }
+    return result
+  } catch {
+    return []
+  }
+}
+
+export function addRecentAccount(userId: string): void {
+  if (!hasStorage()) return
+  try {
+    const raw = localStorage.getItem(RECENT_KEY)
+    let ids: string[] = raw ? (JSON.parse(raw) as string[]) : []
+    ids = [userId, ...ids.filter((id) => id !== userId)].slice(0, MAX_RECENT)
+    localStorage.setItem(RECENT_KEY, JSON.stringify(ids))
+  } catch {
+    // ignore
+  }
+}
+
+export function removeRecentAccount(userId: string): void {
+  if (!hasStorage()) return
+  try {
+    const raw = localStorage.getItem(RECENT_KEY)
+    if (!raw) return
+    const ids = (JSON.parse(raw) as string[]).filter((id) => id !== userId)
+    localStorage.setItem(RECENT_KEY, JSON.stringify(ids))
+  } catch {
+    // ignore
   }
 }
