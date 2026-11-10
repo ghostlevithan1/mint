@@ -3,6 +3,7 @@ import { createServer } from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { extname, resolve, sep } from 'node:path'
 import { handleChatHttp, handleStatusHttp, sendJson } from './node-http'
+import { handleAuthHttp } from './auth-routes'
 
 const root = process.cwd()
 const distDir = resolve(root, 'dist')
@@ -114,6 +115,14 @@ const server = createServer((req, res) => {
 
   if (pathname === '/api/status') {
     handleStatusHttp(req, res, root)
+    return
+  }
+
+  if (pathname.startsWith('/api/auth/')) {
+    void handleAuthHttp(req, res).catch(() => {
+      if (res.headersSent) return
+      sendJson(res, 500, { error: { code: 'SERVER_ERROR', message: 'Auth service failed.' } })
+    })
     return
   }
 

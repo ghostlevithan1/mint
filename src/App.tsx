@@ -9,6 +9,7 @@ import {
   clearSession,
   addRecentAccount,
   getRecentAccounts,
+  cacheSessionUser,
 } from './lib/auth'
 
 export default function App() {
@@ -23,7 +24,8 @@ export default function App() {
   const handleSignIn = (authUser: User) => {
     setUser(authUser)
     saveSession(authUser.id)
-    addRecentAccount(authUser.id)
+    cacheSessionUser(authUser)
+    addRecentAccount(authUser)
     setRecentAccounts(getRecentAccounts())
   }
 
@@ -35,7 +37,7 @@ export default function App() {
   const handleSwitchAccount = (account: User) => {
     setUser(account)
     saveSession(account.id)
-    addRecentAccount(account.id)
+    addRecentAccount(account)
     setRecentAccounts(getRecentAccounts())
   }
 

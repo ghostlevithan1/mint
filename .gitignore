@@ -2,7 +2,7 @@
 node_modules/
 dist/
 
-# Local secrets — never commit these
+# Local secrets �?" never commit these
 key
 key.env
 key.*
@@ -15,3 +15,6 @@ key.*
 Thumbs.db
 *.log
 *.tsbuildinfo
+
+# Server-side auth store (runtime data)
+data/

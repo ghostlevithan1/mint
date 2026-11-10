@@ -4,13 +4,12 @@ import { type User } from '../lib/auth'
 import {
   createEmailUser,
   authenticateUser,
-  createEmailVerificationToken,
-  verifyEmail,
+  createEmailVerificationTokenAsync,
+  verifyEmailAsync,
   linkEmailToGoogle,
   validateEmail,
-  createPasswordResetToken,
+  forgotPassword,
   verifyPasswordResetToken,
-  getUserByEmail,
   authenticateByAccessId,
 } from '../lib/auth'
 
@@ -79,13 +78,13 @@ export function EmailAuthModal({ open, onClose, onSignIn, initialMode, googleUse
         if (password !== confirmPassword) throw new Error('Passwords do not match')
 
         const user = await createEmailUser(email, password, displayName || email.split('@')[0])
-        const token = createEmailVerificationToken(user.id)
+        const token = await createEmailVerificationTokenAsync(user.id)
         setDevCode(token)
         setMode('verify')
         setStatus('idle')
         setMessage('Account created. Enter the verification code to activate it.')
       } else if (mode === 'verify') {
-        const ok = verifyEmail(code.trim())
+        const ok = await verifyEmailAsync(code.trim())
         if (!ok) throw new Error('Invalid or expired verification code')
         setMessage('Email verified! You can now sign in.')
         setTimeout(() => {
@@ -105,9 +104,7 @@ export function EmailAuthModal({ open, onClose, onSignIn, initialMode, googleUse
         onClose()
       } else if (mode === 'forgot') {
         if (!validateEmail(email)) throw new Error('Please enter a valid email')
-        const user = getUserByEmail(email)
-        if (!user) throw new Error('No account found with this email')
-        const token = createPasswordResetToken(user.id)
+        const token = await forgotPassword(email)
         setResetDevCode(token)
         setMode('reset')
         setStatus('idle')

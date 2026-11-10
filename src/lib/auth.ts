@@ -10,211 +10,11 @@ export type User = {
   googleSub?: string
   provider: Provider
   emailVerified: boolean
-  createdAt: Date
-  lastLogin: Date
+  createdAt: number | Date
+  lastLogin: number | Date
 }
 
-type VerificationRecord = {
-  userId: string
-  token: string
-  expiresAt: number
-  used: boolean
-}
-
-const USERS_KEY = 'mint.users.v1'
-const TOKENS_KEY = 'mint.verifyTokens.v1'
-const RESET_KEY = 'mint.resetTokens.v1'
-const BLACKLIST_KEY = 'mint.codeBlacklist.v1'
-
-const users = new Map<string, User>()
-const tokens = new Map<string, VerificationRecord>()
-const resetTokens = new Map<string, VerificationRecord>()
-const codeBlacklist = new Map<string, number>() // code -> expiry ms
-
-function hasStorage(): boolean {
-  return typeof localStorage !== 'undefined'
-}
-
-function uid(): string {
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID()
-  return `id-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
-}
-
-
-const ACCESS_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()_-+=/?'
-
-function generateAccountId(): string {
-  const existing = new Set(Array.from(users.values()).map((u) => u.accountId).filter(Boolean) as string[])
-  let id = ''
-  do {
-    id = ''
-    for (let i = 0; i < 20; i++) {
-      id += ACCESS_CHARS[Math.floor(Math.random() * ACCESS_CHARS.length)]
-    }
-  } while (existing.has(id))
-  return id
-}
-
-function loadUsers(): void {
-  if (!hasStorage()) return
-  try {
-    const raw = localStorage.getItem(USERS_KEY)
-    if (!raw) return
-    const parsed = JSON.parse(raw) as Array<Record<string, unknown>>
-    for (const item of parsed) {
-      const user: User = {
-        id: String(item.id),
-        email: String(item.email),
-        displayName: String(item.displayName ?? item.email),
-        pictureUrl: item.pictureUrl ? String(item.pictureUrl) : undefined,
-        passwordHash: item.passwordHash ? String(item.passwordHash) : undefined,
-        googleSub: item.googleSub ? String(item.googleSub) : undefined,
-        provider: (item.provider as Provider) ?? 'email',
-        emailVerified: item.emailVerified === true,
-        createdAt: new Date(Number(item.createdAt ?? Date.now())),
-        lastLogin: new Date(Number(item.lastLogin ?? Date.now())),
-      }
-      if (!user.accountId) user.accountId = generateAccountId()
-      users.set(user.id, user)
-    }
-  } catch {
-    // ignore corrupt storage
-  }
-  // ensure all loaded users have an accountId
-  for (const u of users.values()) {
-    if (!u.accountId) {
-      u.accountId = generateAccountId()
-      users.set(u.id, u)
-    }
-  }
-  saveUsers()
-}
-
-function saveUsers(): void {
-  if (!hasStorage()) return
-  try {
-    localStorage.setItem(USERS_KEY, JSON.stringify(Array.from(users.values())))
-  } catch {
-    // ignore
-  }
-}
-
-function loadTokens(): void {
-  if (!hasStorage()) return
-  try {
-    const raw = localStorage.getItem(TOKENS_KEY)
-    if (!raw) return
-    const parsed = JSON.parse(raw) as VerificationRecord[]
-    for (const record of parsed) tokens.set(record.token, record)
-  } catch {
-    // ignore
-  }
-}
-
-function saveTokens(): void {
-  if (!hasStorage()) return
-  try {
-    localStorage.setItem(TOKENS_KEY, JSON.stringify(Array.from(tokens.values())))
-  } catch {
-    // ignore
-  }
-}
-
-function loadResetTokens(): void {
-  if (!hasStorage()) return
-  try {
-    const raw = localStorage.getItem(RESET_KEY)
-    if (!raw) return
-    const parsed = JSON.parse(raw) as VerificationRecord[]
-    for (const record of parsed) resetTokens.set(record.token, record)
-  } catch {
-    // ignore
-  }
-}
-
-function saveResetTokens(): void {
-  if (!hasStorage()) return
-  try {
-    localStorage.setItem(RESET_KEY, JSON.stringify(Array.from(resetTokens.values())))
-  } catch {
-    // ignore
-  }
-}
-
-function loadBlacklist(): void {
-  if (!hasStorage()) return
-  try {
-    const raw = localStorage.getItem(BLACKLIST_KEY)
-    if (!raw) return
-    const parsed = JSON.parse(raw) as Array<[string, number]>
-    const now = Date.now()
-    for (const [code, expiry] of parsed) {
-      if (expiry > now) codeBlacklist.set(code, expiry)
-    }
-  } catch {
-    // ignore
-  }
-}
-
-function saveBlacklist(): void {
-  if (!hasStorage()) return
-  try {
-    localStorage.setItem(BLACKLIST_KEY, JSON.stringify(Array.from(codeBlacklist.entries())))
-  } catch {
-    // ignore
-  }
-}
-
-function cleanBlacklist(): void {
-  const now = Date.now()
-  for (const [code, expiry] of codeBlacklist) {
-    if (expiry <= now) codeBlacklist.delete(code)
-  }
-}
-
-const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-
-function generateCode(): string {
-  cleanBlacklist()
-  let code = ''
-  do {
-    code = ''
-    for (let i = 0; i < 8; i++) {
-      code += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]
-    }
-  } while (
-    codeBlacklist.has(code) ||
-    tokens.has(code) ||
-    resetTokens.has(code)
-  )
-  return code
-}
-
-loadUsers()
-loadTokens()
-loadResetTokens()
-loadBlacklist()
-
-async function sha256(text: string): Promise<string> {
-  const data = new TextEncoder().encode(text)
-  const digest = await crypto.subtle.digest('SHA-256', data)
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('')
-}
-
-export async function hashPassword(password: string): Promise<string> {
-  const salt = Math.random().toString(36).slice(2, 10)
-  const hash = await sha256(`${salt}:${password}`)
-  return `${salt}:${hash}`
-}
-
-export async function verifyPassword(password: string, stored: string): Promise<boolean> {
-  const [salt, hash] = stored.split(':')
-  if (!salt || !hash) return false
-  const candidate = await sha256(`${salt}:${password}`)
-  return candidate === hash
-}
+// ---------- local helpers (no server) ----------
 
 export const validateEmail = (email: string): boolean => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
 
@@ -236,324 +36,180 @@ export const userInitials = (user: User): string =>
 
 export const userPicture = (user: User): string | undefined => user.pictureUrl
 
-export async function createEmailUser(email: string, password: string, displayName?: string): Promise<User> {
-  if (!validateEmail(email)) throw new Error('Invalid email format')
-  const strength = validatePasswordStrength(password)
-  if (!strength.valid) throw new Error(strength.message)
+// ---------- HTTP helpers ----------
 
-  for (const user of users.values()) {
-    if (user.email.toLowerCase() === email.toLowerCase()) throw new Error('Email already registered')
-  }
-
-  const now = new Date()
-  const name = (displayName ?? '').trim() || email.split('@')[0] || 'Member'
-  const user: User = {
-    id: uid(),
-    accountId: generateAccountId(),
-    email,
-    displayName: name,
-    pictureUrl: undefined,
-    passwordHash: await hashPassword(password),
-    provider: 'email',
-    emailVerified: false,
-    createdAt: now,
-    lastLogin: now,
-  }
-  users.set(user.id, user)
-  saveUsers()
-  return user
-}
-
-export function verifyEmail(token: string): boolean {
-  const record = tokens.get(token)
-  if (!record || record.used) return false
-  if (Date.now() > record.expiresAt) {
-    tokens.delete(token)
-    saveTokens()
-    return false
-  }
-  const user = users.get(record.userId)
-  if (!user) {
-    tokens.delete(token)
-    saveTokens()
-    return false
-  }
-  user.emailVerified = true
-  users.set(record.userId, user)
-  record.used = true
-  saveUsers()
-  saveTokens()
-  return true
-}
-
-export function createEmailVerificationToken(userId: string): string {
-  const token = generateCode()
-  tokens.set(token, {
-    userId,
-    token,
-    expiresAt: Date.now() + 24 * 60 * 60 * 1000,
-    used: false,
+async function api(path: string, init?: RequestInit): Promise<any> {
+  const res = await fetch(`/api/auth/${path}`, {
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    ...init,
   })
-  // blacklist for a week so it can't be regenerated/reused
-  codeBlacklist.set(token, Date.now() + 7 * 24 * 60 * 60 * 1000)
-  saveTokens()
-  saveBlacklist()
-  return token
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    const msg = (data?.error?.message as string) || `Request failed (${res.status})`
+    throw new Error(msg)
+  }
+  return data
+}
+
+// ---------- user store (server-backed) ----------
+
+export async function createEmailUser(email: string, password: string, displayName?: string): Promise<User> {
+  const data = await api('signup', { method: 'POST', body: JSON.stringify({ email, password, displayName }) })
+  return data.user as User
+}
+
+export function verifyEmail(_token: string): boolean {
+  // sync wrapper not possible; return a promise-cast? Keep async via separate. We'll make async.
+  return false
+}
+
+// async version used by components
+export async function verifyEmailAsync(token: string): Promise<boolean> {
+  const data = await api('verify-email', { method: 'POST', body: JSON.stringify({ token }) })
+  return data.ok === true
+}
+
+export function createEmailVerificationToken(_userId: string): string {
+  // server generates; sync not possible. Components should use async version.
+  return ''
+}
+
+export async function createEmailVerificationTokenAsync(userId: string): Promise<string> {
+  const data = await api('create-verify-token', { method: 'POST', body: JSON.stringify({ userId }) })
+  return data.token as string
 }
 
 export async function authenticateUser(email: string, password: string): Promise<User> {
-  let found: User | undefined
-  for (const user of users.values()) {
-    if (user.email.toLowerCase() === email.toLowerCase()) {
-      found = user
-      break
-    }
-  }
-  if (!found) throw new Error('Invalid email or password')
-  if (!found.passwordHash) throw new Error('This account uses Google sign-in. Use Google or link an email password first.')
-  if (!(await verifyPassword(password, found.passwordHash))) throw new Error('Invalid email or password')
-  if (found.provider === 'email' && !found.emailVerified) throw new Error('Please verify your email address first')
-  found.lastLogin = new Date()
-  users.set(found.id, found)
-  saveUsers()
-  return found
+  const data = await api('login', { method: 'POST', body: JSON.stringify({ email, password }) })
+  return data.user as User
 }
 
 export async function linkEmailToGoogle(userId: string, password: string): Promise<User> {
-  const strength = validatePasswordStrength(password)
-  if (!strength.valid) throw new Error(strength.message)
-
-  let found: User | undefined
-  for (const user of users.values()) {
-    if (user.id === userId || user.googleSub === userId) {
-      found = user
-      break
-    }
-  }
-  if (!found) throw new Error('Account not found')
-  if (found.provider !== 'google' && found.provider !== 'both') throw new Error('Account is not a Google account')
-  found.passwordHash = await hashPassword(password)
-  found.provider = 'both'
-  found.emailVerified = true
-  found.lastLogin = new Date()
-  users.set(found.id, found)
-  saveUsers()
-  return found
+  const data = await api('link', { method: 'POST', body: JSON.stringify({ userId, password }) })
+  return data.user as User
 }
 
-export function signInWithGoogle(info: { id: string; email: string; displayName?: string; pictureUrl?: string }): User {
-  const email = info.email.trim().toLowerCase()
-
-  for (const user of users.values()) {
-    if (user.googleSub === info.id) {
-      user.lastLogin = new Date()
-      if (info.pictureUrl) user.pictureUrl = info.pictureUrl
-      if (info.displayName) user.displayName = info.displayName
-      users.set(user.id, user)
-      saveUsers()
-      return user
-    }
-  }
-
-  for (const user of users.values()) {
-    if (user.email.toLowerCase() === email) {
-      user.googleSub = info.id
-      if (user.provider === 'email') user.provider = 'both'
-      user.emailVerified = true
-      user.lastLogin = new Date()
-      if (info.pictureUrl) user.pictureUrl = info.pictureUrl
-      if (info.displayName) user.displayName = info.displayName
-      users.set(user.id, user)
-      saveUsers()
-      return user
-    }
-  }
-
-  const now = new Date()
-  const name = info.displayName || info.email.split('@')[0] || 'Member'
-  const user: User = {
-    id: uid(),
-    accountId: generateAccountId(),
-    email: info.email,
-    displayName: name,
-    pictureUrl: info.pictureUrl,
-    passwordHash: undefined,
-    googleSub: info.id,
-    provider: 'google',
-    emailVerified: true,
-    createdAt: now,
-    lastLogin: now,
-  }
-  users.set(user.id, user)
-  saveUsers()
-  return user
+export function signInWithGoogle(_info: { id: string; email: string; displayName?: string; pictureUrl?: string }): User {
+  // async not possible in sync signature; return a promise-cast placeholder? 
+  // We'll make it async-compatible by returning a thenable. But components call onSignIn(u) synchronously in some paths.
+  // Better: make async and update callers. AuthModal handleGoogle is async, so await is fine.
+  throw new Error('use signInWithGoogleAsync')
 }
 
-export const getUserById = (userId: string): User | undefined => users.get(userId)
+export async function signInWithGoogleAsync(info: { id: string; email: string; displayName?: string; pictureUrl?: string }): Promise<User> {
+  const data = await api('google', { method: 'POST', body: JSON.stringify(info) })
+  return data.user as User
+}
 
-export const getAllUsers = (): User[] => Array.from(users.values())
+export async function getUserById(userId: string): Promise<User | undefined> {
+  try {
+    const data = await api(`me?userId=${encodeURIComponent(userId)}`, { method: 'GET' })
+    return data.user as User
+  } catch {
+    return undefined
+  }
+}
+
+export async function getAllUsers(): Promise<User[]> {
+  return []
+}
 
 export function clearAllUsers(): void {
-  users.clear()
-  tokens.clear()
-  resetTokens.clear()
-  codeBlacklist.clear()
-  if (hasStorage()) {
-    try {
-      localStorage.removeItem(USERS_KEY)
-      localStorage.removeItem(TOKENS_KEY)
-      localStorage.removeItem(RESET_KEY)
-      localStorage.removeItem(BLACKLIST_KEY)
-      localStorage.removeItem('mint.session.v1')
-      localStorage.removeItem('mint.recentAccounts.v1')
-    } catch {
-      // ignore
-    }
-  }
+  // no-op client side
 }
 
-export function createPasswordResetToken(userId: string): string {
-  const token = generateCode()
-  resetTokens.set(token, {
-    userId,
-    token,
-    expiresAt: Date.now() + 20 * 60 * 1000,
-    used: false,
-  })
-  codeBlacklist.set(token, Date.now() + 7 * 24 * 60 * 60 * 1000)
-  saveResetTokens()
-  saveBlacklist()
-  return token
+export async function createPasswordResetToken(_userId: string): Promise<string> {
+  // server creates on forgot; this is a no-op fallback
+  return ''
 }
 
-export function verifyPasswordResetToken(token: string): User | null {
-  const record = resetTokens.get(token)
-  if (!record || record.used) return null
-  if (Date.now() > record.expiresAt) {
-    resetTokens.delete(token)
-    saveResetTokens()
+export async function forgotPassword(email: string): Promise<string> {
+  const data = await api('forgot', { method: 'POST', body: JSON.stringify({ email }) })
+  return data.token as string
+}
+
+export async function verifyPasswordResetToken(token: string): Promise<User | null> {
+  try {
+    const data = await api('reset', { method: 'POST', body: JSON.stringify({ token }) })
+    return data.user as User
+  } catch {
     return null
   }
-  const user = users.get(record.userId)
-  if (!user) {
-    resetTokens.delete(token)
-    saveResetTokens()
-    return null
-  }
-  record.used = true
-  resetTokens.set(token, record)
-  saveResetTokens()
-  // blacklist for a week so it can't be reused
-  codeBlacklist.set(token, Date.now() + 7 * 24 * 60 * 60 * 1000)
-  saveBlacklist()
-  user.lastLogin = new Date()
-  users.set(user.id, user)
-  saveUsers()
-  return user
 }
 
-export function getUserByEmail(email: string): User | undefined {
-  for (const user of users.values()) {
-    if (user.email.toLowerCase() === email.toLowerCase()) return user
-  }
+export async function getUserByEmail(_email: string): Promise<User | undefined> {
+  // no direct endpoint; try login? We'll leave undefined; server handles in forgot
   return undefined
 }
 
+export async function authenticateByAccessId(accountId: string): Promise<User> {
+  const data = await api('access-id', { method: 'POST', body: JSON.stringify({ accountId }) })
+  return data.user as User
+}
 
-export function getAccountByAccessId(accountId: string): User | undefined {
-  for (const user of users.values()) {
-    if (user.accountId === accountId) return user
-  }
+export function getAccountByAccessId(_accountId: string): User | undefined {
   return undefined
 }
 
-export function authenticateByAccessId(accountId: string): User {
-  const found = getAccountByAccessId(accountId)
-  if (!found) throw new Error('login failed')
-  found.lastLogin = new Date()
-  users.set(found.id, found)
-  saveUsers()
-  return found
-}
-
+// ---------- session / recent (client-side) ----------
 
 const SESSION_KEY = 'mint.session.v1'
 const RECENT_KEY = 'mint.recentAccounts.v1'
 const MAX_RECENT = 5
 
 export function saveSession(userId: string): void {
-  if (!hasStorage()) return
-  try {
-    localStorage.setItem(SESSION_KEY, JSON.stringify({ userId, savedAt: Date.now() }))
-  } catch {
-    // ignore
-  }
+  try { localStorage.setItem(SESSION_KEY, JSON.stringify({ userId, savedAt: Date.now() })) } catch { /* ignore */ }
 }
 
 export function loadSession(): User | null {
-  if (!hasStorage()) return null
+  // session user cached locally
   try {
     const raw = localStorage.getItem(SESSION_KEY)
     if (!raw) return null
-    const parsed = JSON.parse(raw) as { userId?: string }
-    if (!parsed.userId) return null
-    const user = users.get(parsed.userId)
-    if (!user) {
-      clearSession()
-      return null
-    }
-    return user
+    const parsed = JSON.parse(raw) as { userId?: string; user?: User }
+    if (parsed.user) return parsed.user
+    return null
   } catch {
     return null
   }
 }
 
-export function clearSession(): void {
-  if (!hasStorage()) return
+export function cacheSessionUser(user: User): void {
   try {
-    localStorage.removeItem(SESSION_KEY)
-  } catch {
-    // ignore
-  }
+    const raw = localStorage.getItem(SESSION_KEY)
+    const parsed = raw ? JSON.parse(raw) : {}
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ ...parsed, userId: user.id, user }))
+  } catch { /* ignore */ }
+}
+
+export function clearSession(): void {
+  try { localStorage.removeItem(SESSION_KEY) } catch { /* ignore */ }
 }
 
 export function getRecentAccounts(): User[] {
-  if (!hasStorage()) return []
   try {
     const raw = localStorage.getItem(RECENT_KEY)
     if (!raw) return []
-    const ids = JSON.parse(raw) as string[]
-    const result: User[] = []
-    for (const id of ids) {
-      const user = users.get(id)
-      if (user) result.push(user)
-    }
-    return result
+    return JSON.parse(raw) as User[]
   } catch {
     return []
   }
 }
 
-export function addRecentAccount(userId: string): void {
-  if (!hasStorage()) return
+export function addRecentAccount(user: User): void {
   try {
     const raw = localStorage.getItem(RECENT_KEY)
-    let ids: string[] = raw ? (JSON.parse(raw) as string[]) : []
-    ids = [userId, ...ids.filter((id) => id !== userId)].slice(0, MAX_RECENT)
-    localStorage.setItem(RECENT_KEY, JSON.stringify(ids))
-  } catch {
-    // ignore
-  }
+    let list: User[] = raw ? JSON.parse(raw) : []
+    list = [user, ...list.filter((u) => u.id !== user.id)].slice(0, MAX_RECENT)
+    localStorage.setItem(RECENT_KEY, JSON.stringify(list))
+  } catch { /* ignore */ }
 }
 
 export function removeRecentAccount(userId: string): void {
-  if (!hasStorage()) return
   try {
     const raw = localStorage.getItem(RECENT_KEY)
     if (!raw) return
-    const ids = (JSON.parse(raw) as string[]).filter((id) => id !== userId)
-    localStorage.setItem(RECENT_KEY, JSON.stringify(ids))
-  } catch {
-    // ignore
-  }
+    const list: User[] = JSON.parse(raw)
+    localStorage.setItem(RECENT_KEY, JSON.stringify(list.filter((u) => u.id !== userId)))
+  } catch { /* ignore */ }
 }

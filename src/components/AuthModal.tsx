@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Check, Loader2, LockKeyhole, X } from 'lucide-react'
-import { type User, signInWithGoogle } from '../lib/auth'
+import { type User, signInWithGoogleAsync } from '../lib/auth'
 
 type GoogleTokenResponse = { access_token?: string; error?: string }
 type GoogleTokenClient = { requestAccessToken: () => void }
@@ -86,7 +86,7 @@ export function AuthModal({ open, onClose, onSignIn, onUseEmail }: AuthModalProp
 
     if (!CLIENT_ID) {
       await new Promise((resolve) => setTimeout(resolve, 850))
-      const u = signInWithGoogle({
+      const u = await signInWithGoogleAsync({
         id: 'preview',
         email: 'alex.morgan@example.com',
         displayName: 'Alex Morgan',
@@ -121,7 +121,7 @@ export function AuthModal({ open, onClose, onSignIn, onUseEmail }: AuthModalProp
                 picture?: string
               }
               const name = profile.name || profile.email?.split('@')[0] || 'Member'
-              const u = signInWithGoogle({
+              const u = await signInWithGoogleAsync({
                 id: profile.sub || profile.email || 'google',
                 email: profile.email || '',
                 displayName: name,
