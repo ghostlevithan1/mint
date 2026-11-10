@@ -18,7 +18,7 @@ export async function handleAuthHttp(req: IncomingMessage, res: ServerResponse):
     if (path === 'signup' && method === 'POST') {
       const body = await readJsonBody(req)
       const user = await store.createEmailUser(str(body.email), str(body.password), str(body.displayName) || undefined)
-      const token = store.createEmailVerificationToken(user.id)
+      const token = await store.createEmailVerificationToken(user.id)
       sendJson(res, 200, { user, token })
       return
     }
@@ -34,7 +34,7 @@ export async function handleAuthHttp(req: IncomingMessage, res: ServerResponse):
     // POST /api/auth/google
     if (path === 'google' && method === 'POST') {
       const body = await readJsonBody(req)
-      const user = store.signInWithGoogle({
+      const user = await store.signInWithGoogleAsync({
         id: str(body.id),
         email: str(body.email),
         displayName: str(body.displayName) || undefined,
@@ -47,7 +47,7 @@ export async function handleAuthHttp(req: IncomingMessage, res: ServerResponse):
     // POST /api/auth/verify-email
     if (path === 'verify-email' && method === 'POST') {
       const body = await readJsonBody(req)
-      const ok = store.verifyEmail(str(body.token))
+      const ok = await store.verifyEmail(str(body.token))
       sendJson(res, 200, { ok })
       return
     }
@@ -55,7 +55,7 @@ export async function handleAuthHttp(req: IncomingMessage, res: ServerResponse):
     // POST /api/auth/create-verify-token
     if (path === 'create-verify-token' && method === 'POST') {
       const body = await readJsonBody(req)
-      const token = store.createEmailVerificationToken(str(body.userId))
+      const token = await store.createEmailVerificationToken(str(body.userId))
       sendJson(res, 200, { token })
       return
     }
@@ -63,12 +63,12 @@ export async function handleAuthHttp(req: IncomingMessage, res: ServerResponse):
     // POST /api/auth/forgot
     if (path === 'forgot' && method === 'POST') {
       const body = await readJsonBody(req)
-      const user = store.getUserByEmail(str(body.email))
+      const user = await store.getUserByEmail(str(body.email))
       if (!user) {
         sendJson(res, 404, { error: { code: 'NOT_FOUND', message: 'No account found with this email' } })
         return
       }
-      const token = store.createPasswordResetToken(user.id)
+      const token = await store.createPasswordResetToken(user.id)
       sendJson(res, 200, { token, userId: user.id })
       return
     }
@@ -76,7 +76,7 @@ export async function handleAuthHttp(req: IncomingMessage, res: ServerResponse):
     // POST /api/auth/reset
     if (path === 'reset' && method === 'POST') {
       const body = await readJsonBody(req)
-      const user = store.verifyPasswordResetToken(str(body.token))
+      const user = await store.verifyPasswordResetToken(str(body.token))
       if (!user) {
         sendJson(res, 400, { error: { code: 'INVALID', message: 'login failed' } })
         return
@@ -89,7 +89,7 @@ export async function handleAuthHttp(req: IncomingMessage, res: ServerResponse):
     if (path === 'access-id' && method === 'POST') {
       const body = await readJsonBody(req)
       try {
-        const user = store.authenticateByAccessId(str(body.accountId))
+        const user = await store.authenticateByAccessId(str(body.accountId))
         sendJson(res, 200, { user })
       } catch {
         sendJson(res, 400, { error: { code: 'INVALID', message: 'login failed' } })
@@ -108,7 +108,7 @@ export async function handleAuthHttp(req: IncomingMessage, res: ServerResponse):
     // GET /api/auth/me?userId=...
     if (path === 'me' && method === 'GET') {
       const userId = url.searchParams.get('userId') ?? ''
-      const user = store.getUserById(userId)
+      const user = await store.getUserById(userId)
       if (!user) {
         sendJson(res, 404, { error: { code: 'NOT_FOUND', message: 'User not found' } })
         return
