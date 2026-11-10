@@ -187,10 +187,10 @@ export function EmailAuthModal({ open, onClose, onSignIn, initialMode, googleUse
                     type="text"
                     value={code}
                     onChange={(e) => setCode(e.target.value)}
-                    placeholder="6-digit code"
+                    placeholder="8-character code"
                     disabled={status === 'loading'}
                     required
-                    maxLength={10}
+                    maxLength={8}
                   />
                 </div>
               </div>
@@ -314,10 +314,10 @@ export function EmailAuthModal({ open, onClose, onSignIn, initialMode, googleUse
                     type="text"
                     value={code}
                     onChange={(e) => setCode(e.target.value)}
-                    placeholder="6-digit code"
+                    placeholder="8-character code"
                     disabled={status === 'loading'}
                     required
-                    maxLength={10}
+                    maxLength={8}
                   />
                 </div>
               </div>

@@ -23,10 +23,12 @@ type VerificationRecord = {
 const USERS_KEY = 'mint.users.v1'
 const TOKENS_KEY = 'mint.verifyTokens.v1'
 const RESET_KEY = 'mint.resetTokens.v1'
+const BLACKLIST_KEY = 'mint.codeBlacklist.v1'
 
 const users = new Map<string, User>()
 const tokens = new Map<string, VerificationRecord>()
 const resetTokens = new Map<string, VerificationRecord>()
+const codeBlacklist = new Map<string, number>() // code -> expiry ms
 
 function hasStorage(): boolean {
   return typeof localStorage !== 'undefined'
@@ -114,9 +116,59 @@ function saveResetTokens(): void {
   }
 }
 
+function loadBlacklist(): void {
+  if (!hasStorage()) return
+  try {
+    const raw = localStorage.getItem(BLACKLIST_KEY)
+    if (!raw) return
+    const parsed = JSON.parse(raw) as Array<[string, number]>
+    const now = Date.now()
+    for (const [code, expiry] of parsed) {
+      if (expiry > now) codeBlacklist.set(code, expiry)
+    }
+  } catch {
+    // ignore
+  }
+}
+
+function saveBlacklist(): void {
+  if (!hasStorage()) return
+  try {
+    localStorage.setItem(BLACKLIST_KEY, JSON.stringify(Array.from(codeBlacklist.entries())))
+  } catch {
+    // ignore
+  }
+}
+
+function cleanBlacklist(): void {
+  const now = Date.now()
+  for (const [code, expiry] of codeBlacklist) {
+    if (expiry <= now) codeBlacklist.delete(code)
+  }
+}
+
+const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+
+function generateCode(): string {
+  cleanBlacklist()
+  let code = ''
+  do {
+    code = ''
+    for (let i = 0; i < 8; i++) {
+      code += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]
+    }
+  } while (
+    codeBlacklist.has(code) ||
+    tokens.has(code) ||
+    resetTokens.has(code)
+  )
+  return code
+}
+
 loadUsers()
 loadTokens()
 loadResetTokens()
+loadBlacklist()
 
 async function sha256(text: string): Promise<string> {
   const data = new TextEncoder().encode(text)
@@ -209,15 +261,17 @@ export function verifyEmail(token: string): boolean {
 }
 
 export function createEmailVerificationToken(userId: string): string {
-  let token = String(Math.floor(100000 + Math.random() * 900000))
-  while (tokens.has(token)) token = String(Math.floor(100000 + Math.random() * 900000))
+  const token = generateCode()
   tokens.set(token, {
     userId,
     token,
     expiresAt: Date.now() + 24 * 60 * 60 * 1000,
     used: false,
   })
+  // blacklist for a week so it can't be regenerated/reused
+  codeBlacklist.set(token, Date.now() + 7 * 24 * 60 * 60 * 1000)
   saveTokens()
+  saveBlacklist()
   return token
 }
 
@@ -316,11 +370,13 @@ export function clearAllUsers(): void {
   users.clear()
   tokens.clear()
   resetTokens.clear()
+  codeBlacklist.clear()
   if (hasStorage()) {
     try {
       localStorage.removeItem(USERS_KEY)
       localStorage.removeItem(TOKENS_KEY)
       localStorage.removeItem(RESET_KEY)
+      localStorage.removeItem(BLACKLIST_KEY)
       localStorage.removeItem('mint.session.v1')
       localStorage.removeItem('mint.recentAccounts.v1')
     } catch {
@@ -330,15 +386,16 @@ export function clearAllUsers(): void {
 }
 
 export function createPasswordResetToken(userId: string): string {
-  let token = String(Math.floor(100000 + Math.random() * 900000))
-  while (resetTokens.has(token)) token = String(Math.floor(100000 + Math.random() * 900000))
+  const token = generateCode()
   resetTokens.set(token, {
     userId,
     token,
-    expiresAt: Date.now() + 10 * 60 * 1000,
+    expiresAt: Date.now() + 20 * 60 * 1000,
     used: false,
   })
+  codeBlacklist.set(token, Date.now() + 7 * 24 * 60 * 60 * 1000)
   saveResetTokens()
+  saveBlacklist()
   return token
 }
 
@@ -359,6 +416,9 @@ export function verifyPasswordResetToken(token: string): User | null {
   record.used = true
   resetTokens.set(token, record)
   saveResetTokens()
+  // blacklist for a week so it can't be reused
+  codeBlacklist.set(token, Date.now() + 7 * 24 * 60 * 60 * 1000)
+  saveBlacklist()
   user.lastLogin = new Date()
   users.set(user.id, user)
   saveUsers()
