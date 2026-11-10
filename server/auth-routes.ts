@@ -2,11 +2,47 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { sendJson, readJsonBody } from './node-http'
 import * as store from './auth-store'
 
+// Simple in-memory rate limiter (per IP)
+const rateLimits = new Map<string, { count: number; resetAt: number }>()
+const RATE_LIMIT = 20
+const RATE_WINDOW_MS = 15 * 60 * 1000
+
+function getClientIp(req: IncomingMessage): string {
+  const fwd = req.headers['x-forwarded-for']
+  if (typeof fwd === 'string') return fwd.split(',')[0].trim()
+  return req.socket.remoteAddress ?? 'unknown'
+}
+
+function checkRateLimit(req: IncomingMessage, res: ServerResponse): boolean {
+  const ip = getClientIp(req)
+  const now = Date.now()
+  const entry = rateLimits.get(ip)
+  if (!entry || now > entry.resetAt) {
+    rateLimits.set(ip, { count: 1, resetAt: now + RATE_WINDOW_MS })
+    return true
+  }
+  if (entry.count >= RATE_LIMIT) {
+    const retryAfter = Math.ceil((entry.resetAt - now) / 1000)
+    res.setHeader('Retry-After', String(retryAfter))
+    sendJson(res, 429, { error: { code: 'RATE_LIMITED', message: 'Too many requests. Try again later.' } })
+    return false
+  }
+  entry.count++
+  return true
+}
+
 function str(v: unknown): string {
   return typeof v === 'string' ? v : ''
 }
 
+function sanitize(user: any): any {
+  if (!user) return user
+  const { passwordHash, ...rest } = user
+  return rest
+}
+
 export async function handleAuthHttp(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  if (!checkRateLimit(req, res)) return
   const url = new URL(req.url ?? '/', 'http://localhost')
   const path = url.pathname.replace(/^\/api\/auth\/?/, '')
   const method = req.method ?? 'GET'
@@ -19,7 +55,7 @@ export async function handleAuthHttp(req: IncomingMessage, res: ServerResponse):
       const body = await readJsonBody(req)
       const user = await store.createEmailUser(str(body.email), str(body.password), str(body.displayName) || undefined)
       const token = await store.createEmailVerificationToken(user.id)
-      sendJson(res, 200, { user, token })
+      sendJson(res, 200, { user: sanitize(user), token })
       return
     }
 
@@ -27,7 +63,7 @@ export async function handleAuthHttp(req: IncomingMessage, res: ServerResponse):
     if (path === 'login' && method === 'POST') {
       const body = await readJsonBody(req)
       const user = await store.authenticateUser(str(body.email), str(body.password))
-      sendJson(res, 200, { user })
+      sendJson(res, 200, { user: sanitize(user) })
       return
     }
 
@@ -40,7 +76,7 @@ export async function handleAuthHttp(req: IncomingMessage, res: ServerResponse):
         displayName: str(body.displayName) || undefined,
         pictureUrl: str(body.pictureUrl) || undefined,
       })
-      sendJson(res, 200, { user })
+      sendJson(res, 200, { user: sanitize(user) })
       return
     }
 
@@ -81,7 +117,7 @@ export async function handleAuthHttp(req: IncomingMessage, res: ServerResponse):
         sendJson(res, 400, { error: { code: 'INVALID', message: 'login failed' } })
         return
       }
-      sendJson(res, 200, { user })
+      sendJson(res, 200, { user: sanitize(user) })
       return
     }
 
@@ -90,7 +126,7 @@ export async function handleAuthHttp(req: IncomingMessage, res: ServerResponse):
       const body = await readJsonBody(req)
       try {
         const user = await store.authenticateByAccessId(str(body.accountId))
-        sendJson(res, 200, { user })
+        sendJson(res, 200, { user: sanitize(user) })
       } catch {
         sendJson(res, 400, { error: { code: 'INVALID', message: 'login failed' } })
       }
@@ -101,7 +137,7 @@ export async function handleAuthHttp(req: IncomingMessage, res: ServerResponse):
     if (path === 'link' && method === 'POST') {
       const body = await readJsonBody(req)
       const user = await store.linkEmailToGoogle(str(body.userId), str(body.password))
-      sendJson(res, 200, { user })
+      sendJson(res, 200, { user: sanitize(user) })
       return
     }
 
@@ -113,7 +149,7 @@ export async function handleAuthHttp(req: IncomingMessage, res: ServerResponse):
         sendJson(res, 404, { error: { code: 'NOT_FOUND', message: 'User not found' } })
         return
       }
-      sendJson(res, 200, { user })
+      sendJson(res, 200, { user: sanitize(user) })
       return
     }
 

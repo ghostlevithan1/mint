@@ -1,5 +1,6 @@
 import { Pool } from 'pg'
-import { randomUUID, createHash } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
+import bcrypt from 'bcryptjs'
 
 export type Provider = 'email' | 'google' | 'both'
 
@@ -37,17 +38,12 @@ function uid(): string {
   return randomUUID()
 }
 
-function hashPassword(password: string): string {
-  const salt = Math.random().toString(36).slice(2, 10)
-  const hash = createHash('sha256').update(`${salt}:${password}`).digest('hex')
-  return `${salt}:${hash}`
+async function hashPassword(password: string): Promise<string> {
+  return bcrypt.hash(password, 10)
 }
 
-function verifyPassword(password: string, stored: string): boolean {
-  const [salt, hash] = stored.split(':')
-  if (!salt || !hash) return false
-  const candidate = createHash('sha256').update(`${salt}:${password}`).digest('hex')
-  return candidate === hash
+async function verifyPassword(password: string, stored: string): Promise<boolean> {
+  return bcrypt.compare(password, stored)
 }
 
 function validateEmail(email: string): boolean {
@@ -172,7 +168,7 @@ export async function createEmailUser(email: string, password: string, displayNa
   await getPool().query(
     `INSERT INTO users (id, account_id, email, display_name, password_hash, provider, email_verified, created_at, last_login)
      VALUES ($1,$2,$3,$4,$5,'email',FALSE,$6,$7)`,
-    [id, accountId, email, name, hashPassword(password), now, now]
+    [id, accountId, email, name, await hashPassword(password), now, now]
   )
   return { id, accountId, email, displayName: name, passwordHash: undefined, provider: 'email', emailVerified: false, createdAt: now, lastLogin: now }
 }
@@ -210,17 +206,46 @@ export async function createEmailVerificationToken(userId: string): Promise<stri
   return token
 }
 
+const failedAttempts = new Map<string, { count: number; lockedUntil: number }>()
+
 export async function authenticateUser(email: string, password: string): Promise<User> {
   await ensureLoaded()
+  const lock = failedAttempts.get(email.toLowerCase())
+  if (lock && lock.lockedUntil > Date.now()) {
+    throw new Error('Account temporarily locked. Try again later.')
+  }
   const { rows } = await getPool().query('SELECT * FROM users WHERE LOWER(email) = LOWER($1)', [email])
-  if (!rows.length) throw new Error('Invalid email or password')
+  if (!rows.length) {
+    recordFailure(email)
+    throw new Error('Invalid email or password')
+  }
   const u = rowToUser(rows[0])
-  if (!u.passwordHash) throw new Error('This account uses Google sign-in. Use Google or link an email password first.')
-  if (!verifyPassword(password, u.passwordHash)) throw new Error('Invalid email or password')
-  if (u.provider === 'email' && !u.emailVerified) throw new Error('Please verify your email address first')
+  if (!u.passwordHash) {
+    recordFailure(email)
+    throw new Error('This account uses Google sign-in. Use Google or link an email password first.')
+  }
+  if (!(await verifyPassword(password, u.passwordHash))) {
+    recordFailure(email)
+    throw new Error('Invalid email or password')
+  }
+  if (u.provider === 'email' && !u.emailVerified) {
+    throw new Error('Please verify your email address first')
+  }
+  failedAttempts.delete(email.toLowerCase())
   await getPool().query('UPDATE users SET last_login = $1 WHERE id = $2', [Date.now(), u.id])
   u.lastLogin = Date.now()
   return u
+}
+
+function recordFailure(email: string): void {
+  const key = email.toLowerCase()
+  const entry = failedAttempts.get(key) ?? { count: 0, lockedUntil: 0 }
+  entry.count++
+  if (entry.count >= 5) {
+    entry.lockedUntil = Date.now() + 15 * 60 * 1000
+    entry.count = 0
+  }
+  failedAttempts.set(key, entry)
 }
 
 export async function linkEmailToGoogle(userId: string, password: string): Promise<User> {
@@ -234,7 +259,7 @@ export async function linkEmailToGoogle(userId: string, password: string): Promi
   }
   if (!u) throw new Error('Account not found')
   if (u.provider !== 'google' && u.provider !== 'both') throw new Error('Account is not a Google account')
-  const newHash = hashPassword(password)
+  const newHash = await hashPassword(password)
   await getPool().query('UPDATE users SET password_hash = $1, provider = $2, email_verified = TRUE, last_login = $3 WHERE id = $4', [newHash, 'both', Date.now(), u.id])
   u.passwordHash = newHash
   u.provider = 'both'
