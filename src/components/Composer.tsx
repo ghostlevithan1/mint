@@ -1,0 +1,212 @@
+import { useEffect, useRef } from 'react'
+import type { ChangeEvent, MutableRefObject } from 'react'
+import {
+  ArrowUp,
+  FileCode2,
+  FileSpreadsheet,
+  FileText,
+  Image as ImageIcon,
+  Loader2,
+  Paperclip,
+  ShieldCheck,
+  Square,
+  X,
+} from 'lucide-react'
+import type { Attachment } from '../lib/files'
+import type { ProviderStatus } from '../lib/provider'
+import { estimateTokens, formatBytes } from '../lib/privacy'
+
+type ComposerProps = {
+  text: string
+  onTextChange: (value: string) => void
+  attachments: Attachment[]
+  uploadError: string
+  reading: boolean
+  isGenerating: boolean
+  provider: ProviderStatus
+  shieldOn: boolean
+  textareaRef: MutableRefObject<HTMLTextAreaElement | null>
+  onToggleShield: () => void
+  onAttachFiles: (files: FileList | File[]) => void
+  onRemoveFile: (id: string) => void
+  onSend: () => void
+  onStop: () => void
+}
+
+function FileGlyph({ kind }: { kind: Attachment['kind'] }) {
+  if (kind === 'image') return <ImageIcon size={13} />
+  if (kind === 'sheet') return <FileSpreadsheet size={13} />
+  if (kind === 'code') return <FileCode2 size={13} />
+  return <FileText size={13} />
+}
+
+export function Composer({
+  text,
+  onTextChange,
+  attachments,
+  uploadError,
+  reading,
+  isGenerating,
+  provider,
+  shieldOn,
+  textareaRef,
+  onToggleShield,
+  onAttachFiles,
+  onRemoveFile,
+  onSend,
+  onStop,
+}: ComposerProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const tokens = estimateTokens(`${text}\n${attachments.map((file) => file.text).join('\n')}`)
+  const canSend = (text.trim().length > 0 || attachments.length > 0) && !reading && !isGenerating
+
+  useEffect(() => {
+    const el = textareaRef.current
+    if (!el) return
+    el.style.height = '0px'
+    el.style.height = `${Math.min(200, Math.max(28, el.scrollHeight))}px`
+  }, [text, textareaRef])
+
+  const handleFileInput = (event: ChangeEvent<HTMLInputElement>) => {
+    if (event.target.files) onAttachFiles(event.target.files)
+    event.target.value = ''
+  }
+
+  const submit = () => {
+    if (!canSend) return
+    onSend()
+  }
+
+  return (
+    <div className="composer-wrap">
+      <div className={`composer ${isGenerating ? 'is-busy' : ''}`}>
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          hidden
+          onChange={handleFileInput}
+          disabled={isGenerating}
+        />
+
+        {attachments.length > 0 && (
+          <div className="composer-files">
+            {attachments.map((file) => (
+              <span className="composer-file" key={file.id}>
+                <span className={`composer-file-glyph ${file.kind}`}>
+                  <FileGlyph kind={file.kind} />
+                </span>
+                <span className="composer-file-copy">
+                  <strong>{file.name}</strong>
+                  <small>
+                    {formatBytes(file.size)} · {file.text ? 'read locally' : 'held locally'}
+                  </small>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onRemoveFile(file.id)}
+                  aria-label={`Remove ${file.name}`}
+                  disabled={isGenerating}
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
+        {uploadError && (
+          <p className="composer-error" role="alert">
+            {uploadError}
+          </p>
+        )}
+
+        <textarea
+          ref={textareaRef}
+          value={text}
+          onChange={(event) => onTextChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+              event.preventDefault()
+              submit()
+            }
+          }}
+          placeholder="Message Mint…"
+          aria-label="Message"
+          rows={1}
+          maxLength={8000}
+          spellCheck
+        />
+
+        <div className="composer-toolbar">
+          <div className="composer-tools">
+            <button
+              type="button"
+              className="composer-tool"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isGenerating || reading}
+              aria-label="Attach files, up to 25 megabytes each"
+              title="Attach files"
+            >
+              {reading ? <Loader2 size={15} className="spin" /> : <Paperclip size={15} />}
+            </button>
+            <button
+              type="button"
+              className={`composer-shield ${shieldOn ? 'is-on' : 'is-off'}`}
+              onClick={onToggleShield}
+              aria-pressed={shieldOn}
+              title="Toggle the on-device PII shield"
+            >
+              <ShieldCheck size={14} />
+              Shield {shieldOn ? 'on' : 'off'}
+            </button>
+            <span className="composer-limit">
+              {attachments.length}/5 files · 25 MB max
+            </span>
+          </div>
+
+          <div className="composer-submit-group">
+            {tokens > 0 && (
+              <span className="composer-tokens">{tokens.toLocaleString()} tokens</span>
+            )}
+            {text.length > 7000 && <span className="composer-chars">{text.length}/8,000</span>}
+            {isGenerating ? (
+              <button type="button" className="send-button stop" onClick={onStop} aria-label="Stop generating">
+                <Square size={14} fill="currentColor" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="send-button"
+                onClick={submit}
+                disabled={!canSend}
+                aria-label="Send message"
+              >
+                <ArrowUp size={17} />
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="composer-note">
+        <span className={shieldOn ? undefined : 'is-off'}>
+          <ShieldCheck size={11} />
+          {shieldOn ? 'Names are shielded on this device' : 'Shield off — text is sent as written'}
+        </span>
+        <span className="composer-note-sep" />
+        <span
+          className={`composer-provider ${provider.mode === 'nvidia' ? 'is-live' : ''}`}
+          title={provider.detail}
+        >
+          <span className="provider-dot" aria-hidden="true" />
+          {!provider.checked
+            ? 'Checking inference…'
+            : provider.mode === 'nvidia'
+              ? 'NVIDIA NIM · live'
+              : 'Local demo · add key for live'}
+        </span>
+      </div>
+    </div>
+  )
+}

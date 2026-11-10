@@ -1,0 +1,17 @@
+# Dependencies and build output
+node_modules/
+dist/
+
+# Local secrets — never commit these
+key
+key.env
+key.*
+.env
+.env.local
+.env.*.local
+
+# Editor and OS noise
+.DS_Store
+Thumbs.db
+*.log
+*.tsbuildinfo
