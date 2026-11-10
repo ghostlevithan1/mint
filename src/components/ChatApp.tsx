@@ -5,7 +5,7 @@ import { redactText } from '../lib/privacy'
 import { useConversations } from '../hooks/useConversations'
 import { useProviderStatus } from '../hooks/useProviderStatus'
 import type { Attachment } from '../lib/files'
-import type { User } from './AuthModal'
+import type { User } from '../lib/auth'
 import { Sidebar } from './Sidebar'
 import { ChatView } from './ChatView'
 import { SettingsModal, type SettingsTab } from './SettingsModal'
@@ -15,9 +15,10 @@ type ChatAppProps = {
   user: User | null
   onSignInRequest: () => void
   onSignOut: () => void
+  onOpenEmailAuth: (mode: 'login' | 'signup' | 'link') => void
 }
 
-export function ChatApp({ user, onSignInRequest, onSignOut }: ChatAppProps) {
+export function ChatApp({ user, onSignInRequest, onSignOut, onOpenEmailAuth }: ChatAppProps) {
   const {
     chats,
     activeChat,
@@ -125,6 +126,7 @@ export function ChatApp({ user, onSignInRequest, onSignOut }: ChatAppProps) {
         onOpenSettings={openSettings}
         onSignIn={handleSignIn}
         onSignOut={onSignOut}
+        onOpenEmailAuth={onOpenEmailAuth}
       />
 
       <ChatView
@@ -172,6 +174,7 @@ export function ChatApp({ user, onSignInRequest, onSignOut }: ChatAppProps) {
           setSettingsOpen(false)
           onSignOut()
         }}
+        onOpenEmailAuth={onOpenEmailAuth}
       />
 
       <PayloadModal

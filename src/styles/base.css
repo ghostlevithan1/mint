@@ -33,6 +33,77 @@
   --radius: 12px;
   --radius-lg: 16px;
   --sidebar-width: 272px;
+
+  --danger: #ff6b5e;
+}
+
+[data-theme='light'] {
+  color: #141a14;
+  background: #eef2ea;
+
+  --bg: #f2f5ee;
+  --bg-alt: #e9efe5;
+  --panel: #f7faf4;
+  --panel-raised: #ffffff;
+  --panel-soft: #ecf2e8;
+  --sidebar: #e6ecdf;
+  --line: rgba(20, 40, 20, 0.12);
+  --line-strong: rgba(20, 40, 20, 0.22);
+  --line-soft: rgba(20, 40, 20, 0.07);
+  --text: #141a14;
+  --text-soft: #37412f;
+  --muted: #5f6b58;
+  --dim: #828d7b;
+  --green: #5f9c0e;
+  --green-bright: #4d8c0a;
+  --green-deep: #3f7809;
+  --green-dark: #4f7f0a;
+  --green-soft: rgba(95, 156, 14, 0.1);
+  --green-line: rgba(95, 156, 14, 0.35);
+  --amber: #b8760e;
+  --amber-soft: rgba(184, 118, 14, 0.1);
+  --red: #d6453a;
+  --danger: #d6453a;
+
+  --green: #5f9c0e;
+  --green-bright: #4d8c0a;
+}
+
+[data-theme='light'] body,
+[data-theme='light'] .app,
+[data-theme='light'] .chat-app {
+  background: var(--bg);
+  color: var(--text);
+}
+
+[data-theme='light'] .auth-modal {
+  background:
+    radial-gradient(400px 200px at 50% 0%, rgba(95, 156, 14, 0.08), transparent 70%),
+    #f7faf4;
+  box-shadow: 0 40px 100px rgba(30, 45, 30, 0.28);
+}
+
+[data-theme='light'] .google-button {
+  border-color: #d5dcc9;
+  background: #ffffff;
+  color: #141a14;
+}
+
+[data-theme='light'] .google-button:hover:not(:disabled) {
+  background: #f2f5ee;
+}
+
+[data-theme='light'] .auth-error {
+  background: rgba(214, 69, 58, 0.08);
+  border-color: rgba(214, 69, 58, 0.25);
+  color: #b03228;
+}
+
+[data-theme='light'] .settings-modal,
+[data-theme='light'] .payload-modal,
+[data-theme='light'] .model-switch-modal {
+  background: #f7faf4;
+  box-shadow: 0 40px 110px rgba(30, 45, 30, 0.25);
 }
 
 * {

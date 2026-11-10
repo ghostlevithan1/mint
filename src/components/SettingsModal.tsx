@@ -7,6 +7,7 @@ import {
   Info,
   LockKeyhole,
   LogOut,
+  Mail,
   RefreshCw,
   ScanSearch,
   ShieldCheck,
@@ -17,7 +18,8 @@ import {
 } from 'lucide-react'
 import { MODEL_TYPES, MODELS, modelsByType, typeInfo } from '../lib/data'
 import type { ProviderStatus } from '../lib/provider'
-import type { User } from './AuthModal'
+import type { User } from '../lib/auth'
+import { userDisplayName, userInitials, userPicture } from '../lib/auth'
 
 export type SettingsTab = 'general' | 'privacy' | 'account' | 'about'
 
@@ -39,6 +41,7 @@ type SettingsModalProps = {
   onRefreshProvider: () => void
   onSignIn: () => void
   onSignOut: () => void
+  onOpenEmailAuth?: (mode: 'login' | 'signup' | 'link') => void
 }
 
 const TABS: Array<{ id: SettingsTab; label: string; icon: typeof Info }> = [
@@ -89,6 +92,7 @@ export function SettingsModal({
   onRefreshProvider,
   onSignIn,
   onSignOut,
+  onOpenEmailAuth,
 }: SettingsModalProps) {
   const [tab, setTab] = useState<SettingsTab>(initialTab)
   const panelRef = useRef<HTMLDivElement>(null)
@@ -367,23 +371,21 @@ export function SettingsModal({
               {user ? (
                 <>
                   <div className="account-card">
-                    {user.picture ? (
+                    {userPicture(user) ? (
                       <img
-                        src={user.picture}
+                        src={userPicture(user)}
                         alt=""
                         className="avatar account-card-avatar"
                         referrerPolicy="no-referrer"
                       />
                     ) : (
-                      <span className="avatar avatar-fallback account-card-avatar">
-                        {user.initials}
-                      </span>
+                      <span className="avatar avatar-fallback account-card-avatar">{userInitials(user)}</span>
                     )}
                     <div className="account-card-copy">
-                      <strong>{user.name}</strong>
+                      <strong>{userDisplayName(user)}</strong>
                       <span>{user.email}</span>
                       <small>
-                        <Check size={11} /> Signed in with Google
+                        <Check size={11} /> Signed in with {user.provider === 'both' ? 'Google & Email' : user.provider === 'email' ? 'Email' : 'Google'}
                       </small>
                     </div>
                   </div>
@@ -405,6 +407,14 @@ export function SettingsModal({
                       <strong>Not sold</strong>
                     </div>
                   </div>
+
+                  {user.provider === 'google' && onOpenEmailAuth && (
+                    <button className="settings-action" onClick={() => onOpenEmailAuth('link')}>
+                      <Mail size={15} /> Link email account
+                    </button>
+                  )}
+
+
 
                   <button className="settings-action danger" onClick={onSignOut}>
                     <LogOut size={15} /> Sign out
@@ -442,6 +452,11 @@ export function SettingsModal({
                     </span>
                     Sign in with Google
                   </button>
+                  {onOpenEmailAuth && (
+                    <button className="settings-action" onClick={() => onOpenEmailAuth('login')} style={{ marginTop: 8 }}>
+                      <Mail size={15} /> Continue with email
+                    </button>
+                  )}
                 </>
               )}
             </div>

@@ -4,6 +4,7 @@ import {
   ChevronsUpDown,
   LockKeyhole,
   LogOut,
+  Mail,
   MessageSquare,
   PanelLeftClose,
   Plus,
@@ -16,7 +17,8 @@ import {
 } from 'lucide-react'
 import { Logo } from './Logo'
 import type { Conversation } from '../lib/chat'
-import type { User } from './AuthModal'
+import type { User } from '../lib/auth'
+import { userDisplayName, userInitials, userPicture } from '../lib/auth'
 
 type SidebarProps = {
   chats: Conversation[]
@@ -30,6 +32,7 @@ type SidebarProps = {
   onSelectChat: (id: string) => void
   onDeleteChat: (id: string) => void
   onOpenSettings: (tab: 'general' | 'privacy' | 'account' | 'about') => void
+  onOpenEmailAuth?: (mode: 'login' | 'signup' | 'link') => void
   onSignIn: () => void
   onSignOut: () => void
 }
@@ -50,6 +53,7 @@ export function Sidebar({
   onSelectChat,
   onDeleteChat,
   onOpenSettings,
+  onOpenEmailAuth,
   onSignIn,
   onSignOut,
 }: SidebarProps) {
@@ -194,26 +198,26 @@ export function Sidebar({
                   aria-expanded={accountOpen}
                   aria-haspopup="menu"
                 >
-                  {user.picture ? (
+                  {userPicture(user) ? (
                     <img
-                      src={user.picture}
+                      src={userPicture(user)}
                       alt=""
                       className="avatar"
                       referrerPolicy="no-referrer"
                     />
                   ) : (
-                    <span className="avatar avatar-fallback">{user.initials}</span>
+                    <span className="avatar avatar-fallback">{userInitials(user)}</span>
                   )}
                   <span className="account-copy">
-                    <strong>{user.name}</strong>
-                    <small>Signed in with Google</small>
+                    <strong>{userDisplayName(user)}</strong>
+                    <small>{user.provider === 'email' ? 'Signed in with Email' : user.provider === 'both' ? 'Signed in with Google & Email' : 'Signed in with Google'}</small>
                   </span>
                   <ChevronsUpDown size={14} className="account-chevron" />
                 </button>
                 {accountOpen && (
                   <div className="account-menu" role="menu">
                     <div className="account-menu-id">
-                      <strong>{user.name}</strong>
+                      <strong>{userDisplayName(user)}</strong>
                       <span>{user.email}</span>
                     </div>
                     <button role="menuitem" onClick={() => openSettings('general')}>
@@ -222,6 +226,17 @@ export function Sidebar({
                     <button role="menuitem" onClick={() => openSettings('privacy')}>
                       <ShieldCheck size={15} /> Privacy &amp; shield
                     </button>
+                    {user.provider === 'google' && (
+                      <button
+                        role="menuitem"
+                        onClick={() => {
+                          setAccountOpen(false)
+                          onOpenEmailAuth?.('link')
+                        }}
+                      >
+                        <Mail size={15} /> Link email account
+                      </button>
+                    )}
                     <button
                       role="menuitem"
                       className="account-signout"
@@ -236,16 +251,26 @@ export function Sidebar({
                 )}
               </>
             ) : (
-              <button className="account-row guest" onClick={onSignIn}>
-                <span className="avatar avatar-guest">
-                  <UserRound size={16} />
-                </span>
-                <span className="account-copy">
-                  <strong>Sign in</strong>
-                  <small>Optional · Google</small>
-                </span>
-                <ChevronRight size={14} className="account-chevron" />
-              </button>
+              <div className="account-guest-row">
+                <button className="account-row guest" onClick={onSignIn}>
+                  <span className="avatar avatar-guest">
+                    <UserRound size={16} />
+                  </span>
+                  <span className="account-copy">
+                    <strong>Sign in</strong>
+                    <small>Optional · Google</small>
+                  </span>
+                  <ChevronRight size={14} className="account-chevron" />
+                </button>
+                <button
+                  className="icon-button account-email-button"
+                  onClick={() => onOpenEmailAuth?.('login')}
+                  title="Sign in with email"
+                  aria-label="Sign in with email"
+                >
+                  <Mail size={15} />
+                </button>
+              </div>
             )}
           </div>
 

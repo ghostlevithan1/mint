@@ -28,6 +28,7 @@ import { ChatMessageView } from './ChatMessage'
 import { Composer } from './Composer'
 import { ModelMenu } from './ModelMenu'
 import { ModelSwitchModal } from './ModelSwitchModal'
+import { ThemeToggle } from './ThemeToggle'
 
 type ChatViewProps = {
   chat: Conversation
@@ -240,6 +241,7 @@ export function ChatView({
           <span className="topbar-title">{isEmpty ? 'New chat' : chat.title}</span>
         </div>
         <div className="topbar-right">
+          <ThemeToggle />
           <button
             className={`topbar-shield ${shieldOn ? 'is-on' : 'is-off'}`}
             onClick={() => onOpenSettings('privacy')}

@@ -1,12 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Check, Loader2, LockKeyhole, X } from 'lucide-react'
-
-export type User = {
-  name: string
-  email: string
-  initials: string
-  picture?: string
-}
+import { type User, signInWithGoogle } from '../lib/auth'
 
 type GoogleTokenResponse = { access_token?: string; error?: string }
 type GoogleTokenClient = { requestAccessToken: () => void }
@@ -57,9 +51,10 @@ type AuthModalProps = {
   open: boolean
   onClose: () => void
   onSignIn: (user: User) => void
+  onUseEmail?: (mode: 'login' | 'signup') => void
 }
 
-export function AuthModal({ open, onClose, onSignIn }: AuthModalProps) {
+export function AuthModal({ open, onClose, onSignIn, onUseEmail }: AuthModalProps) {
   const [status, setStatus] = useState<'idle' | 'connecting' | 'error'>('idle')
   const [message, setMessage] = useState('')
   const tokenClient = useRef<GoogleTokenClient | null>(null)
@@ -90,14 +85,13 @@ export function AuthModal({ open, onClose, onSignIn }: AuthModalProps) {
     setMessage('')
 
     if (!CLIENT_ID) {
-      // Preview builds have no OAuth client connected. This creates an in-memory
-      // session only; nothing is persisted and no account request is made.
       await new Promise((resolve) => setTimeout(resolve, 850))
-      onSignIn({
-        name: 'Alex Morgan',
+      const u = signInWithGoogle({
+        id: 'preview',
         email: 'alex.morgan@example.com',
-        initials: 'AM',
+        displayName: 'Alex Morgan',
       })
+      onSignIn(u)
       onClose()
       return
     }
@@ -121,22 +115,19 @@ export function AuthModal({ open, onClose, onSignIn }: AuthModalProps) {
               })
               if (!profileResponse.ok) throw new Error('Could not read your Google profile.')
               const profile = (await profileResponse.json()) as {
+                sub?: string
                 name?: string
                 email?: string
                 picture?: string
               }
               const name = profile.name || profile.email?.split('@')[0] || 'Member'
-              onSignIn({
-                name,
+              const u = signInWithGoogle({
+                id: profile.sub || profile.email || 'google',
                 email: profile.email || '',
-                initials: name
-                  .split(/\s+/)
-                  .map((part) => part[0])
-                  .slice(0, 2)
-                  .join('')
-                  .toUpperCase(),
-                picture: profile.picture,
+                displayName: name,
+                pictureUrl: profile.picture,
               })
+              onSignIn(u)
               onClose()
             } catch (error) {
               setStatus('error')
@@ -221,6 +212,17 @@ export function AuthModal({ open, onClose, onSignIn }: AuthModalProps) {
           </p>
         )}
         {status === 'error' && <p className="auth-error">{message}</p>}
+
+        {onUseEmail && (
+          <button
+            type="button"
+            className="auth-switch link-button"
+            onClick={() => onUseEmail('login')}
+            style={{ marginTop: 12, width: '100%' }}
+          >
+            Continue with email instead
+          </button>
+        )}
 
         <div className="auth-trust">
           <span>
