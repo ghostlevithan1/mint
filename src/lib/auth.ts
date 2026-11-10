@@ -22,9 +22,11 @@ type VerificationRecord = {
 
 const USERS_KEY = 'mint.users.v1'
 const TOKENS_KEY = 'mint.verifyTokens.v1'
+const RESET_KEY = 'mint.resetTokens.v1'
 
 const users = new Map<string, User>()
 const tokens = new Map<string, VerificationRecord>()
+const resetTokens = new Map<string, VerificationRecord>()
 
 function hasStorage(): boolean {
   return typeof localStorage !== 'undefined'
@@ -91,8 +93,30 @@ function saveTokens(): void {
   }
 }
 
+function loadResetTokens(): void {
+  if (!hasStorage()) return
+  try {
+    const raw = localStorage.getItem(RESET_KEY)
+    if (!raw) return
+    const parsed = JSON.parse(raw) as VerificationRecord[]
+    for (const record of parsed) resetTokens.set(record.token, record)
+  } catch {
+    // ignore
+  }
+}
+
+function saveResetTokens(): void {
+  if (!hasStorage()) return
+  try {
+    localStorage.setItem(RESET_KEY, JSON.stringify(Array.from(resetTokens.values())))
+  } catch {
+    // ignore
+  }
+}
+
 loadUsers()
 loadTokens()
+loadResetTokens()
 
 async function sha256(text: string): Promise<string> {
   const data = new TextEncoder().encode(text)
@@ -291,10 +315,12 @@ export const getAllUsers = (): User[] => Array.from(users.values())
 export function clearAllUsers(): void {
   users.clear()
   tokens.clear()
+  resetTokens.clear()
   if (hasStorage()) {
     try {
       localStorage.removeItem(USERS_KEY)
       localStorage.removeItem(TOKENS_KEY)
+      localStorage.removeItem(RESET_KEY)
       localStorage.removeItem('mint.session.v1')
       localStorage.removeItem('mint.recentAccounts.v1')
     } catch {
@@ -303,6 +329,48 @@ export function clearAllUsers(): void {
   }
 }
 
+export function createPasswordResetToken(userId: string): string {
+  let token = String(Math.floor(100000 + Math.random() * 900000))
+  while (resetTokens.has(token)) token = String(Math.floor(100000 + Math.random() * 900000))
+  resetTokens.set(token, {
+    userId,
+    token,
+    expiresAt: Date.now() + 10 * 60 * 1000,
+    used: false,
+  })
+  saveResetTokens()
+  return token
+}
+
+export function verifyPasswordResetToken(token: string): User | null {
+  const record = resetTokens.get(token)
+  if (!record || record.used) return null
+  if (Date.now() > record.expiresAt) {
+    resetTokens.delete(token)
+    saveResetTokens()
+    return null
+  }
+  const user = users.get(record.userId)
+  if (!user) {
+    resetTokens.delete(token)
+    saveResetTokens()
+    return null
+  }
+  record.used = true
+  resetTokens.set(token, record)
+  saveResetTokens()
+  user.lastLogin = new Date()
+  users.set(user.id, user)
+  saveUsers()
+  return user
+}
+
+export function getUserByEmail(email: string): User | undefined {
+  for (const user of users.values()) {
+    if (user.email.toLowerCase() === email.toLowerCase()) return user
+  }
+  return undefined
+}
 
 const SESSION_KEY = 'mint.session.v1'
 const RECENT_KEY = 'mint.recentAccounts.v1'

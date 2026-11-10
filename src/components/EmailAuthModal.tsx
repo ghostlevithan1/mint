@@ -8,9 +8,12 @@ import {
   verifyEmail,
   linkEmailToGoogle,
   validateEmail,
+  createPasswordResetToken,
+  verifyPasswordResetToken,
+  getUserByEmail,
 } from '../lib/auth'
 
-type AuthMode = 'login' | 'signup' | 'verify' | 'link'
+type AuthMode = 'login' | 'signup' | 'verify' | 'link' | 'forgot' | 'reset'
 
 interface EmailAuthModalProps {
   open: boolean
@@ -32,6 +35,7 @@ export function EmailAuthModal({ open, onClose, onSignIn, initialMode, googleUse
   const [message, setMessage] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [devCode, setDevCode] = useState<string | null>(null)
+  const [resetDevCode, setResetDevCode] = useState<string | null>(null)
   const emailRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -47,12 +51,15 @@ export function EmailAuthModal({ open, onClose, onSignIn, initialMode, googleUse
       setMessage('')
       setShowPassword(false)
       setDevCode(null)
+      setResetDevCode(null)
     }
   }, [open, initialMode, googleUser])
 
   useEffect(() => {
     if (open) emailRef.current?.focus()
   }, [open, mode])
+
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -95,6 +102,24 @@ export function EmailAuthModal({ open, onClose, onSignIn, initialMode, googleUse
         setStatus('idle')
         onSignIn(user)
         onClose()
+      } else if (mode === 'forgot') {
+        if (!validateEmail(email)) throw new Error('Please enter a valid email')
+        const user = getUserByEmail(email)
+        if (!user) throw new Error('No account found with this email')
+        const token = createPasswordResetToken(user.id)
+        setResetDevCode(token)
+        setMode('reset')
+        setStatus('idle')
+        setMessage('A reset code has been sent. Enter it below to sign in.')
+      } else if (mode === 'reset') {
+        // Run the check and a 1s timer concurrently; wait for both.
+        const checkPromise = Promise.resolve().then(() => verifyPasswordResetToken(code.trim()))
+        const timerPromise = sleep(1000)
+        const [user] = await Promise.all([checkPromise, timerPromise])
+        if (!user) throw new Error('login failed')
+        setStatus('idle')
+        onSignIn(user)
+        onClose()
       }
     } catch (error) {
       setStatus('error')
@@ -108,6 +133,8 @@ export function EmailAuthModal({ open, onClose, onSignIn, initialMode, googleUse
     mode === 'login' ? 'Welcome back' :
     mode === 'signup' ? 'Create your account' :
     mode === 'verify' ? 'Verify your email' :
+    mode === 'forgot' ? 'Reset password' :
+    mode === 'reset' ? 'Enter reset code' :
     'Link email account'
 
   return (
@@ -124,21 +151,50 @@ export function EmailAuthModal({ open, onClose, onSignIn, initialMode, googleUse
         {status === 'idle' && message && <p className="auth-note">{message}</p>}
 
         <form onSubmit={handleSubmit}>
-          {mode === 'signup' && (
+          {mode === 'forgot' && (
             <div className="form-group">
-              <label htmlFor="displayName">Name (optional)</label>
+              <label htmlFor="forgot-email">Email</label>
               <div className="input-wrapper">
-                <UserRound size={16} className="input-icon" />
+                <Mail size={16} className="input-icon" />
                 <input
-                  id="displayName"
-                  type="text"
-                  value={displayName}
-                  onChange={(e) => setDisplayName(e.target.value)}
-                  placeholder="Your name"
+                  id="forgot-email"
+                  ref={emailRef}
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="your.email@example.com"
                   disabled={status === 'loading'}
+                  required
                 />
               </div>
             </div>
+          )}
+
+          {mode === 'reset' && (
+            <>
+              {resetDevCode && (
+                <div className="auth-note" style={{ marginBottom: 12 }}>
+                  <Check size={12} /> Demo mode — your reset code is <strong>{resetDevCode}</strong>
+                </div>
+              )}
+              <div className="form-group">
+                <label htmlFor="reset-code">Reset Code</label>
+                <div className="input-wrapper">
+                  <Mail size={16} className="input-icon" />
+                  <input
+                    id="reset-code"
+                    ref={emailRef}
+                    type="text"
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                    placeholder="6-digit code"
+                    disabled={status === 'loading'}
+                    required
+                    maxLength={10}
+                  />
+                </div>
+              </div>
+            </>
           )}
 
           {(mode === 'login' || mode === 'signup') && (
@@ -189,7 +245,7 @@ export function EmailAuthModal({ open, onClose, onSignIn, initialMode, googleUse
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder={mode === 'link' ? 'Create a password for email sign-in' : 'Enter your password'}
                     disabled={status === 'loading'}
-                    required
+                    required={mode !== 'link'}
                     minLength={8}
                   />
                   <button
@@ -222,6 +278,23 @@ export function EmailAuthModal({ open, onClose, onSignIn, initialMode, googleUse
                 </div>
               )}
             </>
+          )}
+
+          {mode === 'signup' && (
+            <div className="form-group">
+              <label htmlFor="displayName">Name (optional)</label>
+              <div className="input-wrapper">
+                <UserRound size={16} className="input-icon" />
+                <input
+                  id="displayName"
+                  type="text"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  placeholder="Your name"
+                  disabled={status === 'loading'}
+                />
+              </div>
+            </div>
           )}
 
           {mode === 'verify' && (
@@ -265,11 +338,33 @@ export function EmailAuthModal({ open, onClose, onSignIn, initialMode, googleUse
               'Create Account'
             ) : mode === 'verify' ? (
               'Verify Email'
+            ) : mode === 'forgot' ? (
+              'Send Reset Code'
+            ) : mode === 'reset' ? (
+              'Verify & Sign In'
             ) : (
               'Link Email Account'
             )}
           </button>
         </form>
+
+        {mode === 'login' && (
+          <div style={{ textAlign: 'right', marginTop: 6 }}>
+            <button
+              type="button"
+              className="link-button"
+              onClick={() => {
+                setMode('forgot')
+                setMessage('')
+                setResetDevCode(null)
+                setCode('')
+              }}
+              style={{ fontSize: 11 }}
+            >
+              Forgot password?
+            </button>
+          </div>
+        )}
 
         {(mode === 'login' || mode === 'signup') && (
           <div className="auth-switch">
@@ -284,6 +379,23 @@ export function EmailAuthModal({ open, onClose, onSignIn, initialMode, googleUse
               }}
             >
               {mode === 'login' ? 'Sign up' : 'Sign in'}
+            </button>
+          </div>
+        )}
+
+        {(mode === 'forgot' || mode === 'reset') && (
+          <div className="auth-switch">
+            <button
+              type="button"
+              className="link-button"
+              onClick={() => {
+                setMode('login')
+                setMessage('')
+                setResetDevCode(null)
+                setCode('')
+              }}
+            >
+              Back to sign in
             </button>
           </div>
         )}
