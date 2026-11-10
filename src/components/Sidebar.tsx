@@ -32,7 +32,7 @@ type SidebarProps = {
   onSelectChat: (id: string) => void
   onDeleteChat: (id: string) => void
   onOpenSettings: (tab: 'general' | 'privacy' | 'account' | 'about') => void
-  onOpenEmailAuth?: (mode: 'login' | 'signup' | 'link') => void
+  onOpenEmailAuth?: (mode: 'login' | 'signup' | 'link' | 'forgot') => void
   recentAccounts?: User[]
   onSwitchAccount?: (user: User) => void
   onSignIn: () => void

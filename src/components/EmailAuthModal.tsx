@@ -19,7 +19,7 @@ interface EmailAuthModalProps {
   open: boolean
   onClose: () => void
   onSignIn: (user: User) => void
-  initialMode?: 'login' | 'signup' | 'link'
+  initialMode?: 'login' | 'signup' | 'link' | 'forgot'
   googleUser?: User | null
   onUseGoogle?: () => void
 }

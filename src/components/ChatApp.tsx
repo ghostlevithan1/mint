@@ -15,7 +15,7 @@ type ChatAppProps = {
   user: User | null
   onSignInRequest: () => void
   onSignOut: () => void
-  onOpenEmailAuth: (mode: 'login' | 'signup' | 'link') => void
+  onOpenEmailAuth: (mode: 'login' | 'signup' | 'link' | 'forgot') => void
   recentAccounts?: User[]
   onSwitchAccount?: (user: User) => void
 }

@@ -15,7 +15,7 @@ export default function App() {
   const [user, setUser] = useState<User | null>(() => loadSession())
   const [recentAccounts, setRecentAccounts] = useState<User[]>(() => getRecentAccounts())
   const [googleOpen, setGoogleOpen] = useState(false)
-  const [emailAuth, setEmailAuth] = useState<{ open: boolean; mode: 'login' | 'signup' | 'link' }>({
+  const [emailAuth, setEmailAuth] = useState<{ open: boolean; mode: 'login' | 'signup' | 'link' | 'forgot' }>({
     open: false,
     mode: 'login',
   })
@@ -39,7 +39,7 @@ export default function App() {
     setRecentAccounts(getRecentAccounts())
   }
 
-  const openEmailAuth = (mode: 'login' | 'signup' | 'link' = 'login') => {
+  const openEmailAuth = (mode: 'login' | 'signup' | 'link' | 'forgot' = 'login') => {
     setEmailAuth({ open: true, mode })
     setGoogleOpen(false)
   }

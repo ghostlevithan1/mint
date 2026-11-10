@@ -41,7 +41,7 @@ type SettingsModalProps = {
   onRefreshProvider: () => void
   onSignIn: () => void
   onSignOut: () => void
-  onOpenEmailAuth?: (mode: 'login' | 'signup' | 'link') => void
+  onOpenEmailAuth?: (mode: 'login' | 'signup' | 'link' | 'forgot') => void
 }
 
 const TABS: Array<{ id: SettingsTab; label: string; icon: typeof Info }> = [
@@ -411,6 +411,11 @@ export function SettingsModal({
                   {user.provider === 'google' && onOpenEmailAuth && (
                     <button className="settings-action" onClick={() => onOpenEmailAuth('link')}>
                       <Mail size={15} /> Link email account
+                    </button>
+                  )}
+                  {user.provider === 'google' && onOpenEmailAuth && (
+                    <button className="settings-action" onClick={() => onOpenEmailAuth('forgot')}>
+                      <Mail size={15} /> Send sign-in code
                     </button>
                   )}
 
