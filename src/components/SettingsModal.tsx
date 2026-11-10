@@ -390,6 +390,34 @@ export function SettingsModal({
                     </div>
                   </div>
 
+                  {user.accountId && (
+                    <div className="settings-section" style={{ marginTop: 8 }}>
+                      <h4>Account ID (sign-in key)</h4>
+                      <div className="input-wrapper">
+                        <input
+                          type="text"
+                          value={user.accountId}
+                          readOnly
+                          style={{ fontFamily: 'monospace', fontSize: 11, letterSpacing: '0.05em', paddingRight: 12 }}
+                        />
+                        <button
+                          type="button"
+                          className="password-toggle"
+                          onClick={() => {
+                            try { navigator.clipboard.writeText(user.accountId as string) } catch { /* ignore */ }
+                          }}
+                          aria-label="Copy account ID"
+                          title="Copy"
+                        >
+                          Copy
+                        </button>
+                      </div>
+                      <p className="auth-note" style={{ marginTop: 6 }}>
+                        Save this 20-character ID. You can sign in with it from the email login screen ("Sign in with account ID") without a password.
+                      </p>
+                    </div>
+                  )}
+
                   <div className="settings-facts">
                     <div>
                       <UserRound size={15} />

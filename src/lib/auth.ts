@@ -2,6 +2,7 @@ export type Provider = 'email' | 'google' | 'both'
 
 export type User = {
   id: string
+  accountId?: string
   email: string
   displayName: string
   pictureUrl?: string
@@ -39,6 +40,21 @@ function uid(): string {
   return `id-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
+
+const ACCESS_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()_-+=/?'
+
+function generateAccountId(): string {
+  const existing = new Set(Array.from(users.values()).map((u) => u.accountId).filter(Boolean) as string[])
+  let id = ''
+  do {
+    id = ''
+    for (let i = 0; i < 20; i++) {
+      id += ACCESS_CHARS[Math.floor(Math.random() * ACCESS_CHARS.length)]
+    }
+  } while (existing.has(id))
+  return id
+}
+
 function loadUsers(): void {
   if (!hasStorage()) return
   try {
@@ -58,11 +74,20 @@ function loadUsers(): void {
         createdAt: new Date(Number(item.createdAt ?? Date.now())),
         lastLogin: new Date(Number(item.lastLogin ?? Date.now())),
       }
+      if (!user.accountId) user.accountId = generateAccountId()
       users.set(user.id, user)
     }
   } catch {
     // ignore corrupt storage
   }
+  // ensure all loaded users have an accountId
+  for (const u of users.values()) {
+    if (!u.accountId) {
+      u.accountId = generateAccountId()
+      users.set(u.id, u)
+    }
+  }
+  saveUsers()
 }
 
 function saveUsers(): void {
@@ -224,6 +249,7 @@ export async function createEmailUser(email: string, password: string, displayNa
   const name = (displayName ?? '').trim() || email.split('@')[0] || 'Member'
   const user: User = {
     id: uid(),
+    accountId: generateAccountId(),
     email,
     displayName: name,
     pictureUrl: undefined,
@@ -347,6 +373,7 @@ export function signInWithGoogle(info: { id: string; email: string; displayName?
   const name = info.displayName || info.email.split('@')[0] || 'Member'
   const user: User = {
     id: uid(),
+    accountId: generateAccountId(),
     email: info.email,
     displayName: name,
     pictureUrl: info.pictureUrl,
@@ -431,6 +458,24 @@ export function getUserByEmail(email: string): User | undefined {
   }
   return undefined
 }
+
+
+export function getAccountByAccessId(accountId: string): User | undefined {
+  for (const user of users.values()) {
+    if (user.accountId === accountId) return user
+  }
+  return undefined
+}
+
+export function authenticateByAccessId(accountId: string): User {
+  const found = getAccountByAccessId(accountId)
+  if (!found) throw new Error('login failed')
+  found.lastLogin = new Date()
+  users.set(found.id, found)
+  saveUsers()
+  return found
+}
+
 
 const SESSION_KEY = 'mint.session.v1'
 const RECENT_KEY = 'mint.recentAccounts.v1'

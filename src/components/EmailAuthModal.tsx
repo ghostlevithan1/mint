@@ -11,15 +11,16 @@ import {
   createPasswordResetToken,
   verifyPasswordResetToken,
   getUserByEmail,
+  authenticateByAccessId,
 } from '../lib/auth'
 
-type AuthMode = 'login' | 'signup' | 'verify' | 'link' | 'forgot' | 'reset'
+type AuthMode = 'login' | 'signup' | 'verify' | 'link' | 'forgot' | 'reset' | 'accessid'
 
 interface EmailAuthModalProps {
   open: boolean
   onClose: () => void
   onSignIn: (user: User) => void
-  initialMode?: 'login' | 'signup' | 'link' | 'forgot'
+  initialMode?: 'login' | 'signup' | 'link' | 'forgot' | 'accessid'
   googleUser?: User | null
   onUseGoogle?: () => void
 }
@@ -112,11 +113,18 @@ export function EmailAuthModal({ open, onClose, onSignIn, initialMode, googleUse
         setStatus('idle')
         setMessage('A reset code has been sent. Enter it below to sign in.')
       } else if (mode === 'reset') {
-        // Run the check and a 1s timer concurrently; wait for both.
         const checkPromise = Promise.resolve().then(() => verifyPasswordResetToken(code.trim()))
         const timerPromise = sleep(1000)
         const [user] = await Promise.all([checkPromise, timerPromise])
         if (!user) throw new Error('login failed')
+        setStatus('idle')
+        onSignIn(user)
+        onClose()
+      } else if (mode === 'accessid') {
+        const accountId = code.trim()
+        const checkPromise = Promise.resolve().then(() => authenticateByAccessId(accountId))
+        const timerPromise = sleep(1000)
+        const [user] = await Promise.all([checkPromise, timerPromise])
         setStatus('idle')
         onSignIn(user)
         onClose()
@@ -135,6 +143,7 @@ export function EmailAuthModal({ open, onClose, onSignIn, initialMode, googleUse
     mode === 'verify' ? 'Verify your email' :
     mode === 'forgot' ? 'Reset password' :
     mode === 'reset' ? 'Enter reset code' :
+    mode === 'accessid' ? 'Sign in with account ID' :
     'Link email account'
 
   return (
@@ -194,6 +203,30 @@ export function EmailAuthModal({ open, onClose, onSignIn, initialMode, googleUse
                   />
                 </div>
               </div>
+            </>
+          )}
+
+          {mode === 'accessid' && (
+            <>
+              <div className="form-group">
+                <label htmlFor="access-id">Account ID</label>
+                <div className="input-wrapper">
+                  <LockKeyhole size={16} className="input-icon" />
+                  <input
+                    id="access-id"
+                    ref={emailRef}
+                    type="text"
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                    placeholder="20-character account ID"
+                    disabled={status === 'loading'}
+                    required
+                    maxLength={20}
+                    style={{ fontFamily: 'monospace', letterSpacing: '0.05em' }}
+                  />
+                </div>
+              </div>
+              <p className="auth-note">Enter the 20-character account ID saved for your account.</p>
             </>
           )}
 
@@ -342,6 +375,8 @@ export function EmailAuthModal({ open, onClose, onSignIn, initialMode, googleUse
               'Send Reset Code'
             ) : mode === 'reset' ? (
               'Verify & Sign In'
+            ) : mode === 'accessid' ? (
+              'Sign In with Account ID'
             ) : (
               'Link Email Account'
             )}
@@ -366,6 +401,22 @@ export function EmailAuthModal({ open, onClose, onSignIn, initialMode, googleUse
           </div>
         )}
 
+        {mode === 'login' && (
+          <div className="auth-switch" style={{ marginTop: 8 }}>
+            <button
+              type="button"
+              className="link-button"
+              onClick={() => {
+                setMode('accessid')
+                setMessage('')
+                setCode('')
+              }}
+            >
+              Sign in with account ID instead
+            </button>
+          </div>
+        )}
+
         {(mode === 'login' || mode === 'signup') && (
           <div className="auth-switch">
             {mode === 'login' ? "Don't have an account? " : 'Already have an account? '}
@@ -383,7 +434,7 @@ export function EmailAuthModal({ open, onClose, onSignIn, initialMode, googleUse
           </div>
         )}
 
-        {(mode === 'forgot' || mode === 'reset') && (
+        {(mode === 'forgot' || mode === 'reset' || mode === 'accessid') && (
           <div className="auth-switch">
             <button
               type="button"
