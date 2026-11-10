@@ -4,9 +4,13 @@ export type StreamUsage = {
   total_tokens?: number
 }
 
+export type StreamContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } }
+
 type StreamMessage = {
   role: 'user' | 'assistant'
-  content: string
+  content: string | StreamContentPart[]
 }
 
 type StreamRequest = {

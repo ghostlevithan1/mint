@@ -3,6 +3,7 @@ import type { Model, Redaction } from './data'
 type AnswerInput = {
   prompt: string
   files: string[]
+  images?: string[]
   redactions: Redaction[]
   model: Model
   context?: string
@@ -443,16 +444,23 @@ No NVIDIA API key is configured, so this reply comes from Mint's built-in demo e
 The key is read only by the Vite server. It never reaches the browser or the chat log.`
 }
 
+function withImageNote(answer: string, images: string[] | undefined) {
+  if (!images?.length) return answer
+  const noun = images.length === 1 ? 'image' : 'images'
+  const pronoun = images.length === 1 ? 'its' : 'their'
+  return `${answer}\n\n> Image note: the local demo engine can name the attached ${noun} (${images.join(', ')}) but cannot inspect ${pronoun} pixels. Add an NVIDIA key and use a vision model for a real reading.`
+}
+
 export function buildDemoAnswer(input: AnswerInput): string {
   const math = mathAnswer(input.prompt)
-  if (math) return math
+  if (math) return withImageNote(math, input.images)
 
   const text = `${input.prompt} ${input.files.join(' ')} ${input.context ?? ''}`.toLowerCase()
-  if (/\b(contract|legal|liabil|clause|renewal|agreement)\b/.test(text)) return legalAnswer(input)
-  if (/\b(research|study|paper|argument|thesis|analy[sz]e|summari[sz]e|summary|report|evidence)\b/.test(text)) return researchAnswer(input)
-  if (/\b(reply|email|respond|draft|message|follow.?up)\b/.test(text)) return replyAnswer(input)
-  if (/\b(code|function|bug|refactor|typescript|javascript|python|api)\b/.test(text)) return codeAnswer(input)
-  return defaultAnswer(input)
+  if (/\b(contract|legal|liabil|clause|renewal|agreement)\b/.test(text)) return withImageNote(legalAnswer(input), input.images)
+  if (/\b(research|study|paper|argument|thesis|analy[sz]e|summari[sz]e|summary|report|evidence)\b/.test(text)) return withImageNote(researchAnswer(input), input.images)
+  if (/\b(reply|email|respond|draft|message|follow.?up)\b/.test(text)) return withImageNote(replyAnswer(input), input.images)
+  if (/\b(code|function|bug|refactor|typescript|javascript|python|api)\b/.test(text)) return withImageNote(codeAnswer(input), input.images)
+  return withImageNote(defaultAnswer(input), input.images)
 }
 
 export function tokenize(text: string): string[] {

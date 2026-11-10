@@ -11,14 +11,23 @@ import {
   ShieldCheck,
   UploadCloud,
 } from 'lucide-react'
-import { MODELS, SAMPLE_PROMPTS, type Model } from '../lib/data'
+import { MODELS, MAX_FILES, SAMPLE_PROMPTS, typeInfo, type Model } from '../lib/data'
 import { modelById, type Conversation } from '../lib/chat'
 import type { ProviderStatus } from '../lib/provider'
 import type { Attachment } from '../lib/files'
+import {
+  capabilityLabel,
+  compatibleModels,
+  modelSupportsAttachments,
+  needForAttachments,
+  routeWithinTier,
+  type AttachmentNeed,
+} from '../lib/modelRouting'
 import { useAttachments } from '../hooks/useAttachments'
 import { ChatMessageView } from './ChatMessage'
 import { Composer } from './Composer'
 import { ModelMenu } from './ModelMenu'
+import { ModelSwitchModal } from './ModelSwitchModal'
 
 type ChatViewProps = {
   chat: Conversation
@@ -82,18 +91,35 @@ export function ChatView({
 }: ChatViewProps) {
   const [draft, setDraft] = useState('')
   const [dragging, setDragging] = useState(false)
+  const [switchOpen, setSwitchOpen] = useState(false)
+  const [routeNotice, setRouteNotice] = useState<{ model: Model; need: AttachmentNeed } | null>(
+    null,
+  )
   const dragDepth = useRef(0)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const stickRef = useRef(true)
   const { attachments, error, reading, addFiles, removeFile, clear } = useAttachments()
 
+  const attachmentNeed = needForAttachments(attachments)
+  const attachmentBlocked =
+    attachments.length > 0 && !modelSupportsAttachments(model, attachments)
+  const alternatives = attachmentBlocked
+    ? compatibleModels(attachments).filter((item) => item.id !== model.id)
+    : []
+
   useEffect(() => {
     setDraft('')
+    setSwitchOpen(false)
+    setRouteNotice(null)
     clear()
     // Reset the composer when moving to another conversation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chat.id])
+
+  useEffect(() => {
+    if (!attachmentBlocked) setSwitchOpen(false)
+  }, [attachmentBlocked])
 
   const signature = chat.messages
     .map((message) => `${message.id}:${message.content.length}:${message.phase}`)
@@ -113,11 +139,46 @@ export function ChatView({
   const submit = () => {
     if (isGenerating || reading) return
     if (!draft.trim() && !attachments.length) return
+    if (attachments.length && !modelSupportsAttachments(model, attachments)) {
+      setSwitchOpen(true)
+      return
+    }
     stickRef.current = true
     onSend(draft, attachments)
     setDraft('')
+    setRouteNotice(null)
     clear()
     textareaRef.current?.focus()
+  }
+
+  const handleFiles = async (files: FileList | File[]) => {
+    const loaded = await addFiles(files)
+    if (!loaded.length) return
+
+    const next = [...attachments, ...loaded].slice(0, MAX_FILES)
+    const route = routeWithinTier(model, next)
+
+    if (route.status === 'switched') {
+      onSelectModel(route.model.id)
+      setRouteNotice({ model: route.model, need: route.need })
+      setSwitchOpen(false)
+    } else if (route.status === 'blocked') {
+      setRouteNotice(null)
+      setSwitchOpen(true)
+    } else {
+      setRouteNotice(null)
+    }
+  }
+
+  const handleRemoveFile = (id: string) => {
+    removeFile(id)
+    setRouteNotice(null)
+  }
+
+  const chooseSwitch = (next: Model) => {
+    onSelectModel(next.id)
+    setSwitchOpen(false)
+    setRouteNotice({ model: next, need: attachmentNeed })
   }
 
   const handleDragEnter = (event: DragEvent<HTMLElement>) => {
@@ -144,12 +205,18 @@ export function ChatView({
     dragDepth.current = 0
     setDragging(false)
     if (event.dataTransfer.files.length) {
-      void addFiles(event.dataTransfer.files)
+      void handleFiles(event.dataTransfer.files)
       textareaRef.current?.focus()
     }
   }
 
   const isEmpty = chat.messages.length === 0
+  const routeNoticeText = routeNotice
+    ? `Switched to ${routeNotice.model.name} (${typeInfo(routeNotice.model.type).label}) so the AI can read your ${capabilityLabel(routeNotice.need)}.`
+    : ''
+  const routingWarning = attachmentBlocked
+    ? `${typeInfo(model.type).label} has no model that can read ${capabilityLabel(attachmentNeed)}. Switch before sending so the AI can read your ${attachments.length === 1 ? 'file' : 'files'}.`
+    : ''
 
   return (
     <main
@@ -281,10 +348,14 @@ export function ChatView({
           isGenerating={isGenerating}
           provider={provider}
           shieldOn={shieldOn}
+          routingWarning={routingWarning}
+          routeNotice={routeNoticeText}
+          onFixRouting={() => setSwitchOpen(true)}
+          onDismissRouteNotice={() => setRouteNotice(null)}
           textareaRef={textareaRef}
           onToggleShield={onToggleShield}
-          onAttachFiles={(files) => void addFiles(files)}
-          onRemoveFile={removeFile}
+          onAttachFiles={(files) => void handleFiles(files)}
+          onRemoveFile={handleRemoveFile}
           onSend={submit}
           onStop={onStop}
         />
@@ -299,6 +370,16 @@ export function ChatView({
           </div>
         </div>
       )}
+
+      <ModelSwitchModal
+        open={switchOpen && attachmentBlocked}
+        need={attachmentNeed}
+        current={model}
+        alternatives={alternatives}
+        fileCount={attachments.length}
+        onClose={() => setSwitchOpen(false)}
+        onChoose={chooseSwitch}
+      />
     </main>
   )
 }

@@ -8,20 +8,23 @@ export function useAttachments() {
   const [reading, setReading] = useState(false)
   const readingRef = useRef(false)
 
-  const addFiles = async (files: FileList | File[]) => {
-    if (readingRef.current) return
+  /** Reads files and resolves with the newly added attachments, if any. */
+  const addFiles = async (files: FileList | File[]): Promise<Attachment[]> => {
+    if (readingRef.current) return []
     const { accepted, error: validationError } = validateIncoming(files, attachments.length)
     if (validationError) setError(validationError)
     else setError('')
-    if (!accepted.length) return
+    if (!accepted.length) return []
 
     readingRef.current = true
     setReading(true)
     try {
       const loaded = await Promise.all(accepted.map(readAttachment))
       setAttachments((current) => [...current, ...loaded].slice(0, MAX_FILES))
+      return loaded
     } catch {
       setError('A file could not be read on this device. Please try another file.')
+      return []
     } finally {
       readingRef.current = false
       setReading(false)

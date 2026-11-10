@@ -2,13 +2,21 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 const NVIDIA_URL = 'https://integrate.api.nvidia.com/v1/chat/completions'
-export const MAX_BODY_BYTES = 1_500_000
+export const MAX_BODY_BYTES = 8_000_000
 const MAX_MESSAGE_CHARS = 60_000
 const MAX_TOTAL_CHARS = 120_000
 const MAX_MESSAGES = 12
+const MAX_IMAGES = 5
+const MAX_IMAGE_CHARS = 1_600_000
+const MAX_IMAGE_TOTAL_CHARS = 7_000_000
+const MAX_PARTS_PER_MESSAGE = 8
+const IMAGE_DATA_URL = /^data:image\/(?:png|jpe?g|webp|gif);base64,/i
 
 type Role = 'user' | 'assistant'
-type UpstreamMessage = { role: Role | 'system'; content: string }
+type UpstreamContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } }
+type UpstreamMessage = { role: Role | 'system'; content: string | UpstreamContentPart[] }
 export type JsonRecord = Record<string, unknown>
 
 export const DEFAULT_APP_MODEL = 'minimax-flash'
@@ -25,6 +33,9 @@ const DEFAULT_MODEL_IDS: Record<string, string> = {
   'nemotron-ultra': 'nvidia/nemotron-3-ultra-550b-a55b',
   'deepseek-flash': 'deepseek-ai/deepseek-v4.1-flash',
 }
+
+// Only these app models accept inline images. Keep in sync with src/lib/data.ts.
+const VISION_MODEL_IDS = new Set(['nemotron-nano-omni', 'nemotron-super-vl'])
 
 export type StatusPayload = {
   provider: 'nvidia' | 'demo'
@@ -171,29 +182,74 @@ export function jsonResponse(status: number, body: unknown): Response {
   })
 }
 
+function validImageUrl(value: unknown): string {
+  if (typeof value !== 'string') return ''
+  const url = value.trim()
+  if (url.length < 32 || url.length > MAX_IMAGE_CHARS) return ''
+  if (!IMAGE_DATA_URL.test(url) || /\s/.test(url)) return ''
+  return url
+}
+
 function normalizeMessages(value: unknown): UpstreamMessage[] {
   if (!Array.isArray(value)) {
     throw new HttpError(400, 'BAD_REQUEST', 'messages must be an array.')
   }
 
   const messages: UpstreamMessage[] = []
+  let totalText = 0
+  let totalImageChars = 0
+  let imageCount = 0
+
   for (const item of value.slice(-MAX_MESSAGES)) {
     if (!item || typeof item !== 'object') continue
     const record = item as JsonRecord
     const role = record.role
-    const content = record.content
-    if ((role !== 'user' && role !== 'assistant') || typeof content !== 'string') continue
-    const text = content.trim()
-    if (!text) continue
-    messages.push({ role, content: text.slice(0, MAX_MESSAGE_CHARS) })
+    if (role !== 'user' && role !== 'assistant') continue
+
+    if (typeof record.content === 'string') {
+      const text = record.content.trim().slice(0, MAX_MESSAGE_CHARS)
+      if (!text) continue
+      totalText += text.length
+      messages.push({ role, content: text })
+      continue
+    }
+
+    if (!Array.isArray(record.content)) continue
+
+    const parts: UpstreamContentPart[] = []
+    for (const rawPart of record.content.slice(0, MAX_PARTS_PER_MESSAGE)) {
+      if (!rawPart || typeof rawPart !== 'object') continue
+      const part = rawPart as JsonRecord
+
+      if (part.type === 'text') {
+        if (typeof part.text !== 'string') continue
+        const text = part.text.trim().slice(0, MAX_MESSAGE_CHARS)
+        if (!text) continue
+        totalText += text.length
+        parts.push({ type: 'text', text })
+        continue
+      }
+
+      if (part.type !== 'image_url' || imageCount >= MAX_IMAGES) continue
+      const image = part.image_url
+      const url =
+        image && typeof image === 'object'
+          ? validImageUrl((image as JsonRecord).url)
+          : ''
+      if (!url || totalImageChars + url.length > MAX_IMAGE_TOTAL_CHARS) continue
+      imageCount += 1
+      totalImageChars += url.length
+      parts.push({ type: 'image_url', image_url: { url } })
+    }
+
+    if (parts.length) messages.push({ role, content: parts })
   }
 
   if (!messages.length) {
     throw new HttpError(400, 'BAD_REQUEST', 'At least one user message is required.')
   }
 
-  const total = messages.reduce((sum, message) => sum + message.content.length, 0)
-  if (total > MAX_TOTAL_CHARS) {
+  if (totalText > MAX_TOTAL_CHARS) {
     throw new HttpError(413, 'CONTEXT_TOO_LARGE', 'Message context is too large.')
   }
 
@@ -238,6 +294,19 @@ export async function createChatResponse(
     const ids = getModelIds(root)
     const requested = typeof record.model === 'string' ? record.model : ''
     const model = ids[requested] ?? ids[DEFAULT_APP_MODEL]
+    const hasImages = messages.some(
+      (message) =>
+        Array.isArray(message.content) &&
+        message.content.some((part) => part.type === 'image_url'),
+    )
+
+    if (hasImages && !VISION_MODEL_IDS.has(requested)) {
+      throw new HttpError(
+        400,
+        'MODEL_NO_VISION',
+        'That model cannot read images. Choose a vision model in Quick or Intelligent.',
+      )
+    }
 
     const payload = {
       model,

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { MODELS, type Model, type Redaction } from '../lib/data'
+import { MODELS, modelCapabilities, type Model, type Redaction } from '../lib/data'
 import { buildDemoAnswer, tokenize } from '../lib/demo-engine'
 import { detectRedactions, redactText, rehydrateText } from '../lib/privacy'
-import { ChatApiError, streamNvidiaChat } from '../lib/nvidia'
+import { ChatApiError, streamNvidiaChat, type StreamContentPart } from '../lib/nvidia'
 import type { ProviderMode } from '../lib/provider'
 import {
   buildChatTitle,
@@ -51,6 +51,20 @@ function buildLivePrompt(prompt: string, context: string, files: string[]) {
   if (files.length) parts.push(`Attached files: ${files.join(', ')}`)
   if (context) parts.push(`Attached file context:\n\n${context}`)
   return parts.join('\n\n---\n\n')
+}
+
+function buildLiveContent(
+  prompt: string,
+  context: string,
+  files: string[],
+  images: string[],
+): string | StreamContentPart[] {
+  const text = buildLivePrompt(prompt, context, files)
+  if (!images.length) return text
+  return [
+    { type: 'text', text },
+    ...images.map<StreamContentPart>((url) => ({ type: 'image_url', image_url: { url } })),
+  ]
 }
 
 export function useConversations() {
@@ -123,6 +137,9 @@ export function useConversations() {
     const answer = buildDemoAnswer({
       prompt: promptForModel,
       files: input.attachments.map((file) => file.name),
+      images: input.attachments
+        .filter((file) => file.kind === 'image')
+        .map((file) => file.name),
       redactions: activeRedactions,
       model: input.model,
       context,
@@ -230,7 +247,13 @@ export function useConversations() {
     const requestStart = performance.now()
     const controller = new AbortController()
     abortRef.current = controller
-    const userContent = buildLivePrompt(promptForModel, context, files)
+    const supportsImages = modelCapabilities(input.model).includes('image')
+    const images = supportsImages
+      ? input.attachments
+          .filter((file) => file.kind === 'image' && Boolean(file.dataUrl))
+          .map((file) => file.dataUrl as string)
+      : []
+    const userContent = buildLiveContent(promptForModel, context, files, images)
     let raw = ''
     let firstTokenAt: number | null = null
     let usageTokens = 0

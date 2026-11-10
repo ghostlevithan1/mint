@@ -9,7 +9,9 @@ import {
   Loader2,
   Paperclip,
   ShieldCheck,
+  Sparkles,
   Square,
+  TriangleAlert,
   X,
 } from 'lucide-react'
 import type { Attachment } from '../lib/files'
@@ -25,8 +27,12 @@ type ComposerProps = {
   isGenerating: boolean
   provider: ProviderStatus
   shieldOn: boolean
+  routingWarning: string
+  routeNotice: string
   textareaRef: MutableRefObject<HTMLTextAreaElement | null>
   onToggleShield: () => void
+  onFixRouting: () => void
+  onDismissRouteNotice: () => void
   onAttachFiles: (files: FileList | File[]) => void
   onRemoveFile: (id: string) => void
   onSend: () => void
@@ -49,8 +55,12 @@ export function Composer({
   isGenerating,
   provider,
   shieldOn,
+  routingWarning,
+  routeNotice,
   textareaRef,
   onToggleShield,
+  onFixRouting,
+  onDismissRouteNotice,
   onAttachFiles,
   onRemoveFile,
   onSend,
@@ -58,7 +68,11 @@ export function Composer({
 }: ComposerProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const tokens = estimateTokens(`${text}\n${attachments.map((file) => file.text).join('\n')}`)
-  const canSend = (text.trim().length > 0 || attachments.length > 0) && !reading && !isGenerating
+  const canSend =
+    (text.trim().length > 0 || attachments.length > 0) &&
+    !reading &&
+    !isGenerating &&
+    !routingWarning
 
   useEffect(() => {
     const el = textareaRef.current
@@ -99,7 +113,14 @@ export function Composer({
                 <span className="composer-file-copy">
                   <strong>{file.name}</strong>
                   <small>
-                    {formatBytes(file.size)} · {file.text ? 'read locally' : 'held locally'}
+                    {formatBytes(file.size)} ·{' '}
+                    {file.kind === 'image'
+                      ? file.dataUrl
+                        ? 'vision ready'
+                        : 'attached'
+                      : file.text
+                        ? 'read locally'
+                        : 'held locally'}
                   </small>
                 </span>
                 <button
@@ -119,6 +140,30 @@ export function Composer({
           <p className="composer-error" role="alert">
             {uploadError}
           </p>
+        )}
+
+        {routingWarning && (
+          <div className="composer-routing" role="alert">
+            <TriangleAlert size={13} />
+            <span>{routingWarning}</span>
+            <button type="button" onClick={onFixRouting}>
+              Switch model
+            </button>
+          </div>
+        )}
+
+        {routeNotice && (
+          <div className="composer-route-note" role="status">
+            <Sparkles size={12} />
+            <span>{routeNotice}</span>
+            <button
+              type="button"
+              onClick={onDismissRouteNotice}
+              aria-label="Dismiss model switch notice"
+            >
+              <X size={11} />
+            </button>
+          </div>
         )}
 
         <textarea

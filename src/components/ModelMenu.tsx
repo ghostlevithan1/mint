@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Check, ChevronDown } from 'lucide-react'
+import { Check, ChevronDown, Eye } from 'lucide-react'
 import { MODEL_TYPES, MODELS, modelsByType, typeInfo } from '../lib/data'
 import type { Model } from '../lib/data'
 
@@ -95,6 +95,12 @@ export function ModelMenu({ model, onSelect }: ModelMenuProps) {
                         <span className="model-choice-copy">
                           <span>
                             <strong>{item.name}</strong>
+                            {item.capabilities?.includes('image') && (
+                              <span className="model-cap-badge">
+                                <Eye size={9} />
+                                Vision
+                              </span>
+                            )}
                             <small>{item.maker}</small>
                           </span>
                           <em>

@@ -9,6 +9,8 @@ export type Attachment = {
   kind: AttachmentKind
   text: string
   extension: string
+  /** Downscaled data URL for vision models. Images only. */
+  dataUrl?: string
 }
 
 const TEXT_EXTENSIONS = new Set([
@@ -31,11 +33,16 @@ const TEXT_EXTENSIONS = new Set([
   'sql',
   'sh',
   'env',
+  'svg',
 ])
 
-const CODE_EXTENSIONS = new Set(['js', 'jsx', 'ts', 'tsx', 'py', 'css', 'html', 'json', 'sh'])
+const CODE_EXTENSIONS = new Set(['js', 'jsx', 'ts', 'tsx', 'py', 'css', 'html', 'json', 'sh', 'svg'])
 const SHEET_EXTENSIONS = new Set(['csv', 'xls', 'xlsx', 'numbers'])
-const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'heic'])
+const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'heic'])
+
+const IMAGE_MAX_EDGE = 1600
+const IMAGE_MAX_CHARS = 1_200_000
+const RAW_IMAGE_FALLBACK_BYTES = 3_500_000
 
 export function extensionOf(name: string) {
   const parts = name.split('.')
@@ -51,8 +58,55 @@ export function kindOf(extension: string): AttachmentKind {
   return 'other'
 }
 
+async function encodeImage(file: File): Promise<string | undefined> {
+  try {
+    if (typeof createImageBitmap === 'function') {
+      const bitmap = await createImageBitmap(file)
+      try {
+        const scale = Math.min(1, IMAGE_MAX_EDGE / Math.max(bitmap.width, bitmap.height))
+        const width = Math.max(1, Math.round(bitmap.width * scale))
+        const height = Math.max(1, Math.round(bitmap.height * scale))
+        const canvas = document.createElement('canvas')
+        canvas.width = width
+        canvas.height = height
+        const context = canvas.getContext('2d')
+        if (!context) return undefined
+
+        // Flatten transparency onto white so JPEG encoding stays predictable.
+        context.fillStyle = '#ffffff'
+        context.fillRect(0, 0, width, height)
+        context.drawImage(bitmap, 0, 0, width, height)
+
+        let smallest = ''
+        for (const quality of [0.86, 0.7, 0.55]) {
+          const url = canvas.toDataURL('image/jpeg', quality)
+          if (!smallest || url.length < smallest.length) smallest = url
+          if (url.length <= IMAGE_MAX_CHARS) return url
+        }
+        return smallest.length <= IMAGE_MAX_CHARS * 1.5 ? smallest : undefined
+      } finally {
+        bitmap.close()
+      }
+    }
+  } catch {
+    // Formats such as HEIC may not decode in Chromium; try a raw data URL below.
+  }
+
+  if (file.size > RAW_IMAGE_FALLBACK_BYTES) return undefined
+  return new Promise<string | undefined>((resolve) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const url = typeof reader.result === 'string' ? reader.result : ''
+      resolve(/^data:image\/(?:png|jpe?g|webp|gif);base64,/.test(url) ? url : undefined)
+    }
+    reader.onerror = () => resolve(undefined)
+    reader.readAsDataURL(file)
+  })
+}
+
 export async function readAttachment(file: File): Promise<Attachment> {
   const extension = extensionOf(file.name)
+  const kind = kindOf(extension)
   let text = ''
   if (TEXT_EXTENSIONS.has(extension)) {
     try {
@@ -61,13 +115,15 @@ export async function readAttachment(file: File): Promise<Attachment> {
       text = ''
     }
   }
+  const dataUrl = kind === 'image' ? await encodeImage(file) : undefined
   return {
     id: `${file.name}-${file.size}-${file.lastModified}-${Math.random().toString(36).slice(2, 7)}`,
     name: file.name,
     size: file.size,
-    kind: kindOf(extension),
+    kind,
     text,
     extension: extension || 'file',
+    dataUrl,
   }
 }
 

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   Check,
+  Eye,
   FileUp,
   Gauge,
   Info,
@@ -222,6 +223,15 @@ export function SettingsModal({
                                 <strong>{model.name}</strong>
                                 <small>
                                   {model.maker} · {model.meta} · {model.descriptor}
+                                  {model.capabilities?.includes('image') && (
+                                    <>
+                                      {' '}
+                                      <span className="model-cap-badge">
+                                        <Eye size={9} />
+                                        Vision
+                                      </span>
+                                    </>
+                                  )}
                                 </small>
                               </span>
                               <span className="settings-model-speed">{model.tps} TPS</span>

@@ -1,5 +1,8 @@
 export type ModelType = 'quick' | 'normal' | 'intelligent'
 
+/** File capabilities a model can actually read. Text is always supported. */
+export type FileCapability = 'text' | 'image'
+
 export type ModelTypeInfo = {
   id: ModelType
   label: string
@@ -47,6 +50,13 @@ export type Model = {
   context: string
   color: string
   glyph: string
+  /** Extra capabilities beyond plain text. */
+  capabilities?: FileCapability[]
+}
+
+/** Capabilities including the text support every model has. */
+export function modelCapabilities(model: Model): FileCapability[] {
+  return ['text', ...(model.capabilities ?? [])]
 }
 
 export const MODELS: Model[] = [
@@ -73,6 +83,7 @@ export const MODELS: Model[] = [
     context: '128K',
     color: '#B5FF4D',
     glyph: 'N',
+    capabilities: ['image'],
   },
   {
     id: 'laguna-xs',
@@ -133,6 +144,7 @@ export const MODELS: Model[] = [
     context: '128K',
     color: '#A8F05A',
     glyph: 'N',
+    capabilities: ['image'],
   },
   {
     id: 'nemotron-ultra',
