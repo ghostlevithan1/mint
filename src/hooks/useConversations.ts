@@ -2,7 +2,13 @@ import { useEffect, useRef, useState } from 'react'
 import { MODELS, modelCapabilities, type Model, type Redaction } from '../lib/data'
 import { buildDemoAnswer, tokenize } from '../lib/demo-engine'
 import { detectRedactions, redactText, rehydrateText } from '../lib/privacy'
-import { ChatApiError, streamNvidiaChat, type StreamContentPart } from '../lib/nvidia'
+import { fetchWebContext, extractUrls } from '../lib/web'
+import {
+  ChatApiError,
+  streamNvidiaChat,
+  type StreamContentPart,
+  type StreamMessage,
+} from '../lib/nvidia'
 import type { ProviderMode } from '../lib/provider'
 import {
   buildChatTitle,
@@ -11,6 +17,18 @@ import {
   type ChatMessage,
   type Conversation,
 } from '../lib/chat'
+import {
+  COMPACT_AT,
+  buildContextMessages,
+  compactedHistory,
+  compactMessages,
+  contextMaxTokens,
+  conversationTokens,
+  estimateTextTokens,
+  growContextWindow,
+  initialContextWindow,
+  localSummary,
+} from '../lib/context'
 import type { Attachment } from '../lib/files'
 
 type SendInput = {
@@ -30,6 +48,8 @@ type RunInput = {
   model: Model
   redactions: Redaction[]
   provider: ProviderMode
+  history: ChatMessage[]
+  contextWindow: number
 }
 
 function createBlankChat(): Conversation {
@@ -82,10 +102,11 @@ function approximateTokens(text: string) {
   return Math.max(1, Math.round(text.length / 4))
 }
 
-function buildLivePrompt(prompt: string, context: string, files: string[]) {
+function buildLivePrompt(prompt: string, context: string, files: string[], web = '') {
   const parts = [prompt]
   if (files.length) parts.push(`Attached files: ${files.join(', ')}`)
   if (context) parts.push(`Attached file context:\n\n${context}`)
+  if (web) parts.push(`Web page context (read just now):\n\n${web}`)
   return parts.join('\n\n---\n\n')
 }
 
@@ -94,13 +115,70 @@ function buildLiveContent(
   context: string,
   files: string[],
   images: string[],
+  web = '',
 ): string | StreamContentPart[] {
-  const text = buildLivePrompt(prompt, context, files)
+  const text = buildLivePrompt(prompt, context, files, web)
   if (!images.length) return text
   return [
     { type: 'text', text },
     ...images.map<StreamContentPart>((url) => ({ type: 'image_url', image_url: { url } })),
   ]
+}
+
+function transcriptOf(messages: ChatMessage[]): string {
+  return messages
+    .filter((message) => message.role !== 'system' || message.content.trim())
+    .map((message) => {
+      const role = message.role === 'assistant' ? 'Assistant' : message.role === 'system' ? 'Context' : 'User'
+      const files = message.attachments?.length
+        ? ` [files: ${message.attachments.map((file) => file.name).join(', ')}]`
+        : ''
+      return `${role}: ${message.content}${files}`
+    })
+    .join('\n\n')
+    .slice(0, 30_000)
+}
+
+/** Uses the outgoing model to compress a long thread, with a local fallback. */
+async function compressWithModel(
+  messages: ChatMessage[],
+  model: Model,
+  provider: ProviderMode,
+): Promise<string> {
+  if (provider === 'nvidia' && messages.length) {
+    const controller = new AbortController()
+    const timeout = window.setTimeout(() => controller.abort(), 20_000)
+    let summary = ''
+    try {
+      await streamNvidiaChat(
+        {
+          model: model.id,
+          messages: [
+            {
+              role: 'system',
+              content:
+                'Compress the conversation into a dense context brief. Keep decisions, facts, names, numbers, open questions, and the user intent. Use short bullets. Do not add commentary.',
+            },
+            { role: 'user', content: transcriptOf(messages) },
+          ],
+          temperature: 0.2,
+          max_tokens: 800,
+        },
+        {
+          signal: controller.signal,
+          onDelta: (delta) => {
+            summary += delta
+          },
+        },
+      )
+    } catch {
+      summary = ''
+    } finally {
+      window.clearTimeout(timeout)
+    }
+    if (summary.trim()) return summary.trim()
+  }
+  return localSummary(messages)
 }
 
 export function useConversations() {
@@ -271,7 +349,17 @@ export function useConversations() {
 
     const activeRedactions = input.shieldOn ? input.redactions : []
     const promptForModel = input.shieldOn ? redactText(input.text, input.redactions) : input.text
-    const fileText = input.attachments.map((file) => file.text).join('\n\n').slice(0, 30_000)
+    const maxTokens = contextMaxTokens(input.model)
+    const windowTokens = Math.max(
+      initialContextWindow(maxTokens),
+      Math.min(input.contextWindow, maxTokens),
+    )
+    const reserve = Math.min(1800, Math.floor(windowTokens * 0.25))
+    const fileBudget = Math.max(2000, Math.floor((windowTokens - reserve) * 0.6 * 4))
+    const fileText = input.attachments
+      .map((file) => file.text)
+      .join('\n\n')
+      .slice(0, fileBudget)
     const context = input.shieldOn ? redactText(fileText, input.redactions) : fileText
     const files = input.attachments.map((file) => file.name)
 
@@ -290,6 +378,27 @@ export function useConversations() {
     await wait(180)
     if (runIdRef.current !== runId) return
 
+    let webContext = ''
+    const links = modelCapabilities(input.model).includes('web')
+      ? extractUrls(input.text)
+      : []
+    if (links.length) {
+      patchMessage(input.chatId, input.assistantId, { phase: 'routing' })
+      const webController = new AbortController()
+      abortRef.current = webController
+      const webBudget = Math.min(
+        18_000,
+        Math.max(1800, Math.floor(windowTokens * 0.5 * 4)),
+      )
+      const web = await fetchWebContext(links, webController.signal, webBudget)
+      if (runIdRef.current !== runId) return
+      abortRef.current = null
+      webContext = web.context
+      if (web.sources.length) {
+        patchMessage(input.chatId, input.assistantId, { webSources: web.sources })
+      }
+    }
+
     if (input.provider === 'demo') {
       runDemo(runId, input, activeRedactions)
       return
@@ -306,7 +415,13 @@ export function useConversations() {
           .filter((file) => file.kind === 'image' && Boolean(file.dataUrl))
           .map((file) => file.dataUrl as string)
       : []
-    const userContent = buildLiveContent(promptForModel, context, files, images)
+    const userContent = buildLiveContent(promptForModel, context, files, images, webContext)
+    const userText = buildLivePrompt(promptForModel, context, files, webContext)
+    const historyBudget = Math.max(128, windowTokens - reserve - estimateTextTokens(userText))
+    const requestMessages: StreamMessage[] = [
+      ...buildContextMessages(input.history, historyBudget),
+      { role: 'user', content: userContent },
+    ]
     let raw = ''
     let firstTokenAt: number | null = null
     let usageTokens = 0
@@ -340,7 +455,7 @@ export function useConversations() {
       await streamNvidiaChat(
         {
           model: input.model.id,
-          messages: [{ role: 'user', content: userContent }],
+          messages: requestMessages,
         },
         {
           signal: controller.signal,
@@ -401,7 +516,13 @@ export function useConversations() {
     }
   }
 
-  const sendMessage = ({ text, attachments, shieldOn, model, provider }: SendInput) => {
+  const sendMessage = async ({
+    text,
+    attachments,
+    shieldOn,
+    model,
+    provider,
+  }: SendInput) => {
     if (isGenerating) return
     const content = text.trim()
     if (!content && !attachments.length) return
@@ -437,15 +558,56 @@ export function useConversations() {
       provider,
     }
 
+    const maxTokens = contextMaxTokens(model)
+    const lastUsedId = chat.previousModelId ?? chat.modelId
+    const previousModel = modelById(MODELS, lastUsedId)
+    const switched = Boolean(lastUsedId) && lastUsedId !== model.id
+    const storedWindow = chat.contextWindow ?? initialContextWindow(maxTokens)
+    let window = Math.max(initialContextWindow(maxTokens), Math.min(storedWindow, maxTokens))
+    let history = chat.messages
+
+    // A switch to a smaller model compresses the old thread with the old model
+    // before anything is sent to the new one.
+    const mustCompress = switched && storedWindow > maxTokens
+    if (mustCompress) {
+      setIsGenerating(true)
+      setGeneratingChatId(chat.id)
+      const guard = runIdRef.current
+      const summary = await compressWithModel(chat.messages, previousModel, provider)
+      if (runIdRef.current !== guard) return
+      history = compactedHistory(chat.messages, summary, 4)
+      window = maxTokens
+    }
+
+    const promptTokens =
+      estimateTextTokens(content) +
+      estimateTextTokens(attachments.map((file) => file.text).join('\n')) +
+      10
+    const projected = () => conversationTokens(history) + promptTokens
+
+    // Grow 2048 → 4096 → 8192 … until the model maximum.
+    while (projected() >= window * COMPACT_AT && window < maxTokens) {
+      const grown = growContextWindow(window, maxTokens)
+      if (grown <= window) break
+      window = grown
+    }
+    // At the model maximum, compact instead of overflowing.
+    if (projected() >= window * COMPACT_AT) {
+      history = compactMessages(history, 4)
+    }
+
     setChats((current) =>
       current.map((item) =>
         item.id === chat.id
           ? {
               ...item,
               title:
-                item.messages.length === 0 ? buildChatTitle(content, attachments) : item.title,
+                chat.messages.length === 0 ? buildChatTitle(content, attachments) : item.title,
               updatedAt: now,
-              messages: [...item.messages, userMessage, assistantMessage],
+              modelId: model.id,
+              previousModelId: undefined,
+              contextWindow: window,
+              messages: [...history, userMessage, assistantMessage],
             }
           : item,
       ),
@@ -461,6 +623,8 @@ export function useConversations() {
       model,
       redactions: detected,
       provider,
+      history,
+      contextWindow: window,
     })
   }
 
@@ -508,6 +672,12 @@ export function useConversations() {
 
     const assistant = chat.messages[index]
     const userMessage = chat.messages[userIndex]
+    const model = modelById(MODELS, assistant.modelId)
+    const maxTokens = contextMaxTokens(model)
+    const contextWindow = Math.max(
+      initialContextWindow(maxTokens),
+      Math.min(chat.contextWindow ?? initialContextWindow(maxTokens), maxTokens),
+    )
     const newAssistantId = uid()
     const placeholder: ChatMessage = {
       id: newAssistantId,
@@ -527,6 +697,7 @@ export function useConversations() {
           ? {
               ...item,
               updatedAt: Date.now(),
+              contextWindow,
               messages: [...item.messages.slice(0, userIndex + 1), placeholder],
             }
           : item,
@@ -540,9 +711,11 @@ export function useConversations() {
       text: userMessage.content,
       attachments: userMessage.attachments ?? [],
       shieldOn: assistant.shieldOn ?? true,
-      model: modelById(MODELS, assistant.modelId),
+      model,
       redactions: assistant.redactions ?? [],
       provider,
+      history: chat.messages.slice(0, userIndex),
+      contextWindow,
     })
   }
 
@@ -580,6 +753,51 @@ export function useConversations() {
     setGeneratingChatId(null)
   }
 
+  const compactChat = () => {
+    const chat = chats.find((item) => item.id === activeId)
+    if (!chat || chat.messages.length < 3) return
+    const compacted = compactMessages(chat.messages, 4)
+    if (compacted === chat.messages) return
+    setChats((current) =>
+      current.map((item) =>
+        item.id === chat.id
+          ? { ...item, messages: compacted, updatedAt: Date.now() }
+          : item,
+      ),
+    )
+  }
+
+  const growContext = (model: Model) => {
+    const chat = chats.find((item) => item.id === activeId)
+    if (!chat) return
+    const maxTokens = contextMaxTokens(model)
+    const base = initialContextWindow(maxTokens)
+    const current = Math.max(
+      base,
+      Math.min(chat.contextWindow ?? base, maxTokens),
+    )
+    const next = growContextWindow(current, maxTokens)
+    if (next === current) return
+    setChats((items) =>
+      items.map((item) =>
+        item.id === chat.id ? { ...item, contextWindow: next } : item,
+      ),
+    )
+  }
+
+  const setChatModel = (chatId: string, id: string) => {
+    setChats((current) =>
+      current.map((item) => {
+        if (item.id !== chatId || item.modelId === id) return item
+        return {
+          ...item,
+          modelId: id,
+          previousModelId: item.previousModelId ?? item.modelId,
+        }
+      }),
+    )
+  }
+
   const activeChat = chats.find((item) => item.id === activeId) ?? chats[0]
 
   return {
@@ -595,5 +813,8 @@ export function useConversations() {
     selectChat,
     deleteChat,
     clearChats,
+    compactChat,
+    growContext,
+    setChatModel,
   }
 }

@@ -617,6 +617,15 @@
   text-overflow: ellipsis;
 }
 
+.settings-model-copy .settings-model-tags {
+  margin-top: 2px;
+}
+
+.assistant-model .model-logo {
+  margin-right: 5px;
+  vertical-align: -1px;
+}
+
 .settings-model-speed {
   flex: 0 0 auto;
   color: var(--dim);

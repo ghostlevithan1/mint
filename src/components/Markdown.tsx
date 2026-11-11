@@ -1,4 +1,12 @@
+import { useState } from 'react'
 import type { ReactNode } from 'react'
+import { Check, Copy, Download, FileCode2 } from 'lucide-react'
+import {
+  TEXT_FILE_LIMIT,
+  describeFence,
+  downloadTextFile,
+  type FenceInfo,
+} from '../lib/generatedFiles'
 
 function inline(text: string, keyPrefix: string): ReactNode[] {
   return text.split(/(\*\*[^*]+\*\*)/g).map((part, index) => {
@@ -16,6 +24,55 @@ type Block =
   | { type: 'numbers'; items: string[] }
   | { type: 'quote'; text: string }
   | { type: 'table'; rows: string[][] }
+  | { type: 'code'; code: string; info: FenceInfo }
+
+function CodeFileCard({ code, info }: { code: string; info: FenceInfo }) {
+  const [copied, setCopied] = useState(false)
+  const compact = code.length < TEXT_FILE_LIMIT
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(code)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1800)
+    } catch {
+      setCopied(false)
+    }
+  }
+
+  return (
+    <figure className={`file-card ${compact ? 'is-compact' : 'is-large'}`}>
+      <figcaption className="file-card-head">
+        <span className="file-card-icon" aria-hidden="true">
+          <FileCode2 size={13} />
+        </span>
+        <span className="file-card-name" title={info.filename}>
+          {info.filename}
+        </span>
+        <span className="file-card-meta">
+          {info.language} · {code.length.toLocaleString()} chars
+        </span>
+        <span className="file-card-actions">
+          <button type="button" onClick={() => void copy()} title="Copy file contents">
+            {copied ? <Check size={12} /> : <Copy size={12} />}
+            {copied ? 'Copied' : 'Copy'}
+          </button>
+          <button
+            type="button"
+            onClick={() => downloadTextFile(info.filename, code, info.extension)}
+            title={`Download ${info.filename}`}
+          >
+            <Download size={12} />
+            Download
+          </button>
+        </span>
+      </figcaption>
+      <pre>
+        <code>{code}</code>
+      </pre>
+    </figure>
+  )
+}
 
 function parseBlocks(text: string): Block[] {
   const lines = text.split('\n')
@@ -34,6 +91,25 @@ function parseBlocks(text: string): Block[] {
 
     if (!trimmed) {
       flushParagraph()
+      continue
+    }
+
+    if (trimmed.startsWith('```') || trimmed.startsWith('~~~')) {
+      flushParagraph()
+      const fence = trimmed.slice(0, 3)
+      const info = trimmed.slice(3).trim()
+      const codeLines: string[] = []
+      let cursor = index + 1
+      while (cursor < lines.length && !lines[cursor].trim().startsWith(fence)) {
+        codeLines.push(lines[cursor])
+        cursor += 1
+      }
+      blocks.push({
+        type: 'code',
+        code: codeLines.join('\n'),
+        info: describeFence(info, index),
+      })
+      index = cursor
       continue
     }
 
@@ -136,6 +212,9 @@ export function Markdown({ text }: { text: string }) {
         }
         if (block.type === 'quote') {
           return <blockquote key={index}>{inline(block.text, `q-${index}`)}</blockquote>
+        }
+        if (block.type === 'code') {
+          return <CodeFileCard key={index} code={block.code} info={block.info} />
         }
         if (block.type === 'table') {
           return (

@@ -4,15 +4,15 @@ import { resolve } from 'node:path'
 const NVIDIA_URL = 'https://integrate.api.nvidia.com/v1/chat/completions'
 export const MAX_BODY_BYTES = 8_000_000
 const MAX_MESSAGE_CHARS = 60_000
-const MAX_TOTAL_CHARS = 120_000
-const MAX_MESSAGES = 12
+const MAX_TOTAL_CHARS = 400_000
+const MAX_MESSAGES = 40
 const MAX_IMAGES = 5
 const MAX_IMAGE_CHARS = 1_600_000
 const MAX_IMAGE_TOTAL_CHARS = 7_000_000
 const MAX_PARTS_PER_MESSAGE = 8
 const IMAGE_DATA_URL = /^data:image\/(?:png|jpe?g|webp|gif);base64,/i
 
-type Role = 'user' | 'assistant'
+type Role = 'user' | 'assistant' | 'system'
 type UpstreamContentPart =
   | { type: 'text'; text: string }
   | { type: 'image_url'; image_url: { url: string } }
@@ -204,7 +204,7 @@ function normalizeMessages(value: unknown): UpstreamMessage[] {
     if (!item || typeof item !== 'object') continue
     const record = item as JsonRecord
     const role = record.role
-    if (role !== 'user' && role !== 'assistant') continue
+    if (role !== 'user' && role !== 'assistant' && role !== 'system') continue
 
     if (typeof record.content === 'string') {
       const text = record.content.trim().slice(0, MAX_MESSAGE_CHARS)
@@ -282,8 +282,7 @@ export async function createChatResponse(
     return jsonResponse(503, {
       error: {
         code: 'NO_KEY',
-        message:
-          'No NVIDIA API key is configured on the server. Add the key file or NVIDIA_API_KEY, then reload.',
+        message: 'Live inference is not configured on the server.',
       },
     })
   }

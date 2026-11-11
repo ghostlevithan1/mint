@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react'
-import { ArrowRight, Eye, ShieldCheck, TriangleAlert, X } from 'lucide-react'
+import { ArrowRight, ShieldCheck, TriangleAlert, X } from 'lucide-react'
 import { MODEL_TYPES, typeInfo, type Model } from '../lib/data'
 import type { AttachmentNeed } from '../lib/modelRouting'
+import { ModelCapabilityBadges, ModelLogo } from './ModelLogo'
 
 type ModelSwitchModalProps = {
   open: boolean
@@ -103,22 +104,17 @@ export function ModelSwitchModal({
                   key={model.id}
                   onClick={() => onChoose(model)}
                 >
-                  <span className="model-choice-glyph" style={{ color: model.color }}>
-                    {model.glyph}
+                  <span className="model-choice-glyph">
+                    <ModelLogo maker={model.maker} size={17} />
                   </span>
                   <span className="switch-option-copy">
                     <span>
                       <strong>{model.name}</strong>
-                      {model.capabilities?.includes('image') && (
-                        <small className="model-cap-badge">
-                          <Eye size={9} />
-                          Vision
-                        </small>
-                      )}
                     </span>
                     <em>
-                      {model.maker} · {model.meta} · {model.descriptor}
+                      {model.maker} · {model.bestAt}
                     </em>
+                    <ModelCapabilityBadges model={model} />
                   </span>
                   <span className="switch-option-cta">
                     Switch

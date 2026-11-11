@@ -13,5 +13,5 @@ export const INITIAL_PROVIDER_STATUS: ProviderStatus = {
   configured: false,
   mode: 'nvidia',
   label: 'Checking inference provider',
-  detail: 'Checking whether a server-side NVIDIA key is available.',
+  detail: 'Checking whether live inference is available.',
 }

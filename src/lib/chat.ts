@@ -13,7 +13,7 @@ export type GenerationStats = {
 
 export type ChatMessage = {
   id: string
-  role: 'user' | 'assistant'
+  role: 'user' | 'assistant' | 'system'
   content: string
   createdAt: number
   attachments?: Attachment[]
@@ -26,6 +26,12 @@ export type ChatMessage = {
   redactionCount?: number
   provider?: ProviderMode
   error?: string
+  webSources?: WebSource[]
+}
+
+export type WebSource = {
+  url: string
+  title: string
 }
 
 export type Conversation = {
@@ -34,6 +40,12 @@ export type Conversation = {
   messages: ChatMessage[]
   createdAt: number
   updatedAt: number
+  /** Last model used to send in this chat. */
+  modelId?: string
+  /** Model used for the most recent send, kept until the next send after a switch. */
+  previousModelId?: string
+  /** Tokens this chat may send per request, grown by powers of two. */
+  contextWindow?: number
 }
 
 export function uid() {

@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   Check,
-  Eye,
   FileUp,
   Gauge,
   Info,
@@ -15,6 +14,7 @@ import {
 } from 'lucide-react'
 import { MODEL_TYPES, MODELS, modelsByType, typeInfo } from '../lib/data'
 import type { ProviderStatus } from '../lib/provider'
+import { ModelCapabilityBadges, ModelLogo } from './ModelLogo'
 
 export type SettingsTab = 'general' | 'privacy' | 'about'
 
@@ -206,23 +206,18 @@ export function SettingsModal({
                               className={`settings-model ${selected ? 'is-selected' : ''}`}
                               onClick={() => onModelChange(model.id)}
                             >
-                              <span className="model-choice-glyph" style={{ color: model.color }}>
-                                {model.glyph}
+                              <span className="model-choice-glyph">
+                                <ModelLogo maker={model.maker} size={17} />
                               </span>
                               <span className="settings-model-copy">
                                 <strong>{model.name}</strong>
-                                <small>
-                                  {model.maker} · {model.meta} · {model.descriptor}
-                                  {model.capabilities?.includes('image') && (
-                                    <>
-                                      {' '}
-                                      <span className="model-cap-badge">
-                                        <Eye size={9} />
-                                        Vision
-                                      </span>
-                                    </>
-                                  )}
-                                </small>
+                                <small>{model.bestAt}</small>
+                                <span className="settings-model-tags">
+                                  <ModelCapabilityBadges model={model} />
+                                  <small>
+                                    {model.maker} · {model.meta} · {model.context} context
+                                  </small>
+                                </span>
                               </span>
                               <span className="settings-model-speed">{model.tps} TPS</span>
                               <span className="settings-radio">
@@ -309,7 +304,7 @@ export function SettingsModal({
                 <div>
                   <Gauge size={15} />
                   <span>Files per message</span>
-                  <strong>Up to 5</strong>
+                  <strong>Up to 10</strong>
                 </div>
                 <div>
                   <LockKeyhole size={15} />
@@ -330,7 +325,7 @@ export function SettingsModal({
                 <button
                   className="settings-action danger"
                   onClick={() => {
-                    if (window.confirm('Clear every chat in this tab? This cannot be undone.')) {
+                    if (window.confirm('Clear every chat on this device? This cannot be undone.')) {
                       onClearChats()
                     }
                   }}
@@ -350,7 +345,7 @@ export function SettingsModal({
             <div className="settings-pane">
               <div className="settings-pane-head">
                 <h3>About Mint</h3>
-                <p>A private AI workspace built around the conversation, not the account.</p>
+                <p>A private AI workspace built around the conversation.</p>
               </div>
 
               <div className="about-lockup">
@@ -362,10 +357,9 @@ export function SettingsModal({
               </div>
 
               <p className="about-copy">
-                Mint keeps prompts, files, redaction, and chat history on this device. When a
-                server-side NVIDIA key is available, answers stream from NVIDIA NIM through a local
-                proxy, so the key never enters the browser. Without a key, answers come from the
-                local demo engine.
+                Mint keeps prompts, files, redaction, and chat history on this device. When live
+                inference is available, answers stream from NVIDIA NIM through the server proxy.
+                Without it, answers come from the local demo engine.
               </p>
 
               <div className={`settings-provider ${provider.mode === 'nvidia' ? 'is-live' : ''}`}>
@@ -425,7 +419,7 @@ export function SettingsModal({
               </section>
 
               <p className="settings-fineprint">
-                © 2026 Mint Intelligence. Preview build · NVIDIA NIM when a server key is configured.
+                © 2026 Mint Intelligence. Preview build · NVIDIA NIM when live inference is available.
               </p>
             </div>
           )}

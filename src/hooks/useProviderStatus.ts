@@ -22,8 +22,8 @@ export function useProviderStatus() {
         mode: live ? 'nvidia' : 'demo',
         label: live ? 'NVIDIA NIM' : 'Local demo',
         detail: live
-          ? 'Answers stream from NVIDIA NIM through the server proxy. The key stays on the server.'
-          : 'No server-side NVIDIA key found. Answers come from the local demo engine.',
+          ? 'Answers stream from NVIDIA NIM through the server proxy.'
+          : 'Live inference is not configured. Answers come from the local demo engine.',
       })
     } catch {
       setStatus({

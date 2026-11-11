@@ -1,7 +1,7 @@
 export type ModelType = 'quick' | 'normal' | 'intelligent'
 
-/** File capabilities a model can actually read. Text is always supported. */
-export type FileCapability = 'text' | 'image'
+/** Capabilities a model actually supports. Text is always supported. */
+export type FileCapability = 'text' | 'image' | 'web'
 
 export type ModelTypeInfo = {
   id: ModelType
@@ -45,6 +45,8 @@ export type Model = {
   name: string
   maker: string
   descriptor: string
+  /** What this model is best at, in one sentence. */
+  bestAt: string
   meta: string
   tps: number
   context: string
@@ -66,6 +68,7 @@ export const MODELS: Model[] = [
     name: 'Nemotron 3.5 Lightning',
     maker: 'NVIDIA',
     descriptor: 'Fast drafts',
+    bestAt: 'Quick drafts, short rewrites, and summaries where speed matters most.',
     meta: '30B A3B',
     tps: 185,
     context: '128K',
@@ -78,12 +81,13 @@ export const MODELS: Model[] = [
     name: 'Nemotron 3 Nano Omni',
     maker: 'NVIDIA',
     descriptor: 'Multimodal speed',
+    bestAt: 'Reading screenshots, diagrams, and photos while keeping replies fast.',
     meta: '30B A3B',
     tps: 158,
     context: '128K',
     color: '#B5FF4D',
     glyph: 'N',
-    capabilities: ['image'],
+    capabilities: ['image', 'web'],
   },
   {
     id: 'laguna-xs',
@@ -91,6 +95,7 @@ export const MODELS: Model[] = [
     name: 'Laguna XS 2.1',
     maker: 'Poolside',
     descriptor: 'Code-first',
+    bestAt: 'Code generation, refactors, and debugging across a repository.',
     meta: 'XS',
     tps: 132,
     context: '128K',
@@ -103,11 +108,13 @@ export const MODELS: Model[] = [
     name: 'MiniMax M3.1 Flash',
     maker: 'MiniMax',
     descriptor: 'Balanced chat',
+    bestAt: 'Everyday reasoning, balanced writing, and general conversation.',
     meta: 'M3.1',
     tps: 126,
     context: '128K',
     color: '#7BD3FF',
     glyph: 'M',
+    capabilities: ['web'],
   },
   {
     id: 'muse-glimmer',
@@ -115,11 +122,13 @@ export const MODELS: Model[] = [
     name: 'Muse Glimmer 30B',
     maker: 'Meta',
     descriptor: 'Creative balance',
+    bestAt: 'Creative writing, brainstorming, and tone-sensitive copy.',
     meta: '30B',
     tps: 114,
     context: '128K',
     color: '#E8F1E5',
     glyph: 'M',
+    capabilities: ['web'],
   },
   {
     id: 'mistral-large-4',
@@ -127,11 +136,13 @@ export const MODELS: Model[] = [
     name: 'Mistral Large 4',
     maker: 'Mistral',
     descriptor: 'Frontier reasoning',
+    bestAt: 'Complex analysis, long documents, and high-stakes reasoning.',
     meta: '1T A52B',
     tps: 52,
     context: '256K',
     color: '#FFB454',
     glyph: 'M',
+    capabilities: ['web'],
   },
   {
     id: 'nemotron-super-vl',
@@ -139,12 +150,13 @@ export const MODELS: Model[] = [
     name: 'Nemotron 3.5 Super VL',
     maker: 'NVIDIA',
     descriptor: 'Vision + reasoning',
+    bestAt: 'Vision-heavy analysis, charts, and detailed reasoning over images.',
     meta: '120B A12B',
     tps: 61,
     context: '128K',
     color: '#A8F05A',
     glyph: 'N',
-    capabilities: ['image'],
+    capabilities: ['image', 'web'],
   },
   {
     id: 'nemotron-ultra',
@@ -152,11 +164,13 @@ export const MODELS: Model[] = [
     name: 'Nemotron 3 Ultra',
     maker: 'NVIDIA',
     descriptor: 'Deep reasoning',
+    bestAt: 'Deep multi-step reasoning, research, and hard technical problems.',
     meta: '550B A55B',
     tps: 38,
     context: '128K',
     color: '#9BE72F',
     glyph: 'N',
+    capabilities: ['web'],
   },
   {
     id: 'deepseek-flash',
@@ -164,11 +178,13 @@ export const MODELS: Model[] = [
     name: 'DeepSeek V4.1 Flash',
     maker: 'DeepSeek',
     descriptor: 'Efficient reasoning',
+    bestAt: 'Efficient math, logic, and structured step-by-step reasoning.',
     meta: 'V4.1',
     tps: 88,
     context: '128K',
     color: '#7FB4FF',
     glyph: 'D',
+    capabilities: ['web'],
   },
 ]
 
@@ -195,4 +211,4 @@ export const SAMPLE_PROMPTS = [
 ]
 
 export const FILE_LIMIT = 25 * 1024 * 1024
-export const MAX_FILES = 5
+export const MAX_FILES = 10

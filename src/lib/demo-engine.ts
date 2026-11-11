@@ -256,7 +256,7 @@ function mathAnswer(prompt: string): string | null {
     return `## Result
 **${display} = ${fmt(value)}**
 
-> Calculated locally by Mint's demo engine. Add an NVIDIA key for full model reasoning.`
+> Calculated locally by Mint's demo engine.`
   }
 
   return null
@@ -279,14 +279,14 @@ This equation is an identity: every value of \`x\` satisfies it.
 
 Start with \`${display}\` — the \`x\` terms cancel and both sides are equal.
 
-> Solved locally by Mint's demo engine. Add an NVIDIA key for full model reasoning.`
+> Solved locally by Mint's demo engine.`
     }
     return `## Solution
 This equation has **no solution**.
 
 Start with \`${display}\` — the \`x\` terms cancel, leaving \`${fmt(constant)} = 0\`, which is false.
 
-> Solved locally by Mint's demo engine. Add an NVIDIA key for full model reasoning.`
+> Solved locally by Mint's demo engine.`
   }
 
   const solution = constant / coef
@@ -323,7 +323,7 @@ ${steps.map((step, index) => `${index + 1}. ${step}`).join('\n')}
 ### Check
 ${check}
 
-> Solved locally by Mint's demo engine. Add an NVIDIA key for full model reasoning.`
+> Solved locally by Mint's demo engine.`
 }
 
 function legalAnswer({ prompt, files, redactions }: AnswerInput) {
@@ -432,23 +432,16 @@ function defaultAnswer({ prompt, files, redactions }: AnswerInput) {
   const trimmed = prompt.trim()
   const excerpt = trimmed.slice(0, 180)
   return `## Local demo limitation
-No NVIDIA API key is configured, so this reply comes from Mint's built-in demo engine — not a language model. It only covers a few scripted patterns: legal excerpts, research summaries, email drafts, code reviews, and simple math. It has no real answer for this request.
+Live inference is not configured, so this reply comes from Mint's built-in demo engine — not a language model. It only covers a few scripted patterns: legal excerpts, research summaries, email drafts, code reviews, and simple math. It has no real answer for this request.
 
-**Prompt:** ${excerpt}${trimmed.length > 180 ? '…' : ''}${attachmentLine(files)}${audience}
-
-### Enable live answers
-1. Create a file named \`key\` beside \`package.json\` with one line: \`API KEY:"nvapi-..."\`.
-2. Or set \`NVIDIA_API_KEY\` in \`.env.local\` or \`.env\`.
-3. Restart the dev server if needed, then use **Recheck** in Settings → About.
-
-The key is read only by the Vite server. It never reaches the browser or the chat log.`
+**Prompt:** ${excerpt}${trimmed.length > 180 ? '…' : ''}${attachmentLine(files)}${audience}`
 }
 
 function withImageNote(answer: string, images: string[] | undefined) {
   if (!images?.length) return answer
   const noun = images.length === 1 ? 'image' : 'images'
   const pronoun = images.length === 1 ? 'its' : 'their'
-  return `${answer}\n\n> Image note: the local demo engine can name the attached ${noun} (${images.join(', ')}) but cannot inspect ${pronoun} pixels. Add an NVIDIA key and use a vision model for a real reading.`
+  return `${answer}\n\n> Image note: the local demo engine can name the attached ${noun} (${images.join(', ')}) but cannot inspect ${pronoun} pixels. Use a vision model for a real reading.`
 }
 
 export function buildDemoAnswer(input: AnswerInput): string {

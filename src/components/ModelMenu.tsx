@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { Check, ChevronDown, Eye } from 'lucide-react'
+import { Check, ChevronDown } from 'lucide-react'
 import { MODEL_TYPES, MODELS, modelsByType, typeInfo } from '../lib/data'
 import type { Model } from '../lib/data'
+import { ModelCapabilityBadges, ModelLogo } from './ModelLogo'
 
 type ModelMenuProps = {
   model: Model
@@ -37,8 +38,8 @@ export function ModelMenu({ model, onSelect }: ModelMenuProps) {
         aria-haspopup="listbox"
         aria-expanded={open}
       >
-        <span className="model-glyph" style={{ color: model.color }}>
-          {model.glyph}
+        <span className="model-glyph">
+          <ModelLogo maker={model.maker} size={15} />
         </span>
         <span className="model-trigger-name">{model.name}</span>
         <span
@@ -89,23 +90,21 @@ export function ModelMenu({ model, onSelect }: ModelMenuProps) {
                           setOpen(false)
                         }}
                       >
-                        <span className="model-choice-glyph" style={{ color: item.color }}>
-                          {item.glyph}
+                        <span className="model-choice-glyph">
+                          <ModelLogo maker={item.maker} size={17} />
                         </span>
                         <span className="model-choice-copy">
                           <span>
                             <strong>{item.name}</strong>
-                            {item.capabilities?.includes('image') && (
-                              <span className="model-cap-badge">
-                                <Eye size={9} />
-                                Vision
-                              </span>
-                            )}
                             <small>{item.maker}</small>
                           </span>
-                          <em>
-                            {item.meta} · {item.descriptor} · {item.context} context
-                          </em>
+                          <em className="model-choice-best">{item.bestAt}</em>
+                          <span className="model-choice-tags">
+                            <ModelCapabilityBadges model={item} />
+                            <small>
+                              {item.meta} · {item.context} context
+                            </small>
+                          </span>
                         </span>
                         <span className="model-choice-speed">
                           {item.tps}

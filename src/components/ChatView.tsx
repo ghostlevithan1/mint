@@ -5,6 +5,7 @@ import {
   Code2,
   FileText,
   Mail,
+  Minimize2,
   PanelLeft,
   Scale,
   Settings,
@@ -26,6 +27,7 @@ import {
 import { useAttachments } from '../hooks/useAttachments'
 import { ChatMessageView } from './ChatMessage'
 import { Composer } from './Composer'
+import { ContextMeter } from './ContextMeter'
 import { ModelMenu } from './ModelMenu'
 import { ModelSwitchModal } from './ModelSwitchModal'
 import { ThemeToggle } from './ThemeToggle'
@@ -37,6 +39,11 @@ type ChatViewProps = {
   shieldOn: boolean
   showMetrics: boolean
   isGenerating: boolean
+  contextUsed: number
+  contextWindow: number
+  contextMax: number
+  onCompact: () => void
+  onGrowContext: () => void
   onSelectModel: (id: string) => void
   onToggleShield: () => void
   onSend: (text: string, attachments: Attachment[]) => void
@@ -81,6 +88,11 @@ export function ChatView({
   shieldOn,
   showMetrics,
   isGenerating,
+  contextUsed,
+  contextWindow,
+  contextMax,
+  onCompact,
+  onGrowContext,
   onSelectModel,
   onToggleShield,
   onSend,
@@ -139,6 +151,12 @@ export function ChatView({
 
   const submit = () => {
     if (isGenerating || reading) return
+    if (draft.trim().toLowerCase() === '/compact') {
+      onCompact()
+      setDraft('')
+      textareaRef.current?.focus()
+      return
+    }
     if (!draft.trim() && !attachments.length) return
     if (attachments.length && !modelSupportsAttachments(model, attachments)) {
       setSwitchOpen(true)
@@ -241,6 +259,14 @@ export function ChatView({
           <span className="topbar-title">{isEmpty ? 'New chat' : chat.title}</span>
         </div>
         <div className="topbar-right">
+          <ContextMeter
+            used={contextUsed}
+            window={contextWindow}
+            max={contextMax}
+            modelName={model.name}
+            onCompact={onCompact}
+            onGrow={onGrowContext}
+          />
           <ThemeToggle />
           <button
             className={`topbar-shield ${shieldOn ? 'is-on' : 'is-off'}`}
@@ -300,8 +326,6 @@ export function ChatView({
               <ShieldCheck size={13} />
               <span>Shield {shieldOn ? 'is on' : 'is off'}</span>
               <span className="empty-privacy-sep" />
-              <span>Optional Google sign-in</span>
-              <span className="empty-privacy-sep" />
               <span>25 MB per file</span>
             </div>
           </div>
@@ -341,6 +365,22 @@ export function ChatView({
       )}
 
       <div className="composer-dock">
+        {/^\/\w*$/.test(draft.trim()) && (
+          <div className="slash-hint">
+            <button
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                setDraft('/compact')
+                textareaRef.current?.focus()
+              }}
+            >
+              <Minimize2 size={12} />
+              <strong>/compact</strong>
+              <span>Compress this thread now</span>
+            </button>
+          </div>
+        )}
         <Composer
           text={draft}
           onTextChange={setDraft}
@@ -368,7 +408,7 @@ export function ChatView({
           <div className="drop-card">
             <UploadCloud size={26} />
             <strong>Drop files to attach</strong>
-            <span>Up to 5 files · 25 MB each · read on this device</span>
+            <span>Up to {MAX_FILES} files · 25 MB each · read on this device</span>
           </div>
         </div>
       )}

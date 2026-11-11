@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import type { Attachment } from '../lib/files'
 import type { ProviderStatus } from '../lib/provider'
+import { MAX_FILES } from '../lib/data'
 import { estimateTokens, formatBytes } from '../lib/privacy'
 
 type ComposerProps = {
@@ -206,7 +207,7 @@ export function Composer({
               Shield {shieldOn ? 'on' : 'off'}
             </button>
             <span className="composer-limit">
-              {attachments.length}/5 files · 25 MB max
+              {attachments.length}/{MAX_FILES} files · 25 MB max
             </span>
           </div>
 
@@ -249,7 +250,7 @@ export function Composer({
             ? 'Checking inference…'
             : provider.mode === 'nvidia'
               ? 'NVIDIA NIM · live'
-              : 'Local demo · add key for live'}
+              : 'Local demo'}
         </span>
       </div>
     </div>

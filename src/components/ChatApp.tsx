@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { DEFAULT_MODEL_ID, MODELS } from '../lib/data'
 import { modelById } from '../lib/chat'
+import { clampContextWindow, contextMaxTokens, conversationTokens } from '../lib/context'
 import { redactText } from '../lib/privacy'
 import { useConversations } from '../hooks/useConversations'
 import { useProviderStatus } from '../hooks/useProviderStatus'
@@ -23,6 +24,9 @@ export function ChatApp() {
     selectChat,
     deleteChat,
     clearChats,
+    compactChat,
+    growContext,
+    setChatModel,
   } = useConversations()
   const { status: provider, refresh: refreshProvider } = useProviderStatus()
 
@@ -34,7 +38,18 @@ export function ChatApp() {
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('general')
   const [payloadMessageId, setPayloadMessageId] = useState<string | null>(null)
 
-  const selectedModel = modelById(MODELS, defaultModelId)
+  const selectedModel = modelById(MODELS, activeChat.modelId ?? defaultModelId)
+  const contextMax = contextMaxTokens(selectedModel)
+  const contextWindow = clampContextWindow(activeChat.contextWindow, selectedModel)
+  const contextUsed = useMemo(
+    () => conversationTokens(activeChat.messages),
+    [activeChat.messages],
+  )
+
+  const handleSelectModel = (id: string) => {
+    setDefaultModelId(id)
+    setChatModel(activeId, id)
+  }
 
   const openSettings = (tab: SettingsTab) => {
     setSettingsTab(tab)
@@ -119,7 +134,12 @@ export function ChatApp() {
         shieldOn={shieldOn}
         showMetrics={showMetrics}
         isGenerating={isGenerating}
-        onSelectModel={setDefaultModelId}
+        contextUsed={contextUsed}
+        contextWindow={contextWindow}
+        contextMax={contextMax}
+        onCompact={compactChat}
+        onGrowContext={() => growContext(selectedModel)}
+        onSelectModel={handleSelectModel}
         onToggleShield={() => setShieldOn((value) => !value)}
         onSend={handleSend}
         onStop={stopGenerating}
@@ -133,14 +153,14 @@ export function ChatApp() {
         open={settingsOpen}
         initialTab={settingsTab}
         shieldOn={shieldOn}
-        modelId={defaultModelId}
+        modelId={selectedModel.id}
         provider={provider}
         showMetrics={showMetrics}
         hasPayload={Boolean(lastPayloadId)}
         onClose={() => setSettingsOpen(false)}
         onRefreshProvider={() => void refreshProvider()}
         onShieldChange={setShieldOn}
-        onModelChange={setDefaultModelId}
+        onModelChange={handleSelectModel}
         onShowMetricsChange={setShowMetrics}
         onOpenPayload={() => {
           if (!lastPayloadId) return

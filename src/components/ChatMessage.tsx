@@ -9,7 +9,9 @@ import {
   FileText,
   Fingerprint,
   Gauge,
+  Globe2,
   Image as ImageIcon,
+  Layers,
   RefreshCw,
   ShieldCheck,
   Timer,
@@ -20,6 +22,7 @@ import type { ChatMessage } from '../lib/chat'
 import type { Attachment } from '../lib/files'
 import { formatBytes } from '../lib/privacy'
 import { Markdown } from './Markdown'
+import { ModelLogo } from './ModelLogo'
 
 type ChatMessageProps = {
   message: ChatMessage
@@ -74,6 +77,21 @@ export function ChatMessageView({
 }: ChatMessageProps) {
   const [copied, setCopied] = useState(false)
 
+  if (message.role === 'system') {
+    return (
+      <article className="msg msg-system">
+        <details className="context-note">
+          <summary>
+            <Layers size={13} />
+            <span>Context compacted</span>
+            <small>Earlier turns were summarised to save room.</small>
+          </summary>
+          <pre>{message.content}</pre>
+        </details>
+      </article>
+    )
+  }
+
   if (message.role === 'user') {
     const hasText = message.content.trim().length > 0
     return (
@@ -124,7 +142,7 @@ export function ChatMessageView({
     anchor.href = url
     anchor.download = `mint-${model?.id ?? 'answer'}.md`
     anchor.click()
-    URL.revokeObjectURL(url)
+    window.setTimeout(() => URL.revokeObjectURL(url), 4000)
   }
 
   const redactions = message.redactions ?? []
@@ -135,7 +153,7 @@ export function ChatMessageView({
           title: PHASE_COPY.routing.title,
           detail:
             message.provider === 'nvidia'
-              ? 'Opening a server-side path to NVIDIA NIM. The API key never reaches this tab.'
+              ? 'Opening a secure path to the selected model.'
               : 'Opening a private path to the local demo engine.',
         }
       : PHASE_COPY.shielding
@@ -153,7 +171,8 @@ export function ChatMessageView({
           {model && (
             <>
               <span className="assistant-model">
-                {model.maker} {model.name}
+                <ModelLogo maker={model.maker} size={11} />
+                {model.name}
               </span>
               <span className="assistant-type" style={{ color: typeInfo(model.type).color }}>
                 {typeInfo(model.type).label}
@@ -163,6 +182,26 @@ export function ChatMessageView({
           {message.provider === 'nvidia' && <span className="live-tag">LIVE</span>}
           {message.stopped && <span className="stopped-tag">STOPPED</span>}
         </header>
+
+        {message.webSources && message.webSources.length > 0 && (
+          <div className="web-sources">
+            <span className="web-sources-label">
+              <Globe2 size={11} />
+              Read {message.webSources.length === 1 ? '1 link' : `${message.webSources.length} links`}
+            </span>
+            {message.webSources.map((source) => (
+              <a
+                key={source.url}
+                href={source.url}
+                target="_blank"
+                rel="noreferrer noopener"
+                title={source.url}
+              >
+                {source.title}
+              </a>
+            ))}
+          </div>
+        )}
 
         {message.error && (
           <div className="message-error" role="alert">
