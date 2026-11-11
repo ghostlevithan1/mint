@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
+import katex from 'katex'
 import { Check, Copy, Download, FileCode2 } from 'lucide-react'
 import {
   TEXT_FILE_LIMIT,
@@ -8,12 +9,146 @@ import {
   type FenceInfo,
 } from '../lib/generatedFiles'
 
-function inline(text: string, keyPrefix: string): ReactNode[] {
-  return text.split(/(\*\*[^*]+\*\*)/g).map((part, index) => {
-    if (part.startsWith('**') && part.endsWith('**')) {
-      return <strong key={`${keyPrefix}-${index}`}>{part.slice(2, -2)}</strong>
+type InlineToken =
+  | { type: 'text'; value: string }
+  | { type: 'strong'; value: string }
+  | { type: 'math'; value: string; display: boolean }
+
+/** Renders TeX through KaTeX and falls back to readable source on errors. */
+function MathNode({
+  tex,
+  display,
+  block = false,
+}: {
+  tex: string
+  display: boolean
+  block?: boolean
+}) {
+  let html = ''
+  try {
+    html = katex.renderToString(tex, {
+      displayMode: display,
+      throwOnError: false,
+      strict: false,
+      trust: false,
+    })
+  } catch {
+    return (
+      <code className="math-fallback">
+        {display ? `\\[${tex}\\]` : `\\(${tex}\\)`}
+      </code>
+    )
+  }
+
+  const className = block
+    ? 'math-block-inner'
+    : display
+      ? 'math-display'
+      : 'math-inline'
+  return (
+    <span
+      className={className}
+      // KaTeX escapes the input and emits its own trusted markup.
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  )
+}
+
+/** Inline `$…$` is only treated as math when it does not look like money. */
+function looksLikeInlineMath(value: string): boolean {
+  if (!value || /^\s|\s$/.test(value)) return false
+  return /[\\a-zA-Z^_{}=+\-*/<>]/.test(value)
+}
+
+function tokenizeInline(text: string): InlineToken[] {
+  const tokens: InlineToken[] = []
+  let buffer = ''
+  let index = 0
+
+  const flush = () => {
+    if (!buffer) return
+    tokens.push({ type: 'text', value: buffer })
+    buffer = ''
+  }
+
+  while (index < text.length) {
+    if (text.startsWith('**', index)) {
+      const end = text.indexOf('**', index + 2)
+      if (end > index + 2) {
+        flush()
+        tokens.push({ type: 'strong', value: text.slice(index + 2, end) })
+        index = end + 2
+        continue
+      }
     }
-    return <span key={`${keyPrefix}-${index}`}>{part}</span>
+
+    if (text.startsWith('\\(', index)) {
+      const end = text.indexOf('\\)', index + 2)
+      if (end > index + 2) {
+        flush()
+        tokens.push({ type: 'math', value: text.slice(index + 2, end), display: false })
+        index = end + 2
+        continue
+      }
+    }
+
+    if (text.startsWith('\\[', index)) {
+      const end = text.indexOf('\\]', index + 2)
+      if (end > index + 2) {
+        flush()
+        tokens.push({ type: 'math', value: text.slice(index + 2, end), display: true })
+        index = end + 2
+        continue
+      }
+    }
+
+    if (text.startsWith('$$', index)) {
+      const end = text.indexOf('$$', index + 2)
+      if (end > index + 2) {
+        flush()
+        tokens.push({ type: 'math', value: text.slice(index + 2, end), display: true })
+        index = end + 2
+        continue
+      }
+    }
+
+    if (text[index] === '$') {
+      const end = text.indexOf('$', index + 1)
+      if (end > index + 1) {
+        const value = text.slice(index + 1, end)
+        const previous = index > 0 ? text[index - 1] : ''
+        const next = end + 1 < text.length ? text[end + 1] : ''
+        if (
+          looksLikeInlineMath(value) &&
+          !/\d/.test(previous) &&
+          !/\d/.test(next)
+        ) {
+          flush()
+          tokens.push({ type: 'math', value, display: false })
+          index = end + 1
+          continue
+        }
+      }
+    }
+
+    buffer += text[index]
+    index += 1
+  }
+
+  flush()
+  return tokens
+}
+
+function inline(text: string, keyPrefix: string): ReactNode[] {
+  return tokenizeInline(text).map((token, index) => {
+    const key = `${keyPrefix}-${index}`
+    if (token.type === 'strong') {
+      return <strong key={key}>{inline(token.value, key)}</strong>
+    }
+    if (token.type === 'math') {
+      return <MathNode key={key} tex={token.value} display={token.display} />
+    }
+    return <span key={key}>{token.value}</span>
   })
 }
 
@@ -25,6 +160,7 @@ type Block =
   | { type: 'quote'; text: string }
   | { type: 'table'; rows: string[][] }
   | { type: 'code'; code: string; info: FenceInfo }
+  | { type: 'math'; tex: string }
 
 function CodeFileCard({ code, info }: { code: string; info: FenceInfo }) {
   const [copied, setCopied] = useState(false)
@@ -74,6 +210,32 @@ function CodeFileCard({ code, info }: { code: string; info: FenceInfo }) {
   )
 }
 
+/** Reads a `$$…$$` or `\[…\]` block, including multi-line bodies. */
+function readDisplayMath(
+  lines: string[],
+  start: number,
+  open: string,
+  close: string,
+): { tex: string; next: number } {
+  const afterOpen = lines[start].trim().slice(open.length).trim()
+  if (afterOpen.includes(close)) {
+    return { tex: afterOpen.slice(0, afterOpen.indexOf(close)).trim(), next: start }
+  }
+
+  const body: string[] = afterOpen ? [afterOpen] : []
+  for (let cursor = start + 1; cursor < lines.length; cursor += 1) {
+    const line = lines[cursor]
+    const closeAt = line.indexOf(close)
+    if (closeAt >= 0) {
+      const before = line.slice(0, closeAt).trim()
+      if (before) body.push(before)
+      return { tex: body.join('\n').trim(), next: cursor }
+    }
+    body.push(line)
+  }
+  return { tex: body.join('\n').trim(), next: lines.length - 1 }
+}
+
 function parseBlocks(text: string): Block[] {
   const lines = text.split('\n')
   const blocks: Block[] = []
@@ -91,6 +253,16 @@ function parseBlocks(text: string): Block[] {
 
     if (!trimmed) {
       flushParagraph()
+      continue
+    }
+
+    if (trimmed.startsWith('$$') || trimmed.startsWith('\\[')) {
+      flushParagraph()
+      const open = trimmed.startsWith('$$') ? '$$' : '\\['
+      const close = open === '$$' ? '$$' : '\\]'
+      const { tex, next } = readDisplayMath(lines, index, open, close)
+      blocks.push({ type: 'math', tex })
+      index = next
       continue
     }
 
@@ -212,6 +384,13 @@ export function Markdown({ text }: { text: string }) {
         }
         if (block.type === 'quote') {
           return <blockquote key={index}>{inline(block.text, `q-${index}`)}</blockquote>
+        }
+        if (block.type === 'math') {
+          return (
+            <div className="math-block" key={index}>
+              <MathNode tex={block.tex} display block />
+            </div>
+          )
         }
         if (block.type === 'code') {
           return <CodeFileCard key={index} code={block.code} info={block.info} />

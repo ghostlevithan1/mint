@@ -19,6 +19,7 @@ import {
 } from '../lib/chat'
 import {
   COMPACT_AT,
+  attachmentTokens,
   buildContextMessages,
   compactedHistory,
   compactMessages,
@@ -28,6 +29,7 @@ import {
   growContextWindow,
   initialContextWindow,
   localSummary,
+  messageContextText,
 } from '../lib/context'
 import type { Attachment } from '../lib/files'
 
@@ -130,10 +132,7 @@ function transcriptOf(messages: ChatMessage[]): string {
     .filter((message) => message.role !== 'system' || message.content.trim())
     .map((message) => {
       const role = message.role === 'assistant' ? 'Assistant' : message.role === 'system' ? 'Context' : 'User'
-      const files = message.attachments?.length
-        ? ` [files: ${message.attachments.map((file) => file.name).join(', ')}]`
-        : ''
-      return `${role}: ${message.content}${files}`
+      return `${role}: ${messageContextText(message)}`
     })
     .join('\n\n')
     .slice(0, 30_000)
@@ -417,7 +416,14 @@ export function useConversations() {
       : []
     const userContent = buildLiveContent(promptForModel, context, files, images, webContext)
     const userText = buildLivePrompt(promptForModel, context, files, webContext)
-    const historyBudget = Math.max(128, windowTokens - reserve - estimateTextTokens(userText))
+    // Images are sent as separate parts, so reserve their vision cost too.
+    const imageTokens = input.attachments
+      .filter((file) => file.kind === 'image' && file.dataUrl)
+      .reduce((sum, file) => sum + attachmentTokens(file), 0)
+    const historyBudget = Math.max(
+      128,
+      windowTokens - reserve - estimateTextTokens(userText) - imageTokens,
+    )
     const requestMessages: StreamMessage[] = [
       ...buildContextMessages(input.history, historyBudget),
       { role: 'user', content: userContent },
@@ -581,7 +587,7 @@ export function useConversations() {
 
     const promptTokens =
       estimateTextTokens(content) +
-      estimateTextTokens(attachments.map((file) => file.text).join('\n')) +
+      attachments.reduce((sum, file) => sum + attachmentTokens(file), 0) +
       10
     const projected = () => conversationTokens(history) + promptTokens
 

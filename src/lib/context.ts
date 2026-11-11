@@ -1,5 +1,6 @@
 import type { Model } from './data'
 import { uid, type ChatMessage } from './chat'
+import type { Attachment } from './files'
 
 /** Every chat starts with a small window and doubles until the model limit. */
 export const CONTEXT_START = 2048
@@ -44,9 +45,44 @@ export function estimateTextTokens(text: string): number {
   return Math.max(1, Math.ceil(text.length / 4))
 }
 
+/**
+ * Text files cost their contents. Images cost roughly one token per 750
+ * pixels, falling back to a fixed estimate when dimensions are unavailable.
+ */
+export function attachmentTokens(file: Attachment): number {
+  if (file.kind === 'image') {
+    if (file.width && file.height) {
+      return Math.max(256, Math.min(4096, Math.ceil((file.width * file.height) / 750)))
+    }
+    return 1600
+  }
+  if (file.text) return estimateTextTokens(file.text)
+  return file.name ? estimateTextTokens(file.name) : 0
+}
+
 export function messageTokens(message: ChatMessage): number {
-  const files = message.attachments?.reduce((sum, file) => sum + file.name.length, 0) ?? 0
-  return estimateTextTokens(message.content) + Math.ceil(files / 4) + 6
+  const files =
+    message.attachments?.reduce((sum, file) => sum + attachmentTokens(file), 0) ?? 0
+  return estimateTextTokens(message.content) + files + 6
+}
+
+/** Full text of a turn, including contents of files sent with it. */
+export function messageContextText(message: ChatMessage): string {
+  const files = message.attachments ?? []
+  if (!files.length) return message.content
+
+  const parts: string[] = []
+  if (message.content) parts.push(message.content)
+  for (const file of files) {
+    if (file.text) {
+      parts.push(`Attached file "${file.name}":\n${file.text}`)
+    } else if (file.kind === 'image') {
+      parts.push(`[Image attached: ${file.name}]`)
+    } else {
+      parts.push(`[File attached: ${file.name}]`)
+    }
+  }
+  return parts.join('\n\n')
 }
 
 export function conversationTokens(messages: ChatMessage[]): number {
@@ -74,12 +110,16 @@ export function localSummary(messages: ChatMessage[]): string {
     }
     const label = message.role === 'user' ? 'User' : 'Assistant'
     const text = oneLine(message.content)
-    if (!text) {
+    const attachmentText = oneLine(
+      message.attachments?.map((file) => file.text).filter(Boolean).join(' ') ?? '',
+    )
+    const combined = [text, attachmentText].filter(Boolean).join(' ')
+    if (!combined) {
       const files = message.attachments?.map((file) => file.name).join(', ')
       if (files) lines.push(`${label} shared: ${files}`)
       continue
     }
-    lines.push(`${label}: ${text.slice(0, 240)}${text.length > 240 ? '…' : ''}`)
+    lines.push(`${label}: ${combined.slice(0, 240)}${combined.length > 240 ? '…' : ''}`)
   }
   return lines.join('\n').slice(0, 2400)
 }
@@ -149,7 +189,7 @@ export function buildContextMessages(
 
   for (const message of picked) {
     const maxChars = Math.max(200, left * 4)
-    const content = message.content.slice(0, maxChars)
+    const content = messageContextText(message).slice(0, maxChars)
     selected.push({ role: message.role, content })
     left -= estimateTextTokens(content)
     if (left <= 0) break

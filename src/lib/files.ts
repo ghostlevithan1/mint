@@ -11,6 +11,9 @@ export type Attachment = {
   extension: string
   /** Downscaled data URL for vision models. Images only. */
   dataUrl?: string
+  /** Prepared image size in pixels, used for context estimation. */
+  width?: number
+  height?: number
   /** Present when an image could not be decoded on this device. */
   imageError?: string
 }
@@ -186,7 +189,13 @@ async function decodeImage(file: File): Promise<DecodedImage | undefined> {
   return undefined
 }
 
-async function encodeImage(file: File, outputMime: string): Promise<string | undefined> {
+type PreparedImage = {
+  url: string
+  width: number
+  height: number
+}
+
+async function encodeImage(file: File, outputMime: string): Promise<PreparedImage | undefined> {
   let decoded: DecodedImage | undefined
   try {
     decoded = await decodeImage(file)
@@ -194,7 +203,7 @@ async function encodeImage(file: File, outputMime: string): Promise<string | und
 
     const sourceEdge = Math.max(decoded.width, decoded.height)
     const qualities = outputMime === 'image/png' ? [undefined] : [0.86, 0.7, 0.55, 0.42]
-    let smallest = ''
+    let smallest: PreparedImage | undefined
     let lastEdge = 0
 
     for (const step of SCALE_STEPS) {
@@ -224,11 +233,11 @@ async function encodeImage(file: File, outputMime: string): Promise<string | und
           quality === undefined
             ? canvas.toDataURL(outputMime)
             : canvas.toDataURL(outputMime, quality)
-        if (!smallest || url.length < smallest.length) smallest = url
-        if (url.length <= IMAGE_MAX_CHARS) return url
+        if (!smallest || url.length < smallest.url.length) smallest = { url, width, height }
+        if (url.length <= IMAGE_MAX_CHARS) return { url, width, height }
       }
     }
-    return smallest.length <= IMAGE_MAX_CHARS ? smallest : undefined
+    return smallest && smallest.url.length <= IMAGE_MAX_CHARS ? smallest : undefined
   } catch {
     return undefined
   } finally {
@@ -370,6 +379,8 @@ export async function readAttachment(
   }
 
   let dataUrl: string | undefined
+  let width: number | undefined
+  let height: number | undefined
   let imageError: string | undefined
   if (kind === 'image') {
     const sourceMime = imageMimeOf(file, extension)
@@ -380,13 +391,26 @@ export async function readAttachment(
     } else if (options.convertImagesToJpeg !== false || sourceMime === 'image/gif') {
       // GIF is never accepted upstream, so still GIFs become JPEG even when
       // automatic conversion is switched off.
-      dataUrl = await encodeImage(file, 'image/jpeg')
-      // If the browser cannot re-encode, a JPEG original can still be sent.
-      if (!dataUrl) dataUrl = await readRawImage(file, JPEG_MIMES)
+      const prepared = await encodeImage(file, 'image/jpeg')
+      if (prepared) {
+        dataUrl = prepared.url
+        width = prepared.width
+        height = prepared.height
+      } else {
+        // If the browser cannot re-encode, a JPEG original can still be sent.
+        dataUrl = await readRawImage(file, JPEG_MIMES)
+      }
     } else {
       // Keep the original file when it is already a format the proxy accepts.
       dataUrl = await readRawImage(file, SERVER_IMAGE_MIMES)
-      if (!dataUrl) dataUrl = await encodeImage(file, preservedImageMime(file, extension))
+      if (!dataUrl) {
+        const prepared = await encodeImage(file, preservedImageMime(file, extension))
+        if (prepared) {
+          dataUrl = prepared.url
+          width = prepared.width
+          height = prepared.height
+        }
+      }
     }
     if (!dataUrl && !imageError) {
       imageError = 'This image could not be prepared for sending on this device.'
@@ -401,6 +425,8 @@ export async function readAttachment(
     text,
     extension: extension || 'file',
     dataUrl,
+    width,
+    height,
     imageError,
   }
 }

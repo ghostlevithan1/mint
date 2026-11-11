@@ -17,7 +17,8 @@ import {
 import type { Attachment } from '../lib/files'
 import type { ProviderStatus } from '../lib/provider'
 import { MAX_FILES } from '../lib/data'
-import { estimateTokens, formatBytes } from '../lib/privacy'
+import { attachmentTokens, estimateTextTokens } from '../lib/context'
+import { formatBytes } from '../lib/privacy'
 
 type ComposerProps = {
   text: string
@@ -68,7 +69,9 @@ export function Composer({
   onStop,
 }: ComposerProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const tokens = estimateTokens(`${text}\n${attachments.map((file) => file.text).join('\n')}`)
+  const tokens =
+    estimateTextTokens(text) +
+    attachments.reduce((sum, file) => sum + attachmentTokens(file), 0)
   const unreadableImages = attachments.filter(
     (file) => file.kind === 'image' && !file.dataUrl,
   )
