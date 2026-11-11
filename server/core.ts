@@ -14,7 +14,7 @@ const IMAGE_DATA_URL = /^data:image\/(?:png|jpe?g|webp);base64,/i
 
 // Output budget bounds; keep in sync with src/lib/context.ts.
 const MIN_OUTPUT_TOKENS = 4096
-const MAX_OUTPUT_TOKENS = 8192
+const MAX_OUTPUT_TOKENS = 16384
 
 type Role = 'user' | 'assistant' | 'system'
 type UpstreamContentPart =
@@ -388,7 +388,7 @@ export async function createChatResponse(
         throw new HttpError(
           429,
           'RATE_LIMITED',
-          'The free NVIDIA tier is busy right now. Wait 30–60 seconds and try again, or switch to a lighter model (Quick or Normal).',
+          'The free NVIDIA tier allows about 40 requests per minute, shared across everyone on this site. Wait ~60 seconds and try again, or switch to a lighter model (Quick or Normal).',
         )
       }
       throw new HttpError(

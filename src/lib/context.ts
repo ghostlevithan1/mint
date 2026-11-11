@@ -57,7 +57,7 @@ export function growContextWindow(current: number, maxTokens: number): number {
  * current context window rather than using a small fixed cap.
  */
 export const MIN_OUTPUT_TOKENS = 4096
-export const MAX_OUTPUT_TOKENS = 8192
+export const MAX_OUTPUT_TOKENS = 16384
 
 export function outputBudgetTokens(windowTokens: number): number {
   const scaled = Math.floor(Math.max(1, windowTokens) / 2)
