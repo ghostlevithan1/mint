@@ -14,7 +14,7 @@ const IMAGE_DATA_URL = /^data:image\/(?:png|jpe?g|webp);base64,/i
 
 // Output budget bounds; keep in sync with src/lib/context.ts.
 const MIN_OUTPUT_TOKENS = 4096
-const MAX_OUTPUT_TOKENS = 16384
+const MAX_OUTPUT_TOKENS = 8192
 
 type Role = 'user' | 'assistant' | 'system'
 type UpstreamContentPart =
@@ -54,6 +54,7 @@ function overrideEnvName(id: string) {
 
 const SYSTEM_PROMPT = `You are Mint, a private AI assistant in a security-focused workspace.
 Answer the user's latest message directly and helpfully.
+Give the shortest complete answer: no preamble, no filler, no restating the question.
 Think efficiently: keep any internal scratchpad brief so there is room for a complete answer.
 Use GitHub-flavored Markdown when it improves clarity.
 If attached file context is included, ground the answer in it and say when the context is incomplete.
@@ -387,7 +388,7 @@ export async function createChatResponse(
         throw new HttpError(
           429,
           'RATE_LIMITED',
-          'NVIDIA is rate limiting this key. Wait a moment and try again.',
+          'The free NVIDIA tier is busy right now. Wait 30–60 seconds and try again, or switch to a lighter model (Quick or Normal).',
         )
       }
       throw new HttpError(
