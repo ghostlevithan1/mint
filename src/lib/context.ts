@@ -51,6 +51,19 @@ export function growContextWindow(current: number, maxTokens: number): number {
   return Math.min(power, maxTokens)
 }
 
+/**
+ * Answer budget (reasoning + answer combined) sent to the model. Reasoning
+ * models burn output tokens on scratchpad, so the budget scales with the
+ * current context window rather than using a small fixed cap.
+ */
+export const MIN_OUTPUT_TOKENS = 4096
+export const MAX_OUTPUT_TOKENS = 16384
+
+export function outputBudgetTokens(windowTokens: number): number {
+  const scaled = Math.floor(Math.max(1, windowTokens) / 2)
+  return Math.min(MAX_OUTPUT_TOKENS, Math.max(MIN_OUTPUT_TOKENS, scaled))
+}
+
 export function clampContextWindow(window: number | undefined, model: Model): number {
   const max = contextMaxTokens(model)
   const current = Math.round(window ?? initialContextWindow(max))

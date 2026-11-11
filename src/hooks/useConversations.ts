@@ -28,6 +28,7 @@ import {
   estimateTextTokens,
   growContextWindow,
   initialContextWindow,
+  outputBudgetTokens,
   localSummary,
   messageContextText,
 } from '../lib/context'
@@ -161,7 +162,7 @@ async function compressWithModel(
             { role: 'user', content: transcriptOf(messages) },
           ],
           temperature: 0.2,
-          max_tokens: 800,
+          max_tokens: 2048,
         },
         {
           signal: controller.signal,
@@ -359,7 +360,10 @@ export function useConversations() {
       initialContextWindow(maxTokens),
       Math.min(input.contextWindow, maxTokens),
     )
-    const reserve = Math.min(1800, Math.floor(windowTokens * 0.25))
+    // Reasoning + answer share one output budget; scale it with the model's
+    // context window so scratchpad-heavy turns still leave room for an answer.
+    const outputTokens = outputBudgetTokens(windowTokens)
+    const reserve = Math.min(outputTokens, Math.max(1800, Math.floor(windowTokens * 0.25)))
     const fileBudget = Math.max(2000, Math.floor((windowTokens - reserve) * 0.6 * 4))
     const fileText = input.attachments
       .map((file) => file.text)
@@ -487,6 +491,7 @@ export function useConversations() {
         {
           model: input.model.id,
           messages: requestMessages,
+          max_tokens: outputTokens,
         },
         {
           signal: controller.signal,

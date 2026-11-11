@@ -12,6 +12,10 @@ const MAX_IMAGE_TOTAL_CHARS = 12_500_000
 const MAX_PARTS_PER_MESSAGE = MAX_IMAGES + 2
 const IMAGE_DATA_URL = /^data:image\/(?:png|jpe?g|webp);base64,/i
 
+// Output budget bounds; keep in sync with src/lib/context.ts.
+const MIN_OUTPUT_TOKENS = 4096
+const MAX_OUTPUT_TOKENS = 16384
+
 type Role = 'user' | 'assistant' | 'system'
 type UpstreamContentPart =
   | { type: 'text'; text: string }
@@ -19,7 +23,7 @@ type UpstreamContentPart =
 type UpstreamMessage = { role: Role | 'system'; content: string | UpstreamContentPart[] }
 export type JsonRecord = Record<string, unknown>
 
-export const DEFAULT_APP_MODEL = 'minimax-flash'
+export const DEFAULT_APP_MODEL = 'nemotron-nano-omni'
 
 // App model IDs grouped by intelligence tier: Quick, Normal, Intelligent.
 const DEFAULT_MODEL_IDS: Record<string, string> = {
@@ -50,6 +54,7 @@ function overrideEnvName(id: string) {
 
 const SYSTEM_PROMPT = `You are Mint, a private AI assistant in a security-focused workspace.
 Answer the user's latest message directly and helpfully.
+Think efficiently: keep any internal scratchpad brief so there is room for a complete answer.
 Use GitHub-flavored Markdown when it improves clarity.
 If attached file context is included, ground the answer in it and say when the context is incomplete.
 Do not invent sources, statistics, or file contents.
@@ -332,7 +337,7 @@ export async function createChatResponse(
       messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...messages],
       temperature: numberIn(record.temperature, 0, 1.5, 0.6),
       top_p: 0.95,
-      max_tokens: Math.round(numberIn(record.max_tokens, 128, 4096, 1600)),
+      max_tokens: Math.round(numberIn(record.max_tokens, 128, MAX_OUTPUT_TOKENS, MIN_OUTPUT_TOKENS)),
       stream: true,
     }
 
