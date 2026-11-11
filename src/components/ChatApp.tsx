@@ -4,6 +4,7 @@ import { modelById } from '../lib/chat'
 import { clampContextWindow, contextMaxTokens, conversationTokens } from '../lib/context'
 import { redactText } from '../lib/privacy'
 import { applyTheme, getStoredTheme, saveTheme, type Theme } from '../lib/theme'
+import { getStoredJpegConversion, saveJpegConversion } from '../lib/preferences'
 import { useConversations } from '../hooks/useConversations'
 import { useProviderStatus } from '../hooks/useProviderStatus'
 import type { Attachment } from '../lib/files'
@@ -33,6 +34,7 @@ export function ChatApp() {
 
   const [defaultModelId, setDefaultModelId] = useState(DEFAULT_MODEL_ID)
   const [themeId, setThemeId] = useState<Theme>(getStoredTheme)
+  const [convertImagesToJpeg, setConvertImagesToJpeg] = useState(getStoredJpegConversion)
   const [shieldOn, setShieldOn] = useState(true)
   const [showMetrics, setShowMetrics] = useState(true)
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -97,6 +99,10 @@ export function ChatApp() {
   }, [themeId])
 
   useEffect(() => {
+    saveJpegConversion(convertImagesToJpeg)
+  }, [convertImagesToJpeg])
+
+  useEffect(() => {
     if (!sidebarOpen) return
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setSidebarOpen(false)
@@ -140,6 +146,7 @@ export function ChatApp() {
         provider={provider}
         shieldOn={shieldOn}
         showMetrics={showMetrics}
+        convertImagesToJpeg={convertImagesToJpeg}
         isGenerating={isGenerating}
         contextUsed={contextUsed}
         contextWindow={contextWindow}
@@ -164,6 +171,7 @@ export function ChatApp() {
         provider={provider}
         themeId={themeId}
         showMetrics={showMetrics}
+        convertImagesToJpeg={convertImagesToJpeg}
         hasPayload={Boolean(lastPayloadId)}
         onClose={() => setSettingsOpen(false)}
         onRefreshProvider={() => void refreshProvider()}
@@ -171,6 +179,7 @@ export function ChatApp() {
         onModelChange={handleSelectModel}
         onThemeChange={setThemeId}
         onShowMetricsChange={setShowMetrics}
+        onConvertImagesChange={setConvertImagesToJpeg}
         onOpenPayload={() => {
           if (!lastPayloadId) return
           setSettingsOpen(false)

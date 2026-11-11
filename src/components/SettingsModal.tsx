@@ -3,6 +3,7 @@ import {
   Check,
   FileUp,
   Gauge,
+  Image as ImageIcon,
   Info,
   LockKeyhole,
   Palette,
@@ -11,6 +12,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Trash2,
+  TriangleAlert,
   X,
 } from 'lucide-react'
 import { MODEL_TYPES, MODELS, modelsByType, typeInfo } from '../lib/data'
@@ -28,12 +30,14 @@ type SettingsModalProps = {
   provider: ProviderStatus
   themeId: Theme
   showMetrics: boolean
+  convertImagesToJpeg: boolean
   hasPayload: boolean
   onClose: () => void
   onShieldChange: (value: boolean) => void
   onModelChange: (id: string) => void
   onThemeChange: (theme: Theme) => void
   onShowMetricsChange: (value: boolean) => void
+  onConvertImagesChange: (value: boolean) => void
   onOpenPayload: () => void
   onClearChats: () => void
   onRefreshProvider: () => void
@@ -76,12 +80,14 @@ export function SettingsModal({
   provider,
   themeId,
   showMetrics,
+  convertImagesToJpeg,
   hasPayload,
   onClose,
   onShieldChange,
   onModelChange,
   onThemeChange,
   onShowMetricsChange,
+  onConvertImagesChange,
   onOpenPayload,
   onClearChats,
   onRefreshProvider,
@@ -316,6 +322,37 @@ export function SettingsModal({
                     label="Show generation metrics"
                     onChange={onShowMetricsChange}
                   />
+                </div>
+              </section>
+
+              <section className="settings-section">
+                <h4 className="settings-section-title">
+                  <ImageIcon size={13} /> Images
+                </h4>
+                <p className="settings-help">
+                  Raster images are prepared on this device before they reach a vision model.
+                  Applies to newly attached files.
+                </p>
+                <div className="setting-row">
+                  <div>
+                    <strong>Convert images to JPEG</strong>
+                    <span>
+                      Re-encodes PNG, WebP, HEIC, and other raster formats to JPEG before sending.
+                    </span>
+                  </div>
+                  <Toggle
+                    checked={convertImagesToJpeg}
+                    label="Convert images to JPEG"
+                    onChange={onConvertImagesChange}
+                  />
+                </div>
+                <div className="settings-warning" role="note">
+                  <TriangleAlert size={15} />
+                  <p>
+                    {convertImagesToJpeg
+                      ? 'Sending images uses mobile data and model context. JPEG output is downscaled on this device to limit both, but large photos can still be expensive.'
+                      : 'JPEG conversion is off. Images keep their original format and resolution when possible, which can use more mobile data and model context.'}
+                  </p>
                 </div>
               </section>
 

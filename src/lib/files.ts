@@ -15,6 +15,11 @@ export type Attachment = {
   imageError?: string
 }
 
+export type ReadAttachmentOptions = {
+  /** Re-encode decodable raster images as JPEG before sending. Defaults to true. */
+  convertImagesToJpeg?: boolean
+}
+
 const TEXT_EXTENSIONS = new Set([
   'txt',
   'md',
@@ -40,14 +45,45 @@ const TEXT_EXTENSIONS = new Set([
 
 const CODE_EXTENSIONS = new Set(['js', 'jsx', 'ts', 'tsx', 'py', 'css', 'html', 'json', 'sh', 'svg'])
 const SHEET_EXTENSIONS = new Set(['csv', 'xls', 'xlsx', 'numbers'])
-const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'heic'])
+const IMAGE_EXTENSIONS = new Set([
+  'png',
+  'jpg',
+  'jpeg',
+  'jfif',
+  'gif',
+  'webp',
+  'bmp',
+  'heic',
+  'heif',
+  'avif',
+  'tif',
+  'tiff',
+  'ico',
+])
 
 const IMAGE_MAX_EDGE = 1600
 const IMAGE_DECODE_EDGE = 2400
 const IMAGE_MAX_CHARS = 1_200_000
 /** Base64 inflates by ~4/3; keep a raw fallback under the client data-URL cap. */
 const RAW_IMAGE_FALLBACK_BYTES = 850_000
-const ACCEPTED_IMAGE_DATA_URL = /^data:image\/(?:png|jpe?g|webp|gif);base64,/i
+const SERVER_IMAGE_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
+const JPEG_MIMES = new Set(['image/jpeg'])
+const MIME_BY_EXTENSION: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  jfif: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  bmp: 'image/bmp',
+  heic: 'image/heic',
+  heif: 'image/heif',
+  avif: 'image/avif',
+  tif: 'image/tiff',
+  tiff: 'image/tiff',
+  ico: 'image/x-icon',
+}
+const SCALE_STEPS = [IMAGE_MAX_EDGE, 1280, 1024, 816, 640, 480]
 
 export function extensionOf(name: string) {
   const parts = name.split('.')
@@ -65,6 +101,23 @@ export function kindOf(extension: string, mime = ''): AttachmentKind {
   if (mime.toLowerCase().startsWith('image/')) return 'image'
   return 'other'
 }
+
+function imageMimeOf(file: File, extension: string) {
+  const declared = file.type.trim().toLowerCase()
+  if (declared === 'image/jpg') return 'image/jpeg'
+  if (declared.startsWith('image/')) return declared
+  return MIME_BY_EXTENSION[extension] ?? ''
+}
+
+/** The format to keep when JPEG conversion is disabled. */
+function preservedImageMime(file: File, extension: string) {
+  const mime = imageMimeOf(file, extension)
+  if (mime === 'image/jpeg' || mime === 'image/png' || mime === 'image/webp') return mime
+  // Canvas cannot reliably write GIF, BMP, HEIC, TIFF, or AVIF. PNG keeps the
+  // image lossless and is accepted by the proxy.
+  return 'image/png'
+}
+
 
 type DecodedImage = {
   source: CanvasImageSource
@@ -134,31 +187,47 @@ async function decodeImage(file: File): Promise<DecodedImage | undefined> {
   return undefined
 }
 
-async function encodeImage(file: File): Promise<string | undefined> {
+async function encodeImage(file: File, outputMime: string): Promise<string | undefined> {
   let decoded: DecodedImage | undefined
   try {
     decoded = await decodeImage(file)
     if (!decoded || !decoded.width || !decoded.height) return undefined
 
-    const scale = Math.min(1, IMAGE_MAX_EDGE / Math.max(decoded.width, decoded.height))
-    const width = Math.max(1, Math.round(decoded.width * scale))
-    const height = Math.max(1, Math.round(decoded.height * scale))
-    const canvas = document.createElement('canvas')
-    canvas.width = width
-    canvas.height = height
-    const context = canvas.getContext('2d')
-    if (!context) return undefined
-
-    // Flatten transparency onto white so JPEG encoding stays predictable.
-    context.fillStyle = '#ffffff'
-    context.fillRect(0, 0, width, height)
-    context.drawImage(decoded.source, 0, 0, width, height)
-
+    const sourceEdge = Math.max(decoded.width, decoded.height)
+    const qualities = outputMime === 'image/png' ? [undefined] : [0.86, 0.7, 0.55, 0.42]
     let smallest = ''
-    for (const quality of [0.86, 0.7, 0.55, 0.42]) {
-      const url = canvas.toDataURL('image/jpeg', quality)
-      if (!smallest || url.length < smallest.length) smallest = url
-      if (url.length <= IMAGE_MAX_CHARS) return url
+    let lastEdge = 0
+
+    for (const step of SCALE_STEPS) {
+      // Never upscale, and skip repeated sizes for images smaller than the cap.
+      const edge = Math.min(step, sourceEdge)
+      if (edge === lastEdge) continue
+      lastEdge = edge
+
+      const scale = edge / sourceEdge
+      const width = Math.max(1, Math.round(decoded.width * scale))
+      const height = Math.max(1, Math.round(decoded.height * scale))
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      const context = canvas.getContext('2d')
+      if (!context) return undefined
+
+      if (outputMime === 'image/jpeg') {
+        // Flatten transparency onto white so JPEG encoding stays predictable.
+        context.fillStyle = '#ffffff'
+        context.fillRect(0, 0, width, height)
+      }
+      context.drawImage(decoded.source, 0, 0, width, height)
+
+      for (const quality of qualities) {
+        const url =
+          quality === undefined
+            ? canvas.toDataURL(outputMime)
+            : canvas.toDataURL(outputMime, quality)
+        if (!smallest || url.length < smallest.length) smallest = url
+        if (url.length <= IMAGE_MAX_CHARS) return url
+      }
     }
     return smallest.length <= IMAGE_MAX_CHARS ? smallest : undefined
   } catch {
@@ -168,9 +237,9 @@ async function encodeImage(file: File): Promise<string | undefined> {
   }
 }
 
-function hasImageSignature(bytes: Uint8Array) {
+function imageSignatureMime(bytes: Uint8Array) {
   if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
-    return true
+    return 'image/jpeg'
   }
   if (
     bytes.length >= 8 &&
@@ -179,54 +248,56 @@ function hasImageSignature(bytes: Uint8Array) {
     bytes[2] === 0x4e &&
     bytes[3] === 0x47
   ) {
-    return true
+    return 'image/png'
   }
   if (bytes.length >= 6 && String.fromCharCode(...bytes.slice(0, 6)).startsWith('GIF8')) {
-    return true
+    return 'image/gif'
   }
   if (
     bytes.length >= 12 &&
     String.fromCharCode(...bytes.slice(0, 4)) === 'RIFF' &&
     String.fromCharCode(...bytes.slice(8, 12)) === 'WEBP'
   ) {
-    return true
+    return 'image/webp'
   }
-  return false
+  return ''
 }
 
-async function readRawImage(file: File): Promise<string | undefined> {
+async function readRawImage(file: File, allowed: Set<string>): Promise<string | undefined> {
   // Only fall back to the original bytes when they fit the server limit.
   if (file.size <= 0 || file.size > RAW_IMAGE_FALLBACK_BYTES) {
-    return Promise.resolve(undefined)
+    return undefined
   }
 
-  // Decoding failed; make sure the bytes at least look like a supported image
-  // before forwarding the original file upstream.
+  // Make sure the bytes match an accepted format before forwarding the
+  // original file upstream, regardless of what the file name or MIME claims.
+  let mime = ''
   try {
     const header = new Uint8Array(await file.slice(0, 12).arrayBuffer())
-    if (!hasImageSignature(header)) return undefined
+    mime = imageSignatureMime(header)
   } catch {
     return undefined
   }
+  if (!mime || !allowed.has(mime)) return undefined
 
   return new Promise<string | undefined>((resolve) => {
     const reader = new FileReader()
     reader.onload = () => {
-      const url = typeof reader.result === 'string' ? reader.result : ''
-      resolve(
-        url.length > 64 &&
-          ACCEPTED_IMAGE_DATA_URL.test(url) &&
-          url.length <= IMAGE_MAX_CHARS
-          ? url
-          : undefined,
-      )
+      const raw = typeof reader.result === 'string' ? reader.result : ''
+      const comma = raw.indexOf(',')
+      if (comma < 0) return resolve(undefined)
+      const url = `data:${mime};base64,${raw.slice(comma + 1)}`
+      resolve(url.length > 64 && url.length <= IMAGE_MAX_CHARS ? url : undefined)
     }
     reader.onerror = () => resolve(undefined)
     reader.readAsDataURL(file)
   })
 }
 
-export async function readAttachment(file: File): Promise<Attachment> {
+export async function readAttachment(
+  file: File,
+  options: ReadAttachmentOptions = {},
+): Promise<Attachment> {
   const extension = extensionOf(file.name)
   const kind = kindOf(extension, file.type)
   let text = ''
@@ -240,8 +311,15 @@ export async function readAttachment(file: File): Promise<Attachment> {
 
   let dataUrl: string | undefined
   if (kind === 'image') {
-    dataUrl = await encodeImage(file)
-    if (!dataUrl) dataUrl = await readRawImage(file)
+    if (options.convertImagesToJpeg !== false) {
+      dataUrl = await encodeImage(file, 'image/jpeg')
+      // If the browser cannot re-encode, a JPEG original can still be sent.
+      if (!dataUrl) dataUrl = await readRawImage(file, JPEG_MIMES)
+    } else {
+      // Keep the original file when it is already a format the proxy accepts.
+      dataUrl = await readRawImage(file, SERVER_IMAGE_MIMES)
+      if (!dataUrl) dataUrl = await encodeImage(file, preservedImageMime(file, extension))
+    }
   }
 
   return {
@@ -254,10 +332,11 @@ export async function readAttachment(file: File): Promise<Attachment> {
     dataUrl,
     imageError:
       kind === 'image' && !dataUrl
-        ? 'This image could not be decoded on this device.'
+        ? 'This image could not be prepared for sending on this device.'
         : undefined,
   }
 }
+
 
 export type FileValidation = {
   accepted: File[]

@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { MAX_FILES } from '../lib/data'
 import { readAttachment, validateIncoming, type Attachment } from '../lib/files'
 
-export function useAttachments() {
+export function useAttachments(convertImagesToJpeg = true) {
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [error, setError] = useState('')
   const [reading, setReading] = useState(false)
@@ -19,7 +19,9 @@ export function useAttachments() {
     readingRef.current = true
     setReading(true)
     try {
-      const loaded = await Promise.all(accepted.map(readAttachment))
+      const loaded = await Promise.all(
+        accepted.map((file) => readAttachment(file, { convertImagesToJpeg })),
+      )
       setAttachments((current) => [...current, ...loaded].slice(0, MAX_FILES))
       const unreadable = loaded.filter((file) => file.kind === 'image' && !file.dataUrl)
       if (unreadable.length) {

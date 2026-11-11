@@ -810,6 +810,29 @@
   line-height: 1.55;
 }
 
+.settings-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 180, 84, 0.22);
+  border-radius: 9px;
+  background: var(--amber-soft);
+}
+
+.settings-warning svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--amber);
+}
+
+.settings-warning p {
+  color: var(--muted);
+  font-size: 10.5px;
+  line-height: 1.55;
+}
+
 .privacy-hero {
   display: flex;
   align-items: center;

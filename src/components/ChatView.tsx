@@ -37,6 +37,7 @@ type ChatViewProps = {
   provider: ProviderStatus
   shieldOn: boolean
   showMetrics: boolean
+  convertImagesToJpeg: boolean
   isGenerating: boolean
   contextUsed: number
   contextWindow: number
@@ -86,6 +87,7 @@ export function ChatView({
   provider,
   shieldOn,
   showMetrics,
+  convertImagesToJpeg,
   isGenerating,
   contextUsed,
   contextWindow,
@@ -111,7 +113,8 @@ export function ChatView({
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const stickRef = useRef(true)
-  const { attachments, error, reading, addFiles, removeFile, clear } = useAttachments()
+  const { attachments, error, reading, addFiles, removeFile, clear } =
+    useAttachments(convertImagesToJpeg)
 
   const attachmentNeed = needForAttachments(attachments)
   const attachmentBlocked =
