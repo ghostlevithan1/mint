@@ -3,6 +3,7 @@ import { DEFAULT_MODEL_ID, MODELS } from '../lib/data'
 import { modelById } from '../lib/chat'
 import { clampContextWindow, contextMaxTokens, conversationTokens } from '../lib/context'
 import { redactText } from '../lib/privacy'
+import { applyTheme, getStoredTheme, saveTheme, type Theme } from '../lib/theme'
 import { useConversations } from '../hooks/useConversations'
 import { useProviderStatus } from '../hooks/useProviderStatus'
 import type { Attachment } from '../lib/files'
@@ -31,6 +32,7 @@ export function ChatApp() {
   const { status: provider, refresh: refreshProvider } = useProviderStatus()
 
   const [defaultModelId, setDefaultModelId] = useState(DEFAULT_MODEL_ID)
+  const [themeId, setThemeId] = useState<Theme>(getStoredTheme)
   const [shieldOn, setShieldOn] = useState(true)
   const [showMetrics, setShowMetrics] = useState(true)
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -88,6 +90,11 @@ export function ChatApp() {
       shieldOn: assistant.shieldOn !== false,
     }
   }, [payloadMessageId, chats])
+
+  useEffect(() => {
+    applyTheme(themeId)
+    saveTheme(themeId)
+  }, [themeId])
 
   useEffect(() => {
     if (!sidebarOpen) return
@@ -155,12 +162,14 @@ export function ChatApp() {
         shieldOn={shieldOn}
         modelId={selectedModel.id}
         provider={provider}
+        themeId={themeId}
         showMetrics={showMetrics}
         hasPayload={Boolean(lastPayloadId)}
         onClose={() => setSettingsOpen(false)}
         onRefreshProvider={() => void refreshProvider()}
         onShieldChange={setShieldOn}
         onModelChange={handleSelectModel}
+        onThemeChange={setThemeId}
         onShowMetricsChange={setShowMetrics}
         onOpenPayload={() => {
           if (!lastPayloadId) return

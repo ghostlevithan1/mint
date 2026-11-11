@@ -5,6 +5,7 @@ import {
   Gauge,
   Info,
   LockKeyhole,
+  Palette,
   RefreshCw,
   ScanSearch,
   ShieldCheck,
@@ -14,6 +15,7 @@ import {
 } from 'lucide-react'
 import { MODEL_TYPES, MODELS, modelsByType, typeInfo } from '../lib/data'
 import type { ProviderStatus } from '../lib/provider'
+import { THEMES, type Theme } from '../lib/theme'
 import { ModelCapabilityBadges, ModelLogo } from './ModelLogo'
 
 export type SettingsTab = 'general' | 'privacy' | 'about'
@@ -24,11 +26,13 @@ type SettingsModalProps = {
   shieldOn: boolean
   modelId: string
   provider: ProviderStatus
+  themeId: Theme
   showMetrics: boolean
   hasPayload: boolean
   onClose: () => void
   onShieldChange: (value: boolean) => void
   onModelChange: (id: string) => void
+  onThemeChange: (theme: Theme) => void
   onShowMetricsChange: (value: boolean) => void
   onOpenPayload: () => void
   onClearChats: () => void
@@ -70,11 +74,13 @@ export function SettingsModal({
   shieldOn,
   modelId,
   provider,
+  themeId,
   showMetrics,
   hasPayload,
   onClose,
   onShieldChange,
   onModelChange,
+  onThemeChange,
   onShowMetricsChange,
   onOpenPayload,
   onClearChats,
@@ -152,6 +158,72 @@ export function SettingsModal({
                 <h3>General</h3>
                 <p>Choose how new messages run and what the workspace shows you.</p>
               </div>
+
+              <section className="settings-section">
+                <h4 className="settings-section-title">
+                  <Palette size={13} /> Theme
+                </h4>
+                <p className="settings-help">
+                  Pick a palette. It applies across the whole workspace and is remembered on this
+                  device.
+                </p>
+                <div className="theme-grid" role="radiogroup" aria-label="Theme">
+                  {THEMES.map((theme) => {
+                    const selected = theme.id === themeId
+                    return (
+                      <button
+                        key={theme.id}
+                        type="button"
+                        role="radio"
+                        aria-checked={selected}
+                        className={`theme-card ${selected ? 'is-selected' : ''}`}
+                        onClick={() => onThemeChange(theme.id)}
+                        title={theme.name}
+                      >
+                        <span
+                          className="theme-preview"
+                          style={{ background: theme.preview.bg }}
+                          aria-hidden="true"
+                        >
+                          <span
+                            className="theme-preview-rail"
+                            style={{ background: theme.preview.panel }}
+                          >
+                            <span style={{ background: theme.preview.accent }} />
+                            <span style={{ background: theme.preview.text, opacity: 0.28 }} />
+                            <span style={{ background: theme.preview.text, opacity: 0.28 }} />
+                          </span>
+                          <span className="theme-preview-body">
+                            <span
+                              className="theme-preview-bubble"
+                              style={{ background: theme.preview.panel }}
+                            >
+                              <span style={{ background: theme.preview.text, opacity: 0.5 }} />
+                              <span style={{ background: theme.preview.text, opacity: 0.3 }} />
+                            </span>
+                            <span
+                              className="theme-preview-accent"
+                              style={{ background: theme.preview.accent }}
+                            />
+                          </span>
+                          {selected && (
+                            <span
+                              className="theme-check"
+                              style={{
+                                background: theme.preview.accent,
+                                color: theme.preview.bg,
+                              }}
+                            >
+                              <Check size={11} />
+                            </span>
+                          )}
+                        </span>
+                        <span className="theme-card-name">{theme.name}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </section>
 
               <section className="settings-section">
                 <h4>Model type</h4>
