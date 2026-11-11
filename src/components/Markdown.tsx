@@ -1,6 +1,5 @@
-import { useState } from 'react'
+import { memo, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import katex from 'katex'
 import { Check, Copy, Download, FileCode2 } from 'lucide-react'
 import {
   TEXT_FILE_LIMIT,
@@ -14,6 +13,18 @@ type InlineToken =
   | { type: 'strong'; value: string }
   | { type: 'math'; value: string; display: boolean }
 
+type KatexModule = typeof import('katex').default
+
+// KaTeX is ~270 KB of JavaScript. Load it only when a message contains math.
+let katexPromise: Promise<KatexModule> | null = null
+
+function loadKatex(): Promise<KatexModule> {
+  if (!katexPromise) {
+    katexPromise = import('katex').then((module) => module.default)
+  }
+  return katexPromise
+}
+
 /** Renders TeX through KaTeX and falls back to readable source on errors. */
 function MathNode({
   tex,
@@ -24,6 +35,28 @@ function MathNode({
   display: boolean
   block?: boolean
 }) {
+  const [katex, setKatex] = useState<KatexModule | null>(null)
+
+  useEffect(() => {
+    let active = true
+    loadKatex()
+      .then((module) => {
+        if (active) setKatex(() => module)
+      })
+      .catch(() => undefined)
+    return () => {
+      active = false
+    }
+  }, [])
+
+  if (!katex) {
+    return (
+      <code className={`math-fallback${display ? ' math-fallback-display' : ''}`}>
+        {display ? `\\[${tex}\\]` : `\\(${tex}\\)`}
+      </code>
+    )
+  }
+
   let html = ''
   try {
     html = katex.renderToString(tex, {
@@ -350,8 +383,8 @@ function parseBlocks(text: string): Block[] {
   return blocks
 }
 
-export function Markdown({ text }: { text: string }) {
-  const blocks = parseBlocks(text)
+export const Markdown = memo(function Markdown({ text }: { text: string }) {
+  const blocks = useMemo(() => parseBlocks(text), [text])
   return (
     <div className="markdown">
       {blocks.map((block, index) => {
@@ -423,4 +456,4 @@ export function Markdown({ text }: { text: string }) {
       })}
     </div>
   )
-}
+})

@@ -2,8 +2,54 @@ import { readFile, stat } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { extname, resolve, sep } from 'node:path'
+import { brotliCompress, constants, gzip } from 'node:zlib'
+import { promisify } from 'node:util'
 import { handleChatHttp, handleStatusHttp, sendJson } from './node-http'
 import { handleWebHttp } from './web'
+
+const compressBrotli = promisify(brotliCompress)
+const compressGzip = promisify(gzip)
+
+const COMPRESSIBLE_EXTENSIONS = new Set([
+  '.html',
+  '.js',
+  '.mjs',
+  '.css',
+  '.json',
+  '.svg',
+  '.txt',
+  '.map',
+])
+const COMPRESS_MIN_BYTES = 1024
+
+// Compressed copies are kept in memory so each asset is only compressed once
+// per deploy. The whole dist folder is only a few megabytes.
+const compressedCache = new Map<string, { stamp: string; body: Buffer }>()
+
+async function compressedBody(
+  filePath: string,
+  stamp: string,
+  encoding: 'br' | 'gzip',
+  data: Buffer,
+): Promise<Buffer> {
+  const key = `${filePath}\0${encoding}`
+  const cached = compressedCache.get(key)
+  if (cached?.stamp === stamp) return cached.body
+
+  const body =
+    encoding === 'br'
+      ? await compressBrotli(data, {
+          params: { [constants.BROTLI_PARAM_QUALITY]: 5 },
+        })
+      : await compressGzip(data, { level: 6 })
+
+  compressedCache.set(key, { stamp, body })
+  if (compressedCache.size > 96) {
+    const oldest = compressedCache.keys().next().value
+    if (oldest) compressedCache.delete(oldest)
+  }
+  return body
+}
 
 const root = process.cwd()
 const distDir = resolve(root, 'dist')
@@ -87,10 +133,37 @@ async function serveStatic(req: IncomingMessage, res: ServerResponse) {
   const data = await readFile(filePath)
   const extension = extname(filePath).toLowerCase()
   const isHashedAsset = filePath.includes(`${sep}assets${sep}`)
+  const accepts = String(req.headers['accept-encoding'] ?? '')
+  const encoding: 'br' | 'gzip' | '' = accepts.includes('br')
+    ? 'br'
+    : accepts.includes('gzip')
+      ? 'gzip'
+      : ''
+
+  let payload = data
+  const compressible = COMPRESSIBLE_EXTENSIONS.has(extension)
+  if (compressible) {
+    // Caches must not serve an encoded copy to a client that asked for plain
+    // bytes (or the reverse), even when this response is sent uncompressed.
+    res.setHeader('Vary', 'Accept-Encoding')
+  }
+  if (
+    encoding &&
+    compressible &&
+    data.byteLength >= COMPRESS_MIN_BYTES
+  ) {
+    payload = await compressedBody(
+      filePath,
+      `${info?.mtimeMs ?? 0}:${info?.size ?? data.byteLength}`,
+      encoding,
+      data,
+    )
+    res.setHeader('Content-Encoding', encoding)
+  }
 
   res.statusCode = 200
   res.setHeader('Content-Type', MIME_TYPES[extension] ?? 'application/octet-stream')
-  res.setHeader('Content-Length', data.byteLength)
+  res.setHeader('Content-Length', payload.byteLength)
   res.setHeader('X-Content-Type-Options', 'nosniff')
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin')
   res.setHeader(
@@ -102,7 +175,7 @@ async function serveStatic(req: IncomingMessage, res: ServerResponse) {
     res.end()
     return
   }
-  res.end(data)
+  res.end(payload)
 }
 
 const server = createServer((req, res) => {

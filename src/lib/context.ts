@@ -77,10 +77,18 @@ export function attachmentTokens(file: Attachment): number {
   return file.name ? estimateTextTokens(file.name) : 0
 }
 
+const tokenCache = new WeakMap<ChatMessage, number>()
+
 export function messageTokens(message: ChatMessage): number {
+  // Message objects are replaced only when their content changes, so cached
+  // counts stay valid and streaming updates avoid re-counting the whole thread.
+  const cached = tokenCache.get(message)
+  if (cached !== undefined) return cached
   const files =
     message.attachments?.reduce((sum, file) => sum + attachmentTokens(file), 0) ?? 0
-  return estimateTextTokens(message.content) + files + 6
+  const total = estimateTextTokens(message.content) + files + 6
+  tokenCache.set(message, total)
+  return total
 }
 
 /** Full text of a turn, including contents of files sent with it. */

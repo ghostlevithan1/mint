@@ -188,7 +188,7 @@ export const MODELS: Model[] = [
   },
 ]
 
-export const DEFAULT_MODEL_ID = 'minimax-flash'
+export const DEFAULT_MODEL_ID = 'nemotron-nano-omni'
 
 export function typeInfo(id: ModelType) {
   return MODEL_TYPES.find((item) => item.id === id) ?? MODEL_TYPES[0]

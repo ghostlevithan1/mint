@@ -336,16 +336,38 @@ export async function createChatResponse(
       stream: true,
     }
 
-    const upstream = await fetch(NVIDIA_URL, {
-      method: 'POST',
-      headers: {
-        Accept: 'text/event-stream',
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${key}`,
-      },
-      body: JSON.stringify(payload),
-      signal: options.signal,
-    })
+    const controller = new AbortController()
+    const abortUpstream = () => controller.abort()
+    options.signal?.addEventListener('abort', abortUpstream, { once: true })
+    if (options.signal?.aborted) controller.abort()
+    // Only the wait for response headers is bounded; a long stream may run on.
+    const headerTimer = setTimeout(() => controller.abort(), 60_000)
+
+    let upstream: Response
+    try {
+      upstream = await fetch(NVIDIA_URL, {
+        method: 'POST',
+        headers: {
+          Accept: 'text/event-stream',
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${key}`,
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      })
+    } catch (error) {
+      if (controller.signal.aborted && !options.signal?.aborted) {
+        throw new HttpError(
+          504,
+          'MODEL_TIMEOUT',
+          'The selected model did not start responding within 60 seconds. Try again or switch models.',
+        )
+      }
+      throw error
+    } finally {
+      clearTimeout(headerTimer)
+      options.signal?.removeEventListener('abort', abortUpstream)
+    }
 
     if (!upstream.ok) {
       const detail = sanitizeError(await upstream.text(), key)

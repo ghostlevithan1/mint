@@ -1,4 +1,3 @@
-import nlp from 'compromise'
 import type { Redaction } from './data'
 import { MIDDLE_EASTERN_GIVEN_NAMES, NAME_PARTICLES } from './middleEasternNames'
 
@@ -206,7 +205,7 @@ function escapeRegex(value: string) {
  * - Compromise.js person-entity NLP
  * - a curated list of common Middle Eastern given names (local matching)
  */
-export function detectRedactions(text: string): Redaction[] {
+export function detectRedactions(text: string, people: string[] = []): Redaction[] {
   if (!text.trim()) return []
 
   const found: Redaction[] = []
@@ -323,23 +322,18 @@ export function detectRedactions(text: string): Redaction[] {
     pushName(name)
   }
 
-  // Compromise.js NLP: detect person entities.
-  try {
-    const doc = nlp(text)
-    const people = doc.people().out('array') as string[]
-    for (const person of people) {
-      const cleaned = person
-        .replace(/^(mr|mrs|ms|dr|prof)\.?\s+/i, '')
-        .replace(/[.,!?;:]+$/g, '')
-        .trim()
-      if (!cleaned || cleaned.length < 2) continue
-      // Require at least one capitalized/name-like token to avoid junk.
-      if (!/[A-Z\u00C0-\u024F]/.test(cleaned)) continue
-      if (NAME_STOPWORDS.has(cleaned)) continue
-      pushName(cleaned)
-    }
-  } catch {
-    // NLP is best-effort; pattern and list matching below still run.
+  // Compromise.js NLP: detect person entities. The caller loads the library
+  // lazily so it stays out of the initial bundle.
+  for (const person of people) {
+    const cleaned = person
+      .replace(/^(mr|mrs|ms|dr|prof)\.?\s+/i, '')
+      .replace(/[.,!?;:]+$/g, '')
+      .trim()
+    if (!cleaned || cleaned.length < 2) continue
+    // Require at least one capitalized/name-like token to avoid junk.
+    if (!/[A-Z\u00C0-\u024F]/.test(cleaned)) continue
+    if (NAME_STOPWORDS.has(cleaned)) continue
+    pushName(cleaned)
   }
 
   // Custom Middle Eastern name list: match known given names as whole tokens,
@@ -395,6 +389,22 @@ export function detectRedactions(text: string): Redaction[] {
   }
 
   return found
+}
+
+/**
+ * Adds NLP person detection on top of the pattern-based pass. Compromise is
+ * loaded on demand because it is the heaviest dependency in the client.
+ */
+export async function detectRedactionsAsync(text: string): Promise<Redaction[]> {
+  if (!text.trim()) return []
+  let people: string[] = []
+  try {
+    const { default: nlp } = await import('compromise')
+    people = nlp(text).people().out('array') as string[]
+  } catch {
+    // NLP is best-effort; pattern and list matching still run.
+  }
+  return detectRedactions(text, people)
 }
 
 export function redactText(text: string, redactions: Redaction[]): string {

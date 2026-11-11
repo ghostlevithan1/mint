@@ -23,6 +23,9 @@ type StreamRequest = {
 type StreamHandlers = {
   signal: AbortSignal
   onDelta: (delta: string) => void
+  /** Reasoning models stream their scratchpad here before the answer. */
+  onReasoning?: (delta: string) => void
+  onFinish?: (reason: string) => void
   onUsage?: (usage: StreamUsage) => void
 }
 
@@ -93,8 +96,15 @@ export async function streamNvidiaChat(request: StreamRequest, handlers: StreamH
     if (data === '[DONE]') return true
     try {
       const parsed = JSON.parse(data) as StreamChunk
-      const delta = parsed.choices?.[0]?.delta?.content
-      if (typeof delta === 'string' && delta) handlers.onDelta(delta)
+      const choice = parsed.choices?.[0]
+      const delta = choice?.delta
+      if (typeof delta?.reasoning_content === 'string' && delta.reasoning_content) {
+        handlers.onReasoning?.(delta.reasoning_content)
+      }
+      if (typeof delta?.content === 'string' && delta.content) handlers.onDelta(delta.content)
+      if (typeof choice?.finish_reason === 'string' && choice.finish_reason) {
+        handlers.onFinish?.(choice.finish_reason)
+      }
       if (parsed.usage) handlers.onUsage?.(parsed.usage)
     } catch {
       // Ignore keep-alive or malformed provider frames.

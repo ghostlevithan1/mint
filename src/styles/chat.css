@@ -1730,6 +1730,69 @@
   font-size: 13px;
 }
 
+.reasoning-live,
+.reasoning-block {
+  margin-top: 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  font-size: 12px;
+}
+
+.reasoning-head,
+.reasoning-block summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 11px;
+  color: var(--muted);
+  cursor: pointer;
+  list-style: none;
+}
+
+.reasoning-head {
+  cursor: default;
+}
+
+.reasoning-block summary::-webkit-details-marker {
+  display: none;
+}
+
+.reasoning-head span,
+.reasoning-block summary span {
+  color: var(--text-soft);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.reasoning-head svg,
+.reasoning-block summary svg {
+  color: var(--green);
+}
+
+.reasoning-block summary small {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.reasoning-text {
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 0 11px 10px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.reasoning-live .reasoning-text {
+  padding-top: 8px;
+  border-top: 1px solid var(--line-soft);
+}
+
 .message-error {
   display: flex;
   gap: 9px;

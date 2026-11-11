@@ -25,6 +25,8 @@ export type ChatMessage = {
   stopped?: boolean
   redactionCount?: number
   provider?: ProviderMode
+  /** Reasoning models may stream a scratchpad before the answer. */
+  reasoning?: string
   error?: string
   webSources?: WebSource[]
 }

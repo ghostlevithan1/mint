@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { memo, useState } from 'react'
 import {
   AlertTriangle,
+  Brain,
   Check,
   Copy,
   Download,
@@ -66,7 +67,33 @@ const PHASE_COPY = {
   },
 }
 
-export function ChatMessageView({
+function ReasoningPanel({ text, live }: { text: string; live: boolean }) {
+  if (live) {
+    return (
+      <div className="reasoning-live" role="status" aria-live="polite">
+        <div className="reasoning-head">
+          <Brain size={12} />
+          <span>Thinking out loud</span>
+        </div>
+        <div className="reasoning-text">{text}</div>
+      </div>
+    )
+  }
+
+  return (
+    <details className="reasoning-block">
+      <summary>
+        <Brain size={12} />
+        <span>Model reasoning</span>
+        <small>{text.length.toLocaleString()} chars</small>
+      </summary>
+      <div className="reasoning-text">{text}</div>
+    </details>
+  )
+}
+
+export const ChatMessageView = memo(
+  function ChatMessageView({
   message,
   model,
   showMetrics,
@@ -230,6 +257,10 @@ export function ChatMessageView({
           </div>
         )}
 
+        {message.reasoning && (
+          <ReasoningPanel text={message.reasoning} live={streaming && !message.content} />
+        )}
+
         {!waiting && message.content && (
           <div className={`assistant-text ${streaming ? 'is-streaming' : ''}`}>
             <Markdown text={message.content} />
@@ -322,5 +353,23 @@ export function ChatMessageView({
         )}
       </div>
     </article>
+  )
+}, areMessagePropsEqual)
+
+/**
+ * Event handlers are recreated on every parent render but behave identically,
+ * so they are excluded from the comparison. During a stream this keeps every
+ * finished message from re-rendering on each token flush.
+ */
+function areMessagePropsEqual(
+  previous: ChatMessageProps,
+  next: ChatMessageProps,
+): boolean {
+  return (
+    previous.message === next.message &&
+    previous.model === next.model &&
+    previous.showMetrics === next.showMetrics &&
+    previous.isGenerating === next.isGenerating &&
+    previous.canInspect === next.canInspect
   )
 }

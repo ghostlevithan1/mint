@@ -136,9 +136,10 @@ export function ChatView({
     if (!attachmentBlocked) setSwitchOpen(false)
   }, [attachmentBlocked])
 
-  const signature = chat.messages
-    .map((message) => `${message.id}:${message.content.length}:${message.phase}`)
-    .join('|')
+  // Only the growing tail matters for stick-to-bottom scrolling; hashing the
+  // whole thread on every streaming tick is wasted work.
+  const lastMessage = chat.messages[chat.messages.length - 1]
+  const signature = `${chat.messages.length}:${lastMessage?.id ?? ''}:${lastMessage?.content.length ?? 0}:${lastMessage?.reasoning?.length ?? 0}:${lastMessage?.phase ?? ''}`
 
   useEffect(() => {
     if (!stickRef.current) return

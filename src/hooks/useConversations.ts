@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { MODELS, modelCapabilities, type Model, type Redaction } from '../lib/data'
 import { buildDemoAnswer, tokenize } from '../lib/demo-engine'
-import { detectRedactions, redactText, rehydrateText } from '../lib/privacy'
+import { detectRedactionsAsync, redactText, rehydrateText } from '../lib/privacy'
 import { fetchWebContext, extractUrls } from '../lib/web'
 import {
   ChatApiError,
@@ -222,17 +222,23 @@ export function useConversations() {
     }
   }, [])
 
-  // Debounced save so streaming updates don't write on every tick.
+  // Debounced save so streaming updates don't write on every tick. A
+  // longer interval during generation keeps serialization off the hot path.
+  const savedRef = useRef('')
   useEffect(() => {
+    const interval = isGenerating ? 2000 : 800
     const handle = window.setTimeout(() => {
+      const serialized = serializeChats(chats, activeId)
+      if (serialized === savedRef.current) return
       try {
-        localStorage.setItem(STORAGE_KEY, serializeChats(chats, activeId))
+        localStorage.setItem(STORAGE_KEY, serialized)
+        savedRef.current = serialized
       } catch {
         // ignore quota errors — chats stay in memory for this session
       }
-    }, 400)
+    }, interval)
     return () => window.clearTimeout(handle)
-  }, [chats, activeId])
+  }, [chats, activeId, isGenerating])
 
   const patchMessage = (chatId: string, messageId: string, patch: Partial<ChatMessage>) => {
     setChats((current) =>
@@ -434,14 +440,25 @@ export function useConversations() {
       { role: 'user', content: userContent },
     ]
     let raw = ''
+    let reasoningRaw = ''
+    let finishReason = ''
     let firstTokenAt: number | null = null
     let usageTokens = 0
     let lastFlush = 0
 
+    const markFirstToken = () => {
+      if (firstTokenAt !== null) return
+      firstTokenAt = performance.now()
+      patchMessage(input.chatId, input.assistantId, {
+        phase: 'generating',
+        provider: 'nvidia',
+      })
+    }
+
     const currentStats = () => {
       if (firstTokenAt === null) return undefined
       const elapsed = Math.max(0.05, (performance.now() - firstTokenAt) / 1000)
-      const tokens = usageTokens || approximateTokens(raw)
+      const tokens = usageTokens || approximateTokens(raw + reasoningRaw)
       return {
         tps: tokens / elapsed,
         ttft: firstTokenAt - requestStart,
@@ -457,6 +474,9 @@ export function useConversations() {
       lastFlush = now
       patchMessage(input.chatId, input.assistantId, {
         content: rehydrateText(raw, activeRedactions),
+        reasoning: reasoningRaw
+          ? rehydrateText(reasoningRaw, activeRedactions)
+          : undefined,
         phase: 'generating',
         stats: currentStats(),
       })
@@ -472,15 +492,18 @@ export function useConversations() {
           signal: controller.signal,
           onDelta: (delta) => {
             if (runIdRef.current !== runId) return
-            if (firstTokenAt === null) {
-              firstTokenAt = performance.now()
-              patchMessage(input.chatId, input.assistantId, {
-                phase: 'generating',
-                provider: 'nvidia',
-              })
-            }
+            markFirstToken()
             raw += delta
             flush()
+          },
+          onReasoning: (delta) => {
+            if (runIdRef.current !== runId) return
+            markFirstToken()
+            reasoningRaw += delta
+            flush()
+          },
+          onFinish: (reason) => {
+            finishReason = reason
           },
           onUsage: (usage) => {
             if (typeof usage.completion_tokens === 'number') {
@@ -492,12 +515,24 @@ export function useConversations() {
 
       if (runIdRef.current !== runId) return
       flush(true)
+      const reasoning = reasoningRaw
+        ? rehydrateText(reasoningRaw, activeRedactions)
+        : undefined
+      let emptyError: string | undefined
+      if (!raw) {
+        emptyError = reasoningRaw
+          ? finishReason === 'length'
+            ? 'The model ran out of output tokens while reasoning and never wrote an answer. Try again or pick a different model.'
+            : 'The model streamed its reasoning but never wrote a final answer. Try again or pick a different model.'
+          : 'The model returned an empty response. Try again or pick a different model.'
+      }
       patchMessage(input.chatId, input.assistantId, {
         content: rehydrateText(raw, activeRedactions),
+        reasoning,
         phase: 'done',
         provider: 'nvidia',
         stats: currentStats(),
-        error: raw ? undefined : 'The model returned an empty response. Try again.',
+        error: emptyError,
       })
       finishRun(runId)
     } catch (error) {
@@ -512,6 +547,9 @@ export function useConversations() {
       if (error instanceof ChatApiError) {
         patchMessage(input.chatId, input.assistantId, {
           content: rehydrateText(raw, activeRedactions),
+          reasoning: reasoningRaw
+            ? rehydrateText(reasoningRaw, activeRedactions)
+            : undefined,
           phase: 'done',
           provider: 'nvidia',
           stats: currentStats(),
@@ -546,7 +584,7 @@ export function useConversations() {
       0,
       160_000,
     )
-    const detected = detectRedactions(combined)
+    const detected = await detectRedactionsAsync(combined)
     const userMessage: ChatMessage = {
       id: uid(),
       role: 'user',
