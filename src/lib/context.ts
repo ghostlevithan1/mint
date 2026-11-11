@@ -77,10 +77,12 @@ export function estimateTextTokens(text: string): number {
 
 /**
  * Text files cost their contents. Images cost roughly one token per 750
- * pixels, falling back to a fixed estimate when dimensions are unavailable.
+ * pixels. An image whose data URL is gone (e.g. stripped for storage) can't
+ * be sent, so it only costs its name marker.
  */
 export function attachmentTokens(file: Attachment): number {
   if (file.kind === 'image') {
+    if (!file.dataUrl) return estimateTextTokens(file.name ?? 'image') + 2
     if (file.width && file.height) {
       return Math.max(256, Math.min(4096, Math.ceil((file.width * file.height) / 750)))
     }
@@ -104,6 +106,19 @@ export function messageTokens(message: ChatMessage): number {
   return total
 }
 
+/**
+ * Cost used to fit context into the text budget. Images are accounted for by
+ * the separate image allowance, which resends history pictures as image
+ * parts, so they shouldn't eat the text budget and crowd out the conversation.
+ */
+function pickCost(message: ChatMessage): number {
+  const usableImageCost = (message.attachments ?? []).reduce(
+    (sum, file) => (file.kind === 'image' && file.dataUrl ? sum + attachmentTokens(file) : sum),
+    0,
+  )
+  return Math.max(1, messageTokens(message) - usableImageCost)
+}
+
 /** Full text of a turn, including contents of files sent with it. */
 export function messageContextText(message: ChatMessage): string {
   const files = message.attachments ?? []
@@ -115,7 +130,11 @@ export function messageContextText(message: ChatMessage): string {
     if (file.text) {
       parts.push(`Attached file "${file.name}":\n${file.text}`)
     } else if (file.kind === 'image') {
-      parts.push(`[Image attached: ${file.name}]`)
+      parts.push(
+        file.dataUrl
+          ? `[Image attached: ${file.name}]`
+          : `[Image attached: ${file.name} (image unavailable)]`,
+      )
     } else {
       parts.push(`[File attached: ${file.name}]`)
     }
@@ -211,7 +230,7 @@ export function buildContextMessages(
 
   for (let index = normal.length - 1; index >= 0; index -= 1) {
     const message = normal[index]
-    const cost = messageTokens(message)
+    const cost = pickCost(message)
     if (cost > left && picked.length > 0) break
     picked.unshift(message)
     left -= cost

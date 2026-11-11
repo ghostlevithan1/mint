@@ -62,17 +62,57 @@ function createBlankChat(): Conversation {
 
 const STORAGE_KEY = 'mint.chats.v1'
 
-// Persist chats to this device only. Image data URLs are dropped to stay within
-// localStorage limits; the rest of the conversation is kept.
+// Persist chats to this device only. To survive reloads, small attached
+// images are kept inline in the stored payload; everything past the image
+// budget is dropped so text history always fits the localStorage quota.
+// Image payload is UTF-16 in localStorage, so these caps are conservative.
+const PERSIST_IMAGE_MAX_CHARS = 350_000
+const PERSIST_IMAGE_TOTAL_CHARS = 1_200_000
+
 function serializeChats(chats: Conversation[], activeId: string): string {
-  const trimmed = chats.map((chat) => ({
+  const imageRefs: { chatIndex: number; messageIndex: number; attachmentIndex: number; dataUrlLength: number; createdAt: number }[] = []
+  for (let chatIndex = 0; chatIndex < chats.length; chatIndex += 1) {
+    const messages = chats[chatIndex].messages ?? []
+    for (let messageIndex = 0; messageIndex < messages.length; messageIndex += 1) {
+      const attachments = messages[messageIndex].attachments ?? []
+      for (let attachmentIndex = 0; attachmentIndex < attachments.length; attachmentIndex += 1) {
+        const attachment = attachments[attachmentIndex]
+        if (attachment.kind === 'image' && attachment.dataUrl) {
+          imageRefs.push({
+            chatIndex,
+            messageIndex,
+            attachmentIndex,
+            dataUrlLength: attachment.dataUrl.length,
+            createdAt: messages[messageIndex].createdAt,
+          })
+        }
+      }
+    }
+  }
+  imageRefs.sort((a, b) => b.createdAt - a.createdAt)
+  const keepImages = new Set<string>()
+  let imageChars = 0
+  for (const image of imageRefs) {
+    if (image.dataUrlLength > PERSIST_IMAGE_MAX_CHARS) continue
+    if (imageChars + image.dataUrlLength > PERSIST_IMAGE_TOTAL_CHARS) continue
+    imageChars += image.dataUrlLength
+    keepImages.add(`${image.chatIndex}:${image.messageIndex}:${image.attachmentIndex}`)
+  }
+
+  const trimmed = chats.map((chat, chatIndex) => ({
     ...chat,
     title: chat.title,
-    messages: chat.messages.map((message) =>
+    messages: chat.messages.map((message, messageIndex) =>
       message.attachments?.length
         ? {
             ...message,
-            attachments: message.attachments.map(({ dataUrl: _dataUrl, ...rest }) => rest),
+            attachments: message.attachments.map((attachment, attachmentIndex) => {
+              const keep =
+                attachment.kind !== 'image' ||
+                !attachment.dataUrl ||
+                keepImages.has(`${chatIndex}:${messageIndex}:${attachmentIndex}`)
+              return keep ? attachment : { ...attachment, dataUrl: undefined }
+            }),
           }
         : message,
     ),
