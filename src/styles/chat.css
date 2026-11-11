@@ -2259,6 +2259,15 @@
   background: rgba(0, 0, 0, 0.22);
 }
 
+.composer-file.is-error {
+  border-color: rgba(255, 107, 94, 0.35);
+}
+
+.composer-file.is-error .composer-file-glyph,
+.composer-file.is-error .composer-file-copy small {
+  color: var(--red);
+}
+
 .composer-file-glyph {
   display: flex;
   align-items: center;

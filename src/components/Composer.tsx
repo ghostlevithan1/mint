@@ -69,11 +69,18 @@ export function Composer({
 }: ComposerProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const tokens = estimateTokens(`${text}\n${attachments.map((file) => file.text).join('\n')}`)
+  const unreadableImages = attachments.filter(
+    (file) => file.kind === 'image' && !file.dataUrl,
+  )
+  const imageWarning = unreadableImages.length
+    ? `${unreadableImages.map((file) => file.name).join(', ')} could not be read as ${unreadableImages.length === 1 ? 'an image' : 'images'} on this device. Remove ${unreadableImages.length === 1 ? 'it' : 'them'}, or attach a JPEG or PNG copy.`
+    : ''
   const canSend =
     (text.trim().length > 0 || attachments.length > 0) &&
     !reading &&
     !isGenerating &&
-    !routingWarning
+    !routingWarning &&
+    !unreadableImages.length
 
   useEffect(() => {
     const el = textareaRef.current
@@ -107,7 +114,11 @@ export function Composer({
         {attachments.length > 0 && (
           <div className="composer-files">
             {attachments.map((file) => (
-              <span className="composer-file" key={file.id}>
+              <span
+                className={`composer-file${file.kind === 'image' && !file.dataUrl ? ' is-error' : ''}`}
+                key={file.id}
+                title={file.imageError}
+              >
                 <span className={`composer-file-glyph ${file.kind}`}>
                   <FileGlyph kind={file.kind} />
                 </span>
@@ -118,7 +129,7 @@ export function Composer({
                     {file.kind === 'image'
                       ? file.dataUrl
                         ? 'vision ready'
-                        : 'attached'
+                        : 'not readable'
                       : file.text
                         ? 'read locally'
                         : 'held locally'}
@@ -137,9 +148,9 @@ export function Composer({
           </div>
         )}
 
-        {uploadError && (
+        {(uploadError || imageWarning) && (
           <p className="composer-error" role="alert">
-            {uploadError}
+            {uploadError || imageWarning}
           </p>
         )}
 

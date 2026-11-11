@@ -2,14 +2,14 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 const NVIDIA_URL = 'https://integrate.api.nvidia.com/v1/chat/completions'
-export const MAX_BODY_BYTES = 8_000_000
+export const MAX_BODY_BYTES = 16_000_000
 const MAX_MESSAGE_CHARS = 60_000
 const MAX_TOTAL_CHARS = 400_000
 const MAX_MESSAGES = 40
-const MAX_IMAGES = 5
+const MAX_IMAGES = 10
 const MAX_IMAGE_CHARS = 1_600_000
-const MAX_IMAGE_TOTAL_CHARS = 7_000_000
-const MAX_PARTS_PER_MESSAGE = 8
+const MAX_IMAGE_TOTAL_CHARS = 12_500_000
+const MAX_PARTS_PER_MESSAGE = MAX_IMAGES + 2
 const IMAGE_DATA_URL = /^data:image\/(?:png|jpe?g|webp|gif);base64,/i
 
 type Role = 'user' | 'assistant' | 'system'
@@ -230,13 +230,33 @@ function normalizeMessages(value: unknown): UpstreamMessage[] {
         continue
       }
 
-      if (part.type !== 'image_url' || imageCount >= MAX_IMAGES) continue
+      if (part.type !== 'image_url') continue
+      if (imageCount >= MAX_IMAGES) {
+        throw new HttpError(
+          413,
+          'IMAGE_LIMIT',
+          `You can send up to ${MAX_IMAGES} images per message.`,
+        )
+      }
       const image = part.image_url
       const url =
         image && typeof image === 'object'
           ? validImageUrl((image as JsonRecord).url)
           : ''
-      if (!url || totalImageChars + url.length > MAX_IMAGE_TOTAL_CHARS) continue
+      if (!url) {
+        throw new HttpError(
+          400,
+          'IMAGE_INVALID',
+          'An attached image could not be read. Remove it and attach a JPEG or PNG copy.',
+        )
+      }
+      if (totalImageChars + url.length > MAX_IMAGE_TOTAL_CHARS) {
+        throw new HttpError(
+          413,
+          'IMAGE_TOO_LARGE',
+          'The attached images are too large to send together. Remove one and try again.',
+        )
+      }
       imageCount += 1
       totalImageChars += url.length
       parts.push({ type: 'image_url', image_url: { url } })

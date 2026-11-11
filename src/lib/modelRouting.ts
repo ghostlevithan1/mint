@@ -8,13 +8,16 @@ import {
 import type { Attachment } from './files'
 
 /**
- * The capability a set of attachments needs from a model. Images need vision;
- * every other file is handled as text context.
+ * The capability a set of attachments needs from a model. Readable images need
+ * vision; every other file is handled as text context. An image that failed to
+ * decode carries no pixels, so it must not trigger a model switch.
  */
 export type AttachmentNeed = FileCapability
 
 export function needForAttachments(attachments: Attachment[]): AttachmentNeed {
-  return attachments.some((file) => file.kind === 'image') ? 'image' : 'text'
+  return attachments.some((file) => file.kind === 'image' && Boolean(file.dataUrl))
+    ? 'image'
+    : 'text'
 }
 
 export function modelSupportsAttachments(model: Model, attachments: Attachment[]): boolean {
