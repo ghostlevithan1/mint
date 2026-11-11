@@ -66,12 +66,8 @@ const IMAGE_DECODE_EDGE = 2400
 const IMAGE_MAX_CHARS = 1_200_000
 /** Base64 inflates by ~4/3; keep a raw fallback under the client data-URL cap. */
 const RAW_IMAGE_FALLBACK_BYTES = 850_000
-/** Animated GIFs are sent untouched, so allow a little more room than stills. */
-const ANIMATED_GIF_MAX_BYTES = 1_150_000
-const ANIMATED_GIF_MAX_CHARS = 1_550_000
-const SERVER_IMAGE_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
+const SERVER_IMAGE_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp'])
 const JPEG_MIMES = new Set(['image/jpeg'])
-const GIF_MIMES = new Set(['image/gif'])
 const MIME_BY_EXTENSION: Record<string, string> = {
   png: 'image/png',
   jpg: 'image/jpeg',
@@ -327,12 +323,9 @@ async function isAnimatedGif(file: File, extension: string): Promise<boolean> {
 async function readRawImage(
   file: File,
   allowed: Set<string>,
-  limits: { maxBytes?: number; maxChars?: number } = {},
 ): Promise<string | undefined> {
-  const maxBytes = limits.maxBytes ?? RAW_IMAGE_FALLBACK_BYTES
-  const maxChars = limits.maxChars ?? IMAGE_MAX_CHARS
   // Only fall back to the original bytes when they fit the server limit.
-  if (file.size <= 0 || file.size > maxBytes) {
+  if (file.size <= 0 || file.size > RAW_IMAGE_FALLBACK_BYTES) {
     return undefined
   }
 
@@ -354,7 +347,7 @@ async function readRawImage(
       const comma = raw.indexOf(',')
       if (comma < 0) return resolve(undefined)
       const url = `data:${mime};base64,${raw.slice(comma + 1)}`
-      resolve(url.length > 64 && url.length <= maxChars ? url : undefined)
+      resolve(url.length > 64 && url.length <= IMAGE_MAX_CHARS ? url : undefined)
     }
     reader.onerror = () => resolve(undefined)
     reader.readAsDataURL(file)
@@ -377,17 +370,16 @@ export async function readAttachment(
   }
 
   let dataUrl: string | undefined
+  let imageError: string | undefined
   if (kind === 'image') {
-    const animatedGif = await isAnimatedGif(file, extension)
-    if (animatedGif) {
-      // JPEG only holds one frame. Keep the original GIF so animations survive.
-      dataUrl = await readRawImage(file, GIF_MIMES, {
-        maxBytes: ANIMATED_GIF_MAX_BYTES,
-        maxChars: ANIMATED_GIF_MAX_CHARS,
-      })
-      // Oversized animations fall back to their first frame rather than failing.
-      if (!dataUrl) dataUrl = await encodeImage(file, 'image/png')
-    } else if (options.convertImagesToJpeg !== false) {
+    const sourceMime = imageMimeOf(file, extension)
+    if (await isAnimatedGif(file, extension)) {
+      // NVIDIA rejects GIF uploads, so an animation cannot be sent at all.
+      imageError =
+        'Animated GIFs cannot be sent to NVIDIA models. Attach a still image or export a single frame first.'
+    } else if (options.convertImagesToJpeg !== false || sourceMime === 'image/gif') {
+      // GIF is never accepted upstream, so still GIFs become JPEG even when
+      // automatic conversion is switched off.
       dataUrl = await encodeImage(file, 'image/jpeg')
       // If the browser cannot re-encode, a JPEG original can still be sent.
       if (!dataUrl) dataUrl = await readRawImage(file, JPEG_MIMES)
@@ -395,6 +387,9 @@ export async function readAttachment(
       // Keep the original file when it is already a format the proxy accepts.
       dataUrl = await readRawImage(file, SERVER_IMAGE_MIMES)
       if (!dataUrl) dataUrl = await encodeImage(file, preservedImageMime(file, extension))
+    }
+    if (!dataUrl && !imageError) {
+      imageError = 'This image could not be prepared for sending on this device.'
     }
   }
 
@@ -406,10 +401,7 @@ export async function readAttachment(
     text,
     extension: extension || 'file',
     dataUrl,
-    imageError:
-      kind === 'image' && !dataUrl
-        ? 'This image could not be prepared for sending on this device.'
-        : undefined,
+    imageError,
   }
 }
 

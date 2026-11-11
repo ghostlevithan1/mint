@@ -23,13 +23,6 @@ export function useAttachments(convertImagesToJpeg = true) {
         accepted.map((file) => readAttachment(file, { convertImagesToJpeg })),
       )
       setAttachments((current) => [...current, ...loaded].slice(0, MAX_FILES))
-      const unreadable = loaded.filter((file) => file.kind === 'image' && !file.dataUrl)
-      if (unreadable.length) {
-        const names = unreadable.map((file) => file.name).join(', ')
-        setError(
-          `${names} could not be read as ${unreadable.length === 1 ? 'an image' : 'images'} on this device. Try a JPEG or PNG copy, or remove ${unreadable.length === 1 ? 'it' : 'them'} before sending.`,
-        )
-      }
       return loaded
     } catch {
       setError('A file could not be read on this device. Please try another file.')

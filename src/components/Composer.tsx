@@ -73,8 +73,14 @@ export function Composer({
     (file) => file.kind === 'image' && !file.dataUrl,
   )
   const imageWarning = unreadableImages.length
-    ? `${unreadableImages.map((file) => file.name).join(', ')} could not be read as ${unreadableImages.length === 1 ? 'an image' : 'images'} on this device. Remove ${unreadableImages.length === 1 ? 'it' : 'them'}, or attach a JPEG or PNG copy.`
+    ? unreadableImages
+        .map(
+          (file) =>
+            `${file.name}: ${file.imageError ?? 'This image could not be prepared for sending on this device.'}`,
+        )
+        .join(' ')
     : ''
+  const composerError = [uploadError, imageWarning].filter(Boolean).join(' ')
   const canSend =
     (text.trim().length > 0 || attachments.length > 0) &&
     !reading &&
@@ -129,7 +135,7 @@ export function Composer({
                     {file.kind === 'image'
                       ? file.dataUrl
                         ? 'vision ready'
-                        : 'not readable'
+                        : 'not sendable'
                       : file.text
                         ? 'read locally'
                         : 'held locally'}
@@ -148,9 +154,9 @@ export function Composer({
           </div>
         )}
 
-        {(uploadError || imageWarning) && (
+        {composerError && (
           <p className="composer-error" role="alert">
-            {uploadError || imageWarning}
+            {composerError}
           </p>
         )}
 

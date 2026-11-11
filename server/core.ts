@@ -10,7 +10,7 @@ const MAX_IMAGES = 10
 const MAX_IMAGE_CHARS = 1_600_000
 const MAX_IMAGE_TOTAL_CHARS = 12_500_000
 const MAX_PARTS_PER_MESSAGE = MAX_IMAGES + 2
-const IMAGE_DATA_URL = /^data:image\/(?:png|jpe?g|webp|gif);base64,/i
+const IMAGE_DATA_URL = /^data:image\/(?:png|jpe?g|webp);base64,/i
 
 type Role = 'user' | 'assistant' | 'system'
 type UpstreamContentPart =
@@ -247,7 +247,7 @@ function normalizeMessages(value: unknown): UpstreamMessage[] {
         throw new HttpError(
           400,
           'IMAGE_INVALID',
-          'An attached image could not be read. Remove it and attach a JPEG or PNG copy.',
+          'An attached image could not be read. Remove it and attach a JPEG, PNG, or WebP copy.',
         )
       }
       if (totalImageChars + url.length > MAX_IMAGE_TOTAL_CHARS) {
