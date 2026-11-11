@@ -424,8 +424,13 @@ export function useConversations() {
       128,
       windowTokens - reserve - estimateTextTokens(userText) - imageTokens,
     )
+    const currentImageChars = images.reduce((sum, url) => sum + url.length, 0)
     const requestMessages: StreamMessage[] = [
-      ...buildContextMessages(input.history, historyBudget),
+      ...buildContextMessages(input.history, historyBudget, {
+        enabled: supportsImages,
+        used: images.length,
+        chars: currentImageChars,
+      }),
       { role: 'user', content: userContent },
     ]
     let raw = ''

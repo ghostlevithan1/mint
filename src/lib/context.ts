@@ -7,10 +7,27 @@ export const CONTEXT_START = 2048
 /** Compact once this share of the current window is in use. */
 export const COMPACT_AT = 0.95
 
+export type ContextContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } }
+
 export type ContextMessage = {
   role: 'system' | 'user' | 'assistant'
-  content: string
+  content: string | ContextContentPart[]
 }
+
+export type ContextImageBudget = {
+  /** Set false when the outgoing model cannot read images. */
+  enabled?: boolean
+  /** Images already attached to the current turn. */
+  used?: number
+  /** Data-URL characters already used by the current turn. */
+  chars?: number
+}
+
+/** Keeps history requests below the proxy's per-request image limits. */
+const MAX_CONTEXT_IMAGES = 8
+const MAX_CONTEXT_IMAGE_CHARS = 8_000_000
 
 export function contextMaxTokens(model: Model): number {
   const match = /^\s*([\d.]+)\s*([KkMm])?\s*$/.exec(model.context)
@@ -158,11 +175,13 @@ export function compactMessages(messages: ChatMessage[], keep = 4): ChatMessage[
 
 /**
  * Picks the newest turns that fit inside `budget`. A system summary (if the
- * chat has one) is always kept at the front.
+ * chat has one) is always kept at the front. Recent images from those turns
+ * are resent as image parts so follow-ups can still see them.
  */
 export function buildContextMessages(
   messages: ChatMessage[],
   budget: number,
+  imageBudget: ContextImageBudget = {},
 ): ContextMessage[] {
   const summary = messages.filter((message) => message.role === 'system')
   const normal = messages.filter((message) => message.role !== 'system')
@@ -177,20 +196,57 @@ export function buildContextMessages(
     left -= cost
   }
 
+  // Spend the remaining image allowance on the most recent pictures first.
+  const historyImages = new Map<string, string[]>()
+  let imageCount = imageBudget.used ?? 0
+  let imageChars = imageBudget.chars ?? 0
+  const imagesAllowed = imageBudget.enabled !== false
+  for (let index = picked.length - 1; imagesAllowed && index >= 0; index -= 1) {
+    const message = picked[index]
+    const urls = (message.attachments ?? [])
+      .filter((file) => file.kind === 'image' && Boolean(file.dataUrl))
+      .map((file) => file.dataUrl as string)
+    if (!urls.length) continue
+
+    const included: string[] = []
+    for (const url of urls) {
+      if (imageCount >= MAX_CONTEXT_IMAGES) break
+      if (imageChars + url.length > MAX_CONTEXT_IMAGE_CHARS) break
+      included.push(url)
+      imageCount += 1
+      imageChars += url.length
+    }
+    if (included.length) historyImages.set(message.id, included)
+  }
+
   const selected: ContextMessage[] = []
   if (summary.length) {
-    const text = summary.map((message) => message.content).join('\n\n')
-    selected.push({
-      role: 'system',
-      content: text.slice(0, Math.max(400, Math.round(left * 4))),
-    })
-    left -= estimateTextTokens(selected[0].content)
+    const text = summary
+      .map((message) => message.content)
+      .join('\n\n')
+      .slice(0, Math.max(400, Math.round(left * 4)))
+    selected.push({ role: 'system', content: text })
+    left -= estimateTextTokens(text)
   }
 
   for (const message of picked) {
     const maxChars = Math.max(200, left * 4)
     const content = messageContextText(message).slice(0, maxChars)
-    selected.push({ role: message.role, content })
+    const images = historyImages.get(message.id)
+    if (images?.length) {
+      selected.push({
+        role: message.role,
+        content: [
+          { type: 'text', text: content },
+          ...images.map<ContextContentPart>((url) => ({
+            type: 'image_url',
+            image_url: { url },
+          })),
+        ],
+      })
+    } else {
+      selected.push({ role: message.role, content })
+    }
     left -= estimateTextTokens(content)
     if (left <= 0) break
   }
