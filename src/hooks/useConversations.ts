@@ -32,7 +32,13 @@ import {
   localSummary,
   messageContextText,
 } from '../lib/context'
-import { PERSIST_IMAGE_MAX_CHARS, type Attachment } from '../lib/files'
+import type { Attachment } from '../lib/files'
+import {
+  loadConversations,
+  persistConversations,
+  purgeLegacyChatStorageOnce,
+  wipePersistedStore,
+} from '../lib/storage'
 
 type SendInput = {
   text: string
@@ -60,81 +66,9 @@ function createBlankChat(): Conversation {
   return { id: uid(), title: 'New chat', messages: [], createdAt: now, updatedAt: now }
 }
 
-const STORAGE_KEY = 'mint.chats.v1'
-
-// Persist chats to this device only. Small attached images are stored inline
-// in the saved payload; everything past the budget is dropped so text history
-// always fits the localStorage quota (UTF-16 makes bytes ~2x chars here).
-// PERSIST_IMAGE_MAX_CHARS is the per-image cap applied by readAttachment.
-const PERSIST_IMAGE_TOTAL_CHARS = 1_200_000
-
-function serializeChats(chats: Conversation[], activeId: string): string {
-  const imageRefs: { chatIndex: number; messageIndex: number; attachmentIndex: number; dataUrlLength: number; createdAt: number }[] = []
-  for (let chatIndex = 0; chatIndex < chats.length; chatIndex += 1) {
-    const messages = chats[chatIndex].messages ?? []
-    for (let messageIndex = 0; messageIndex < messages.length; messageIndex += 1) {
-      const attachments = messages[messageIndex].attachments ?? []
-      for (let attachmentIndex = 0; attachmentIndex < attachments.length; attachmentIndex += 1) {
-        const attachment = attachments[attachmentIndex]
-        if (attachment.kind === 'image' && attachment.dataUrl) {
-          imageRefs.push({
-            chatIndex,
-            messageIndex,
-            attachmentIndex,
-            dataUrlLength: attachment.dataUrl.length,
-            createdAt: messages[messageIndex].createdAt,
-          })
-        }
-      }
-    }
-  }
-  imageRefs.sort((a, b) => b.createdAt - a.createdAt)
-  const keepImages = new Set<string>()
-  let imageChars = 0
-  for (const image of imageRefs) {
-    if (image.dataUrlLength > PERSIST_IMAGE_MAX_CHARS) continue
-    if (imageChars + image.dataUrlLength > PERSIST_IMAGE_TOTAL_CHARS) continue
-    imageChars += image.dataUrlLength
-    keepImages.add(`${image.chatIndex}:${image.messageIndex}:${image.attachmentIndex}`)
-  }
-
-  const trimmed = chats.map((chat, chatIndex) => ({
-    ...chat,
-    title: chat.title,
-    messages: chat.messages.map((message, messageIndex) =>
-      message.attachments?.length
-        ? {
-            ...message,
-            attachments: message.attachments.map((attachment, attachmentIndex) => {
-              const keep =
-                attachment.kind !== 'image' ||
-                !attachment.dataUrl ||
-                keepImages.has(`${chatIndex}:${messageIndex}:${attachmentIndex}`)
-              return keep ? attachment : { ...attachment, dataUrl: undefined }
-            }),
-          }
-        : message,
-    ),
-  }))
-  return JSON.stringify({ chats: trimmed, activeId })
-}
-
-function loadStoredChats(): { chats: Conversation[]; activeId: string } | null {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as { chats?: Conversation[]; activeId?: string }
-    const chats = Array.isArray(parsed.chats) ? parsed.chats : []
-    if (!chats.length) return null
-    const activeId = chats.some((chat) => chat.id === parsed.activeId)
-      ? (parsed.activeId as string)
-      : chats[0].id
-    return { chats, activeId }
-  } catch {
-    return null
-  }
-}
-
+// Chats persist in IndexedDB on the user's device only. Every conversation
+// is gzip-compressed on write and inflated on read; active streaming writes
+// skip unchanged conversations via a per-chat hash.
 function wait(ms: number) {
   return new Promise<void>((resolve) => window.setTimeout(resolve, ms))
 }
@@ -221,22 +155,25 @@ async function compressWithModel(
 }
 
 export function useConversations() {
-  const [initial] = useState<{ chats: Conversation[]; activeId: string }>(() => {
-    const stored = loadStoredChats()
-    if (stored) return stored
-    const blank = createBlankChat()
-    return { chats: [blank], activeId: blank.id }
-  })
-  const [chats, setChats] = useState<Conversation[]>(initial.chats)
-  const [activeId, setActiveId] = useState(initial.activeId)
+  // The IDB store is the source of truth; the first paint is a blank chat,
+  // replaced by persisted conversations as soon as the async read completes.
+  const [chats, setChats] = useState<Conversation[]>(() => [createBlankChat()])
+  const [activeId, setActiveId] = useState(() => chats[0]?.id ?? '')
   const [isGenerating, setIsGenerating] = useState(false)
   const [generatingChatId, setGeneratingChatId] = useState<string | null>(null)
+  const loadedRef = useRef(false)
 
   const runIdRef = useRef(0)
   const streamRef = useRef<number | null>(null)
   const timerRef = useRef<number[]>([])
   const abortRef = useRef<AbortController | null>(null)
   const runRef = useRef<{ chatId: string; messageId: string } | null>(null)
+  const chatsRef = useRef(chats)
+  const activeIdRef = useRef(activeId)
+  useEffect(() => {
+    chatsRef.current = chats
+    activeIdRef.current = activeId
+  }, [chats, activeId])
 
   const clearTimers = () => {
     if (streamRef.current !== null) {
@@ -262,23 +199,50 @@ export function useConversations() {
     }
   }, [])
 
+  // Load persisted conversations once at startup. Before the read completes,
+  // the persist effect stays inert so the blank first paint can't clobber
+  // what's on disk.
+  useEffect(() => {
+    let cancelled = false
+    purgeLegacyChatStorageOnce()
+    void loadConversations().then((stored) => {
+      if (cancelled) return
+      if (stored) {
+        setChats(stored.conversations)
+        setActiveId(stored.activeId ?? stored.conversations[0].id)
+      }
+      loadedRef.current = true
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   // Debounced save so streaming updates don't write on every tick. A
   // longer interval during generation keeps serialization off the hot path.
-  const savedRef = useRef('')
   useEffect(() => {
+    if (!loadedRef.current) return
     const interval = isGenerating ? 2000 : 800
     const handle = window.setTimeout(() => {
-      const serialized = serializeChats(chats, activeId)
-      if (serialized === savedRef.current) return
-      try {
-        localStorage.setItem(STORAGE_KEY, serialized)
-        savedRef.current = serialized
-      } catch {
-        // ignore quota errors — chats stay in memory for this session
-      }
+      void persistConversations(chats, activeId)
     }, interval)
     return () => window.clearTimeout(handle)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chats, activeId, isGenerating])
+
+  // Best-effort flush on page unload; IDB transactions usually survive it.
+  // Sessions holding only empty auto-created blanks skip the write so the
+  // unload can't clobber the active-chat pointer written by earlier saves.
+  useEffect(() => {
+    const flush = () => {
+      if (!loadedRef.current) return
+      if (chatsRef.current.some((chat) => chat.messages.length > 0)) {
+        void persistConversations(chatsRef.current, activeIdRef.current)
+      }
+    }
+    window.addEventListener('beforeunload', flush)
+    return () => window.removeEventListener('beforeunload', flush)
+  }, [])
 
   const patchMessage = (chatId: string, messageId: string, patch: Partial<ChatMessage>) => {
     setChats((current) =>
@@ -869,6 +833,7 @@ export function useConversations() {
   const clearChats = () => {
     cleanupRun()
     runRef.current = null
+    void wipePersistedStore()
     const blank = createBlankChat()
     setChats([blank])
     setActiveId(blank.id)
