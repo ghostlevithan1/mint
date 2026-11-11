@@ -66,8 +66,12 @@ const IMAGE_DECODE_EDGE = 2400
 const IMAGE_MAX_CHARS = 1_200_000
 /** Base64 inflates by ~4/3; keep a raw fallback under the client data-URL cap. */
 const RAW_IMAGE_FALLBACK_BYTES = 850_000
+/** Animated GIFs are sent untouched, so allow a little more room than stills. */
+const ANIMATED_GIF_MAX_BYTES = 1_150_000
+const ANIMATED_GIF_MAX_CHARS = 1_550_000
 const SERVER_IMAGE_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
 const JPEG_MIMES = new Set(['image/jpeg'])
+const GIF_MIMES = new Set(['image/gif'])
 const MIME_BY_EXTENSION: Record<string, string> = {
   png: 'image/png',
   jpg: 'image/jpeg',
@@ -117,7 +121,6 @@ function preservedImageMime(file: File, extension: string) {
   // image lossless and is accepted by the proxy.
   return 'image/png'
 }
-
 
 type DecodedImage = {
   source: CanvasImageSource
@@ -263,9 +266,73 @@ function imageSignatureMime(bytes: Uint8Array) {
   return ''
 }
 
-async function readRawImage(file: File, allowed: Set<string>): Promise<string | undefined> {
+/**
+ * Walks the GIF block structure and returns true when a second frame is found.
+ * A single-frame GIF is safe to re-encode, but re-encoding an animated one as
+ * JPEG silently drops every frame after the first.
+ */
+export function gifIsAnimated(bytes: Uint8Array): boolean {
+  if (bytes.length < 14) return false
+  const signature = String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5])
+  if (signature !== 'GIF87a' && signature !== 'GIF89a') return false
+
+  let pos = 13
+  const packed = bytes[10]
+  if (packed & 0x80) pos += 3 * (1 << ((packed & 0x07) + 1))
+
+  const skipSubBlocks = () => {
+    while (pos < bytes.length) {
+      const size = bytes[pos++]
+      if (size === 0) return true
+      pos += size
+    }
+    return false
+  }
+
+  let frames = 0
+  while (pos < bytes.length) {
+    const block = bytes[pos++]
+    if (block === 0x3b) return false // trailer reached before a second frame
+    if (block === 0x21) {
+      pos += 1 // extension label, then its sub-blocks
+      if (!skipSubBlocks()) return false
+      continue
+    }
+    if (block === 0x2c) {
+      frames += 1
+      if (frames > 1) return true
+      if (pos + 9 > bytes.length) return false
+      const imagePacked = bytes[pos + 8]
+      pos += 9
+      if (imagePacked & 0x80) pos += 3 * (1 << ((imagePacked & 0x07) + 1))
+      if (pos >= bytes.length) return false
+      pos += 1 // LZW minimum code size
+      if (!skipSubBlocks()) return false
+      continue
+    }
+    return false
+  }
+  return false
+}
+
+async function isAnimatedGif(file: File, extension: string): Promise<boolean> {
+  if (extension !== 'gif' && imageMimeOf(file, extension) !== 'image/gif') return false
+  try {
+    return gifIsAnimated(new Uint8Array(await file.arrayBuffer()))
+  } catch {
+    return false
+  }
+}
+
+async function readRawImage(
+  file: File,
+  allowed: Set<string>,
+  limits: { maxBytes?: number; maxChars?: number } = {},
+): Promise<string | undefined> {
+  const maxBytes = limits.maxBytes ?? RAW_IMAGE_FALLBACK_BYTES
+  const maxChars = limits.maxChars ?? IMAGE_MAX_CHARS
   // Only fall back to the original bytes when they fit the server limit.
-  if (file.size <= 0 || file.size > RAW_IMAGE_FALLBACK_BYTES) {
+  if (file.size <= 0 || file.size > maxBytes) {
     return undefined
   }
 
@@ -287,7 +354,7 @@ async function readRawImage(file: File, allowed: Set<string>): Promise<string | 
       const comma = raw.indexOf(',')
       if (comma < 0) return resolve(undefined)
       const url = `data:${mime};base64,${raw.slice(comma + 1)}`
-      resolve(url.length > 64 && url.length <= IMAGE_MAX_CHARS ? url : undefined)
+      resolve(url.length > 64 && url.length <= maxChars ? url : undefined)
     }
     reader.onerror = () => resolve(undefined)
     reader.readAsDataURL(file)
@@ -311,7 +378,16 @@ export async function readAttachment(
 
   let dataUrl: string | undefined
   if (kind === 'image') {
-    if (options.convertImagesToJpeg !== false) {
+    const animatedGif = await isAnimatedGif(file, extension)
+    if (animatedGif) {
+      // JPEG only holds one frame. Keep the original GIF so animations survive.
+      dataUrl = await readRawImage(file, GIF_MIMES, {
+        maxBytes: ANIMATED_GIF_MAX_BYTES,
+        maxChars: ANIMATED_GIF_MAX_CHARS,
+      })
+      // Oversized animations fall back to their first frame rather than failing.
+      if (!dataUrl) dataUrl = await encodeImage(file, 'image/png')
+    } else if (options.convertImagesToJpeg !== false) {
       dataUrl = await encodeImage(file, 'image/jpeg')
       // If the browser cannot re-encode, a JPEG original can still be sent.
       if (!dataUrl) dataUrl = await readRawImage(file, JPEG_MIMES)
@@ -336,7 +412,6 @@ export async function readAttachment(
         : undefined,
   }
 }
-
 
 export type FileValidation = {
   accepted: File[]

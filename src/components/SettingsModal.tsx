@@ -331,7 +331,8 @@ export function SettingsModal({
                 </h4>
                 <p className="settings-help">
                   Raster images are prepared on this device before they reach a vision model.
-                  Applies to newly attached files.
+                  Applies to newly attached files. Animated GIFs stay GIFs so their frames are
+                  preserved.
                 </p>
                 <div className="setting-row">
                   <div>
