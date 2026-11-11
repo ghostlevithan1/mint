@@ -48,6 +48,10 @@ const TEXT_EXTENSIONS = new Set([
 
 const CODE_EXTENSIONS = new Set(['js', 'jsx', 'ts', 'tsx', 'py', 'css', 'html', 'json', 'sh', 'svg'])
 const SHEET_EXTENSIONS = new Set(['csv', 'xls', 'xlsx', 'numbers'])
+const XLSX_EXTENSIONS = new Set(['xlsx', 'xlsm', 'xltx'])
+
+/** Binary formats that cannot be read client-side at all. */
+const UNREADABLE_DOCUMENT_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'rtf', 'pages', 'numbers', 'xls'])
 const IMAGE_EXTENSIONS = new Set([
   'png',
   'jpg',
@@ -67,6 +71,11 @@ const IMAGE_EXTENSIONS = new Set([
 const IMAGE_MAX_EDGE = 1600
 const IMAGE_DECODE_EDGE = 2400
 const IMAGE_MAX_CHARS = 1_200_000
+/**
+ * Images that fit this cap are kept inline in localStorage so follow-ups
+ * survive reloads. Anything larger is sent but dropped for storage.
+ */
+export const PERSIST_IMAGE_MAX_CHARS = 350_000
 /** Base64 inflates by ~4/3; keep a raw fallback under the client data-URL cap. */
 const RAW_IMAGE_FALLBACK_BYTES = 850_000
 const SERVER_IMAGE_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp'])
@@ -86,7 +95,7 @@ const MIME_BY_EXTENSION: Record<string, string> = {
   tiff: 'image/tiff',
   ico: 'image/x-icon',
 }
-const SCALE_STEPS = [IMAGE_MAX_EDGE, 1280, 1024, 816, 640, 480]
+const SCALE_STEPS = [IMAGE_MAX_EDGE, 1280, 1024, 816, 640, 480, 360, 256]
 
 export function extensionOf(name: string) {
   const parts = name.split('.')
@@ -202,7 +211,8 @@ async function encodeImage(file: File, outputMime: string): Promise<PreparedImag
     if (!decoded || !decoded.width || !decoded.height) return undefined
 
     const sourceEdge = Math.max(decoded.width, decoded.height)
-    const qualities = outputMime === 'image/png' ? [undefined] : [0.86, 0.7, 0.55, 0.42]
+    const qualities =
+      outputMime === 'image/png' ? [undefined] : [0.86, 0.72, 0.6, 0.5, 0.4, 0.3, 0.22]
     let smallest: PreparedImage | undefined
     let lastEdge = 0
 
@@ -234,7 +244,9 @@ async function encodeImage(file: File, outputMime: string): Promise<PreparedImag
             ? canvas.toDataURL(outputMime)
             : canvas.toDataURL(outputMime, quality)
         if (!smallest || url.length < smallest.url.length) smallest = { url, width, height }
-        if (url.length <= IMAGE_MAX_CHARS) return { url, width, height }
+        // Highest-quality image that fits the storage budget wins; we stop
+        // shrinking as soon as one does.
+        if (url.length <= PERSIST_IMAGE_MAX_CHARS) return { url, width, height }
       }
     }
     return smallest && smallest.url.length <= IMAGE_MAX_CHARS ? smallest : undefined
@@ -329,6 +341,155 @@ async function isAnimatedGif(file: File, extension: string): Promise<boolean> {
   }
 }
 
+async function inflateRaw(bytes: Uint8Array): Promise<Uint8Array> {
+  const stream = new Blob([bytes as unknown as BlobPart])
+    .stream()
+    .pipeThrough(new DecompressionStream('deflate-raw'))
+  return new Uint8Array(await new Response(stream).arrayBuffer())
+}
+
+function findEndOfCentralDirectory(bytes: Uint8Array): number {
+  // EOCD signature PK\x05\x06; scan backwards from the end.
+  for (let offset = bytes.length - 22; offset >= Math.max(0, bytes.length - 65557); offset -= 1) {
+    if (
+      bytes[offset] === 0x50 &&
+      bytes[offset + 1] === 0x4b &&
+      bytes[offset + 2] === 0x05 &&
+      bytes[offset + 3] === 0x06
+    ) {
+      return offset
+    }
+  }
+  return -1
+}
+
+/**
+ * Lists and inflates the useful parts of an OOXML (.xlsx) archive with the
+ * platform's ZIP format and DecompressionStream — no parsing library and no
+ * added bundle weight.
+ */
+async function readXlsxEntries(bytes: Uint8Array): Promise<Map<string, string>> {
+  const entries = new Map<string, string>()
+  try {
+    const eocd = findEndOfCentralDirectory(bytes)
+    if (eocd < 0) return entries
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+    const entryCount = view.getUint16(eocd + 10, true)
+    let offset = view.getUint32(eocd + 16, true)
+    const textDecoder = new TextDecoder()
+
+    for (let index = 0; index < entryCount; index += 1) {
+      if (
+        bytes[offset] !== 0x50 ||
+        bytes[offset + 1] !== 0x4b ||
+        bytes[offset + 2] !== 0x01 ||
+        bytes[offset + 3] !== 0x02
+      ) {
+        break
+      }
+      const method = view.getUint16(offset + 10, true)
+      const compressedSize = view.getUint32(offset + 20, true)
+      const uncompressedSize = view.getUint32(offset + 24, true)
+      const nameLength = view.getUint16(offset + 28, true)
+      const extraLength = view.getUint16(offset + 30, true)
+      const commentLength = view.getUint16(offset + 32, true)
+      const localHeaderOffset = view.getUint32(offset + 42, true)
+      const name = textDecoder.decode(bytes.subarray(offset + 46, offset + 46 + nameLength))
+      offset += 46 + nameLength + extraLength + commentLength
+
+      const isText =
+        name === 'xl/sharedStrings.xml' ||
+        /^xl\/worksheets\/sheet\d+\.xml$/.test(name)
+      if (!isText) continue
+
+      const localNameLength = view.getUint16(localHeaderOffset + 26, true)
+      const localExtraLength = view.getUint16(localHeaderOffset + 28, true)
+      const dataStart = localHeaderOffset + 30 + localNameLength + localExtraLength
+      const compressed = bytes.subarray(dataStart, dataStart + compressedSize)
+      try {
+        if (method === 0) {
+          entries.set(name, textDecoder.decode(compressed))
+        } else if (method === 8 && uncompressedSize) {
+          entries.set(name, textDecoder.decode(await inflateRaw(compressed)))
+        }
+      } catch {
+        // Skip unreadable entries; partial text is better than none.
+      }
+    }
+  } catch {
+    // Malformed archive: fall through with whatever was read.
+  }
+  return entries
+}
+
+function unescapeXml(text: string): string {
+  return text
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(Number.parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(Number.parseInt(dec, 10)))
+    .replace(/&amp;/g, '&')
+}
+
+/** Extracts visible cell text from an .xlsx in reading order. */
+async function extractXlsxText(file: File): Promise<string | undefined> {
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    if (bytes.length < 64 || bytes[0] !== 0x50 || bytes[1] !== 0x4b) return undefined
+    const entries = await readXlsxEntries(bytes)
+    if (!entries.size) return undefined
+
+    const sharedRaw = entries.get('xl/sharedStrings.xml') ?? ''
+    const sharedStrings: string[] = []
+    if (sharedRaw) {
+      for (const match of sharedRaw.matchAll(/<si[^>]*>([\s\S]*?)<\/si>/g)) {
+        const text = unescapeXml(
+          [...match[1].matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)]
+            .map((part) => part[1])
+            .join(''),
+        ).replace(/\s+/g, ' ')
+        sharedStrings.push(text)
+      }
+    }
+
+    const worksheetNames = [...entries.keys()]
+      .filter((name) => /^xl\/worksheets\/sheet\d+\.xml$/.test(name))
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+
+    const lines: string[] = []
+    for (const name of worksheetNames) {
+      const xml = entries.get(name) ?? ''
+      for (const row of xml.matchAll(/<row[^>]*>([\s\S]*?)<\/row>/g)) {
+        const cells: string[] = []
+        for (const cell of row[1].matchAll(/<c\b([^>]*)>([\s\S]*?)<\/c>/g)) {
+          const attrs = cell[1]
+          const body = cell[2]
+          const valueMatch = body.match(/<v[^>]*>([\s\S]*?)<\/v>/)
+          const inlineMatch = body.match(/<t[^>]*>([\s\S]*?)<\/t>/)
+          let value = ''
+          if (/t\s*=\s*"s"/.test(attrs)) {
+            const index = Number(valueMatch?.[1])
+            value = Number.isFinite(index) ? sharedStrings[index] ?? '' : ''
+          } else if (inlineMatch) {
+            value = unescapeXml(inlineMatch[1])
+          } else if (valueMatch) {
+            value = unescapeXml(valueMatch[1])
+          }
+          cells.push(value)
+        }
+        const line = cells.join('\t').replace(/[ ]+/g, ' ').trimEnd()
+        if (line.trim()) lines.push(line)
+      }
+    }
+    const text = lines.join('\n').slice(0, 200_000)
+    return text.trim() ? text : undefined
+  } catch {
+    return undefined
+  }
+}
+
 async function readRawImage(
   file: File,
   allowed: Set<string>,
@@ -376,6 +537,15 @@ export async function readAttachment(
     } catch {
       text = ''
     }
+  } else if (kind === 'sheet' && XLSX_EXTENSIONS.has(extension)) {
+    text = (await extractXlsxText(file)) ?? ''
+    if (!text) {
+      text = `[Spreadsheet "${file.name}": could not be read as an Office .xlsx file. Export it as .csv or .txt and attach that, or convert sheets to images.]`
+    }
+  } else if (kind === 'document' || (kind === 'sheet' && UNREADABLE_DOCUMENT_EXTENSIONS.has(extension))) {
+    // No trustworthy client-side extractor for these. Say so in the context
+    // instead of silently attaching a filename the model can't use.
+    text = `[Document "${file.name}": the contents of this file cannot be sent to the model. Export the text as .txt, the spreadsheet as .csv or .xlsx, or convert pages to images.]`
   }
 
   let dataUrl: string | undefined
@@ -401,14 +571,19 @@ export async function readAttachment(
         dataUrl = await readRawImage(file, JPEG_MIMES)
       }
     } else {
-      // Keep the original file when it is already a format the proxy accepts.
-      dataUrl = await readRawImage(file, SERVER_IMAGE_MIMES)
-      if (!dataUrl) {
+      // Prefer the original bytes while they fit the storage budget. If they
+      // don't, re-encode smaller so the image both sends and persists.
+      const raw = await readRawImage(file, SERVER_IMAGE_MIMES)
+      if (raw && raw.length <= PERSIST_IMAGE_MAX_CHARS) {
+        dataUrl = raw
+      } else {
         const prepared = await encodeImage(file, preservedImageMime(file, extension))
         if (prepared) {
           dataUrl = prepared.url
           width = prepared.width
           height = prepared.height
+        } else if (raw) {
+          dataUrl = raw
         }
       }
     }

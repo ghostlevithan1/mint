@@ -32,7 +32,7 @@ import {
   localSummary,
   messageContextText,
 } from '../lib/context'
-import type { Attachment } from '../lib/files'
+import { PERSIST_IMAGE_MAX_CHARS, type Attachment } from '../lib/files'
 
 type SendInput = {
   text: string
@@ -62,11 +62,10 @@ function createBlankChat(): Conversation {
 
 const STORAGE_KEY = 'mint.chats.v1'
 
-// Persist chats to this device only. To survive reloads, small attached
-// images are kept inline in the stored payload; everything past the image
-// budget is dropped so text history always fits the localStorage quota.
-// Image payload is UTF-16 in localStorage, so these caps are conservative.
-const PERSIST_IMAGE_MAX_CHARS = 350_000
+// Persist chats to this device only. Small attached images are stored inline
+// in the saved payload; everything past the budget is dropped so text history
+// always fits the localStorage quota (UTF-16 makes bytes ~2x chars here).
+// PERSIST_IMAGE_MAX_CHARS is the per-image cap applied by readAttachment.
 const PERSIST_IMAGE_TOTAL_CHARS = 1_200_000
 
 function serializeChats(chats: Conversation[], activeId: string): string {
