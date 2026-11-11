@@ -526,36 +526,63 @@ export function useConversations() {
     }
 
     try {
-      await streamNvidiaChat(
-        {
-          model: input.model.id,
-          messages: requestMessages,
-          max_tokens: outputTokens,
-        },
-        {
-          signal: controller.signal,
-          onDelta: (delta) => {
-            if (runIdRef.current !== runId) return
-            markFirstToken()
-            raw += delta
-            flush()
+      // If the model fills its output budget mid-answer (finish_reason
+      // 'length') with a non-empty reply, it hit the cap we gave it, not a
+      // provider fault. Give it up to two continuation chunks instead of
+      // leaving a truncated document behind; tokens are spent only when the
+      // cap is genuinely reached.
+      const MAX_CONTINUATIONS = 2
+      let continuation = 0
+      while (true) {
+        const messagesForChunk: StreamMessage[] =
+          continuation === 0
+            ? requestMessages
+            : [
+                ...requestMessages,
+                { role: 'assistant', content: raw },
+                {
+                  role: 'user',
+                  content:
+                    'Continue exactly from where you stopped. Do not repeat earlier text; finish any open code block.',
+                },
+              ]
+        finishReason = ''
+        await streamNvidiaChat(
+          {
+            model: input.model.id,
+            messages: messagesForChunk,
+            max_tokens: outputTokens,
           },
-          onReasoning: (delta) => {
-            if (runIdRef.current !== runId) return
-            markFirstToken()
-            reasoningRaw += delta
-            flush()
+          {
+            signal: controller.signal,
+            onDelta: (delta) => {
+              if (runIdRef.current !== runId) return
+              markFirstToken()
+              raw += delta
+              flush()
+            },
+            onReasoning: (delta) => {
+              if (runIdRef.current !== runId) return
+              markFirstToken()
+              reasoningRaw += delta
+              flush()
+            },
+            onFinish: (reason) => {
+              finishReason = reason
+            },
+            onUsage: (usage) => {
+              if (typeof usage.completion_tokens === 'number') {
+                usageTokens += usage.completion_tokens
+              }
+            },
           },
-          onFinish: (reason) => {
-            finishReason = reason
-          },
-          onUsage: (usage) => {
-            if (typeof usage.completion_tokens === 'number') {
-              usageTokens = usage.completion_tokens
-            }
-          },
-        },
-      )
+        )
+        continuation += 1
+        if (runIdRef.current !== runId) return
+        if (finishReason !== 'length' || !raw || continuation > MAX_CONTINUATIONS) {
+          break
+        }
+      }
 
       if (runIdRef.current !== runId) return
       flush(true)
@@ -569,6 +596,9 @@ export function useConversations() {
             ? 'The model ran out of output tokens while reasoning and never wrote an answer. Try again or pick a different model.'
             : 'The model streamed its reasoning but never wrote a final answer. Try again or pick a different model.'
           : 'The model returned an empty response. Try again or pick a different model.'
+      } else if (finishReason === 'length') {
+        emptyError =
+          'The answer hit the output limit and may be truncated. Ask me to continue where I stopped.'
       }
       patchMessage(input.chatId, input.assistantId, {
         content: rehydrateText(raw, activeRedactions),
