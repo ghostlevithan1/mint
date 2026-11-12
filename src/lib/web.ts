@@ -1,6 +1,6 @@
 import type { WebSource } from './chat'
 
-const URL_PATTERN = /\bhttps?:\/\/[^\s<>"'`]+/gi
+const URL_PATTERN = /\bhttps?:\/\/[^\s<>"`]+/gi
 const TRAILING_PUNCTUATION = /[.,;:!?)\]}]+$/
 const MAX_LINKS = 3
 const READ_TIMEOUT_MS = 30_000
