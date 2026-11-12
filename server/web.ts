@@ -6,7 +6,7 @@ import { readJsonBody, sendJson } from './node-http'
 
 const MAX_URL_CHARS = 2048
 const MAX_BYTES = 1_500_000
-const MAX_TEXT_CHARS = 14_000
+const MAX_TEXT_CHARS = 48_000
 const FETCH_TIMEOUT_MS = 8_000
 const MAX_REDIRECTS = 3
 
@@ -257,11 +257,12 @@ async function readBuiltinPage(rawUrl: string): Promise<Page> {
         ? htmlToText(body)
         : body.replace(/\r\n?/g, '\n').trim()
 
+    const clipped = clipPageText(text)
     return {
       url: url.toString(),
       title,
-      text: text.slice(0, MAX_TEXT_CHARS),
-      truncated: text.length > MAX_TEXT_CHARS || original !== url.toString(),
+      text: clipped.text,
+      truncated: clipped.truncated || original !== url.toString(),
     }
   }
 
@@ -331,11 +332,30 @@ function classifyBackendFailure(status: number): { benchMs: number; message: str
 function pageFromMarkdown(url: URL, markdown: string): Page {
   const heading = /^#{1,2}\s+(.{1,200})$/m.exec(markdown)?.[1] ?? ''
   const title = (heading || url.hostname.replace(/^www\./, '')).trim()
+  const clipped = clipPageText(markdown)
   return {
     url: url.toString(),
     title,
-    text: markdown.slice(0, MAX_TEXT_CHARS),
-    truncated: markdown.length > MAX_TEXT_CHARS,
+    text: clipped.text,
+    truncated: clipped.truncated,
+  }
+}
+
+/**
+ * Caps page text for the model context, cutting on a paragraph or sentence
+ * boundary and telling the model exactly how much was left out, so it can
+ * report an incomplete page instead of quoting a mid-word fragment.
+ */
+function clipPageText(text: string): { text: string; truncated: boolean } {
+  if (text.length <= MAX_TEXT_CHARS) return { text, truncated: false }
+  const cut = text.slice(0, MAX_TEXT_CHARS)
+  let end = cut.lastIndexOf('\n\n')
+  if (end < MAX_TEXT_CHARS * 0.6) end = cut.lastIndexOf('. ')
+  if (end < MAX_TEXT_CHARS * 0.6) end = MAX_TEXT_CHARS
+  const clipped = cut.slice(0, end).trimEnd()
+  return {
+    text: `${clipped}\n\n[page truncated — showing ${clipped.length.toLocaleString('en-US')} of ${text.length.toLocaleString('en-US')} characters]`,
+    truncated: true,
   }
 }
 
