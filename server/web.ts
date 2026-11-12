@@ -275,6 +275,7 @@ async function readBuiltinPage(rawUrl: string, budget: number): Promise<Page> {
 // for a while instead of failing every request.
 const CLOUD_BASE = 'https://api.crawl4ai.com'
 const CRAWL_TIMEOUT_MS = 25_000
+const CRAWL_BROWSER_TIMEOUT_MS = 45_000
 const BENCH_QUOTA_MS = 60 * 60 * 1000
 const BENCH_RATE_MS = 30 * 1000
 
@@ -319,9 +320,16 @@ export function webReaderStatus(): string[] {
 
 /** Classifies an HTTP failure from a crawl4ai backend: bench or just skip. */
 function classifyBackendFailure(status: number): { benchMs: number; message: string } {
-  if (status === 401 || status === 402 || status === 403) {
-    // 402 = no credits / plan cap; 401/403 = bad or unauthorized key.
+  if (status === 401 || status === 402) {
+    // 401 = bad key; 402 = no credits / plan cap / spend cap. Account-level,
+    // so the backend cannot serve any page until things change.
     return { benchMs: BENCH_QUOTA_MS, message: `limit hit (${status})` }
+  }
+  if (status === 403) {
+    // A 403 from crawl4ai usually means the target site blocked the fetch
+    // (or a login wall), which says nothing about the account. Skip this
+    // page only; the reader stays usable for other sites.
+    return { benchMs: 0, message: `blocked (${status})` }
   }
   if (status === 429) {
     return { benchMs: BENCH_RATE_MS, message: 'rate limited (429)' }
@@ -376,23 +384,32 @@ async function readCrawl4aiCloudPage(url: URL, budget: number): Promise<Page> {
   const key = (process.env.CRAWL4AI_KEY ?? '').trim()
   if (!key) throw new ReaderSkip('no CRAWL4AI_KEY configured')
 
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), CRAWL_TIMEOUT_MS)
-  let response: Response
-  try {
-    response = await fetch(`${CLOUD_BASE}/scrape`, {
-      method: 'POST',
-      signal: controller.signal,
-      headers: {
-        Authorization: `Bearer ${key}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ url: url.toString(), format: 'md' }),
-    })
-  } catch {
-    throw new ReaderSkip('cloud unreachable or timed out')
-  } finally {
-    clearTimeout(timer)
+  const scrape = async (extra: Record<string, unknown>, timeoutMs: number): Promise<Response> => {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
+    try {
+      return await fetch(`${CLOUD_BASE}/scrape`, {
+        method: 'POST',
+        signal: controller.signal,
+        headers: {
+          Authorization: `Bearer ${key}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ url: url.toString(), format: 'md', ...extra }),
+      })
+    } catch {
+      throw new ReaderSkip('cloud unreachable or timed out')
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  let response = await scrape({}, CRAWL_TIMEOUT_MS)
+  if (response.status === 404) {
+    // Some sites (ha.mr) serve their app on a 404 status, so only a real
+    // browser sees it. One browser-engine retry before giving up.
+    await response.body?.cancel().catch(() => undefined)
+    response = await scrape({ engine: 'browser', bypass_cache: true }, CRAWL_BROWSER_TIMEOUT_MS)
   }
 
   if (!response.ok) {
@@ -450,7 +467,27 @@ async function readCrawl4aiSelfHostedPage(url: URL, budget: number): Promise<Pag
  * self-hosted crawl4ai server, then the built-in reader. The first backend
  * that returns usable text wins; the built-in reader is never benched.
  */
-async function fetchPage(raw: string, budget: number): Promise<Page> {
+/**
+ * Compressed-link services (ha.mr) serve their app on a 404 status and show a
+ * "Proceed to <url>?" interstitial that only a browser sees. When a rendered
+ * page is really such an interstitial, return the destination it names.
+ */
+function interstitialDestination(markdown: string): string | null {
+  const head = markdown.slice(0, 600)
+  if (!/proceed to\s/i.test(head)) return null
+  const linked = /\]\((https?:\/\/[^\s)]+)\)/.exec(head)?.[1]
+  const bare = /proceed to\s+(https?:\/\/[^\s?)\\]+)/i.exec(head)?.[1]
+  const candidate = linked ?? bare ?? ''
+  return /^https?:\/\//i.test(candidate) ? candidate : null
+}
+
+/**
+ * Reads a page through the configured chain: crawl4ai Cloud, then a
+ * self-hosted crawl4ai server, then the built-in reader. The first backend
+ * that returns usable text wins; the built-in reader is never benched.
+ * `depth` allows exactly one interstitial follow.
+ */
+async function fetchPage(raw: string, budget: number, depth = 0): Promise<Page> {
   const url = await assertSafeUrl(raw)
   const chain: Array<{ id: string; read: (url: URL, budget: number) => Promise<Page> }> = [
     { id: 'crawl4ai-cloud', read: readCrawl4aiCloudPage },
@@ -465,8 +502,22 @@ async function fetchPage(raw: string, budget: number): Promise<Page> {
     }
     try {
       const page = await reader.read(url, budget)
-      if (page.text.trim()) return page
-      failures.push(`${reader.id}: no readable text`)
+      if (!page.text.trim()) {
+        failures.push(`${reader.id}: no readable text`)
+        continue
+      }
+      if (depth < 1) {
+        const destination = interstitialDestination(page.text)
+        if (destination && destination !== url.toString()) {
+          try {
+            const followed = await fetchPage(destination, budget, depth + 1)
+            if (followed.text.trim()) return followed
+          } catch {
+            // The destination refused; keep the interstitial page instead.
+          }
+        }
+      }
+      return page
     } catch (error) {
       failures.push(`${reader.id}: ${error instanceof ReaderSkip ? error.message : String(error)}`)
     }

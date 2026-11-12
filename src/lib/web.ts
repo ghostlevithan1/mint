@@ -3,7 +3,7 @@ import type { WebSource } from './chat'
 const URL_PATTERN = /\bhttps?:\/\/[^\s<>"`]+/gi
 const TRAILING_PUNCTUATION = /[.,;:!?)\]}]+$/
 const MAX_LINKS = 3
-const READ_TIMEOUT_MS = 30_000
+const READ_TIMEOUT_MS = 45_000
 const SEARCH_TIMEOUT_MS = 11_000
 const MAX_SEARCH_PAGES = 3
 const MAX_QUERY_CHARS = 300
