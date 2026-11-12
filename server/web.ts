@@ -205,7 +205,7 @@ async function readLimited(response: Response): Promise<string> {
   return new TextDecoder('utf-8').decode(merged)
 }
 
-async function readBuiltinPage(rawUrl: string): Promise<Page> {
+async function readBuiltinPage(rawUrl: string, budget: number): Promise<Page> {
   let url = await assertSafeUrl(rawUrl)
   const original = url.toString()
 
@@ -257,7 +257,7 @@ async function readBuiltinPage(rawUrl: string): Promise<Page> {
         ? htmlToText(body)
         : body.replace(/\r\n?/g, '\n').trim()
 
-    const clipped = clipPageText(text)
+    const clipped = clipPageText(text, budget)
     return {
       url: url.toString(),
       title,
@@ -329,10 +329,10 @@ function classifyBackendFailure(status: number): { benchMs: number; message: str
   return { benchMs: 0, message: `unavailable (${status})` }
 }
 
-function pageFromMarkdown(url: URL, markdown: string): Page {
+function pageFromMarkdown(url: URL, markdown: string, budget: number): Page {
   const heading = /^#{1,2}\s+(.{1,200})$/m.exec(markdown)?.[1] ?? ''
   const title = (heading || url.hostname.replace(/^www\./, '')).trim()
-  const clipped = clipPageText(markdown)
+  const clipped = clipPageText(markdown, budget)
   return {
     url: url.toString(),
     title,
@@ -345,13 +345,26 @@ function pageFromMarkdown(url: URL, markdown: string): Page {
  * Caps page text for the model context, cutting on a paragraph or sentence
  * boundary and telling the model exactly how much was left out, so it can
  * report an incomplete page instead of quoting a mid-word fragment.
+ *
+ * The base cap is 48k characters. When a page nearly fills it (95%), the cap
+ * doubles — 96k, then 192k — but never past the per-page budget the caller
+ * derived from the model's context window. A small budget (a small model)
+ * simply keeps the base cap or shrinks it.
  */
-function clipPageText(text: string): { text: string; truncated: boolean } {
-  if (text.length <= MAX_TEXT_CHARS) return { text, truncated: false }
-  const cut = text.slice(0, MAX_TEXT_CHARS)
+const PAGE_BUDGET_MAX = 192_000
+
+function clipPageText(text: string, budget = MAX_TEXT_CHARS): { text: string; truncated: boolean } {
+  const budgetClamped = Math.min(PAGE_BUDGET_MAX, Math.max(1000, Math.round(budget)))
+  let cap = Math.min(MAX_TEXT_CHARS, budgetClamped)
+  for (let doubling = 0; doubling < 2; doubling += 1) {
+    if (text.length < cap * 0.95 || cap * 2 > budgetClamped) break
+    cap *= 2
+  }
+  if (text.length <= cap) return { text, truncated: false }
+  const cut = text.slice(0, cap)
   let end = cut.lastIndexOf('\n\n')
-  if (end < MAX_TEXT_CHARS * 0.6) end = cut.lastIndexOf('. ')
-  if (end < MAX_TEXT_CHARS * 0.6) end = MAX_TEXT_CHARS
+  if (end < cap * 0.6) end = cut.lastIndexOf('. ')
+  if (end < cap * 0.6) end = cap
   const clipped = cut.slice(0, end).trimEnd()
   return {
     text: `${clipped}\n\n[page truncated — showing ${clipped.length.toLocaleString('en-US')} of ${text.length.toLocaleString('en-US')} characters]`,
@@ -359,7 +372,7 @@ function clipPageText(text: string): { text: string; truncated: boolean } {
   }
 }
 
-async function readCrawl4aiCloudPage(url: URL): Promise<Page> {
+async function readCrawl4aiCloudPage(url: URL, budget: number): Promise<Page> {
   const key = (process.env.CRAWL4AI_KEY ?? '').trim()
   if (!key) throw new ReaderSkip('no CRAWL4AI_KEY configured')
 
@@ -392,10 +405,10 @@ async function readCrawl4aiCloudPage(url: URL): Promise<Page> {
   const payload = (await response.json().catch(() => null)) as { ok?: boolean; markdown?: string } | null
   const markdown = typeof payload?.markdown === 'string' ? payload.markdown : ''
   if (!payload?.ok || !markdown.trim()) throw new ReaderSkip('cloud returned no markdown')
-  return pageFromMarkdown(url, markdown)
+  return pageFromMarkdown(url, markdown, budget)
 }
 
-async function readCrawl4aiSelfHostedPage(url: URL): Promise<Page> {
+async function readCrawl4aiSelfHostedPage(url: URL, budget: number): Promise<Page> {
   const base = (process.env.CRAWL4AI_URL ?? '').trim().replace(/\/+$/, '')
   if (!base) throw new ReaderSkip('no CRAWL4AI_URL configured')
   const token = (process.env.CRAWL4AI_TOKEN ?? '').trim()
@@ -429,7 +442,7 @@ async function readCrawl4aiSelfHostedPage(url: URL): Promise<Page> {
   const payload = (await response.json().catch(() => null)) as { markdown?: string } | null
   const markdown = typeof payload?.markdown === 'string' ? payload.markdown : ''
   if (!markdown.trim()) throw new ReaderSkip('self-hosted returned no markdown')
-  return pageFromMarkdown(url, markdown)
+  return pageFromMarkdown(url, markdown, budget)
 }
 
 /**
@@ -437,12 +450,12 @@ async function readCrawl4aiSelfHostedPage(url: URL): Promise<Page> {
  * self-hosted crawl4ai server, then the built-in reader. The first backend
  * that returns usable text wins; the built-in reader is never benched.
  */
-async function fetchPage(raw: string): Promise<Page> {
+async function fetchPage(raw: string, budget: number): Promise<Page> {
   const url = await assertSafeUrl(raw)
-  const chain: Array<{ id: string; read: (url: URL) => Promise<Page> }> = [
+  const chain: Array<{ id: string; read: (url: URL, budget: number) => Promise<Page> }> = [
     { id: 'crawl4ai-cloud', read: readCrawl4aiCloudPage },
     { id: 'crawl4ai-selfhosted', read: readCrawl4aiSelfHostedPage },
-    { id: 'builtin', read: (safe) => readBuiltinPage(safe.toString()) },
+    { id: 'builtin', read: (safe, cap) => readBuiltinPage(safe.toString(), cap) },
   ]
   const failures: string[] = []
   for (const reader of chain) {
@@ -451,7 +464,7 @@ async function fetchPage(raw: string): Promise<Page> {
       if (!readerAvailable(typed)) continue
     }
     try {
-      const page = await reader.read(url)
+      const page = await reader.read(url, budget)
       if (page.text.trim()) return page
       failures.push(`${reader.id}: no readable text`)
     } catch (error) {
@@ -708,7 +721,9 @@ export async function handleWebHttp(req: IncomingMessage, res: ServerResponse) {
     if (!raw || raw.length > MAX_URL_CHARS) {
       throw new HttpError(400, 'BAD_URL', 'Send one http or https link to read.')
     }
-    const page = await fetchPage(raw)
+    const rawBudget = typeof body.pageBudget === 'number' ? body.pageBudget : Number.NaN
+    const budget = Number.isFinite(rawBudget) ? rawBudget : MAX_TEXT_CHARS
+    const page = await fetchPage(raw, budget)
     if (!page.text.trim()) {
       throw new HttpError(422, 'EMPTY_PAGE', 'That page had no readable text.')
     }

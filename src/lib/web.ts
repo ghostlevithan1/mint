@@ -51,7 +51,11 @@ export function extractUrls(text: string): string[] {
   return cleaned.slice(0, MAX_LINKS)
 }
 
-export async function readWebPage(url: string, signal?: AbortSignal): Promise<WebPage> {
+export async function readWebPage(
+  url: string,
+  signal?: AbortSignal,
+  pageBudget = 48_000,
+): Promise<WebPage> {
   const controller = new AbortController()
   const timer = window.setTimeout(() => controller.abort(), READ_TIMEOUT_MS)
   const abort = () => controller.abort()
@@ -60,7 +64,7 @@ export async function readWebPage(url: string, signal?: AbortSignal): Promise<We
     const response = await fetch('/api/web', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({ url }),
+      body: JSON.stringify({ url, pageBudget }),
       signal: controller.signal,
     })
     if (!response.ok) {
@@ -84,14 +88,16 @@ export async function fetchWebContext(
 ): Promise<WebContext> {
   if (!urls.length) return { sources: [], context: '' }
 
+  // Per-page slice of the total budget, also sent to the server so its page
+  // cap can double toward the model's context window when a page is big.
+  const perPage = Math.max(600, Math.floor(maxChars / urls.length))
   const results = await Promise.allSettled(
-    urls.map((url) => readWebPage(url, signal)),
+    urls.map((url) => readWebPage(url, signal, perPage)),
   )
   if (signal?.aborted) return { sources: [], context: '' }
 
   const sources: WebSource[] = []
   const blocks: string[] = []
-  const perPage = Math.max(600, Math.floor(maxChars / urls.length))
 
   for (const result of results) {
     if (result.status !== 'fulfilled') continue

@@ -408,9 +408,12 @@ export function useConversations() {
       patchMessage(input.chatId, input.assistantId, { phase: 'routing' })
       const webController = new AbortController()
       abortRef.current = webController
+      // Web pages may use up to half the model's context window in chars
+      // (~4 chars/token). The server starts its per-page cap at 48k and
+      // doubles toward 192k when a page nearly fills it, bounded by this.
       const webBudget = Math.min(
-        18_000,
-        Math.max(1800, Math.floor(windowTokens * 0.5 * 4)),
+        576_000,
+        Math.max(1800, Math.floor(maxTokens * 2)),
       )
       try {
         let searchSources: WebSource[] = []
