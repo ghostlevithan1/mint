@@ -301,8 +301,8 @@ export function ChatView({
             <div className="empty-mark" aria-hidden="true">
               <span>M</span>
             </div>
-            <p className="empty-kicker">PRIVATE AI WORKSPACE</p>
-            <h1>What can I help you work through?</h1>
+            <p className="empty-kicker">Private AI workspace</p>
+            <h1>Think out loud — names stay here</h1>
             <p className="empty-copy">
               Ask anything, or bring a file for context.{' '}
               {shieldOn

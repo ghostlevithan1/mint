@@ -68,7 +68,7 @@ export function PayloadModal({
       <div className="payload-modal" role="dialog" aria-modal="true" aria-labelledby="payload-title">
         <div className="payload-header">
           <div>
-            <span className="eyebrow">PII SHIELD / AUDIT VIEW</span>
+            <span className="eyebrow">PII shield / audit view</span>
             <h2 id="payload-title">See exactly what leaves.</h2>
           </div>
           <button className="icon-button" onClick={onClose} aria-label="Close audit view">

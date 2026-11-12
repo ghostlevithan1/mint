@@ -450,9 +450,8 @@ svg {
   font-family: var(--mono);
   font-size: 10px;
   font-weight: 500;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.05em;
   color: var(--muted);
-  text-transform: uppercase;
 }
 
 .eyebrow.centered {

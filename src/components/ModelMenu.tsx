@@ -58,7 +58,7 @@ export function ModelMenu({ model, onSelect }: ModelMenuProps) {
       {open && (
         <div className="model-popover" role="listbox" aria-label="Choose a model">
           <div className="model-popover-head">
-            <span>MODEL TYPE</span>
+            <span>Model type</span>
             <span>
               {MODELS.length} models · {MODEL_TYPES.length} tiers
             </span>
