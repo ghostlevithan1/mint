@@ -46,6 +46,7 @@ export type StatusPayload = {
   configured: boolean
   endpoint: string
   models: Record<string, string>
+  webReaders?: string[]
 }
 
 function overrideEnvName(id: string) {

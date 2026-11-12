@@ -6,6 +6,7 @@ import {
   getStatusPayload,
   type JsonRecord,
 } from './core'
+import { webReaderStatus } from './web'
 
 export function sendJson(res: ServerResponse, status: number, body: unknown) {
   res.statusCode = status
@@ -126,7 +127,7 @@ export function handleStatusHttp(
     return
   }
 
-  sendJson(res, 200, getStatusPayload(root))
+  sendJson(res, 200, { ...getStatusPayload(root), webReaders: webReaderStatus() })
 }
 
 export async function handleChatHttp(

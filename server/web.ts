@@ -205,8 +205,8 @@ async function readLimited(response: Response): Promise<string> {
   return new TextDecoder('utf-8').decode(merged)
 }
 
-async function fetchPage(raw: string): Promise<Page> {
-  let url = await assertSafeUrl(raw)
+async function readBuiltinPage(rawUrl: string): Promise<Page> {
+  let url = await assertSafeUrl(rawUrl)
   const original = url.toString()
 
   for (let redirect = 0; redirect <= MAX_REDIRECTS; redirect += 1) {
@@ -266,6 +266,261 @@ async function fetchPage(raw: string): Promise<Page> {
   }
 
   throw new HttpError(502, 'TOO_MANY_REDIRECTS', 'That link redirected too many times.')
+}
+
+// ---- Reader cascade ----
+// Page reads try the configured crawl4ai backends first and always fall back
+// to the built-in reader. A backend that reports quota/auth limits is benched
+// for a while instead of failing every request.
+const CLOUD_BASE = 'https://api.crawl4ai.com'
+const CRAWL_TIMEOUT_MS = 25_000
+const BENCH_QUOTA_MS = 60 * 60 * 1000
+const BENCH_RATE_MS = 30 * 1000
+
+/** Raised when a reader is unusable for this page and the chain should continue. */
+class ReaderSkip extends Error {}
+
+type ReaderId = 'crawl4ai-cloud' | 'crawl4ai-selfhosted'
+type Bench = { until: number; reason: string }
+const benched = new Map<ReaderId, Bench>()
+
+function benchReader(id: ReaderId, ms: number, reason: string): void {
+  benched.set(id, { until: Date.now() + ms, reason })
+}
+
+function readerAvailable(id: ReaderId): boolean {
+  const entry = benched.get(id)
+  return !entry || entry.until < Date.now()
+}
+
+/** Which page readers are configured right now, for /api/status. */
+export function webReaderStatus(): string[] {
+  const readers: string[] = []
+  if ((process.env.CRAWL4AI_KEY ?? '').trim()) {
+    const bench = benched.get('crawl4ai-cloud')
+    readers.push(
+      readerAvailable('crawl4ai-cloud')
+        ? 'crawl4ai-cloud'
+        : `crawl4ai-cloud (benched: ${bench?.reason ?? 'unavailable'})`,
+    )
+  }
+  if ((process.env.CRAWL4AI_URL ?? '').trim()) {
+    const bench = benched.get('crawl4ai-selfhosted')
+    readers.push(
+      readerAvailable('crawl4ai-selfhosted')
+        ? 'crawl4ai-selfhosted'
+        : `crawl4ai-selfhosted (benched: ${bench?.reason ?? 'unavailable'})`,
+    )
+  }
+  readers.push('builtin')
+  return readers
+}
+
+/** Classifies an HTTP failure from a crawl4ai backend: bench or just skip. */
+function classifyBackendFailure(status: number): { benchMs: number; message: string } {
+  if (status === 401 || status === 402 || status === 403) {
+    // 402 = no credits / plan cap; 401/403 = bad or unauthorized key.
+    return { benchMs: BENCH_QUOTA_MS, message: `limit hit (${status})` }
+  }
+  if (status === 429) {
+    return { benchMs: BENCH_RATE_MS, message: 'rate limited (429)' }
+  }
+  return { benchMs: 0, message: `unavailable (${status})` }
+}
+
+function pageFromMarkdown(url: URL, markdown: string): Page {
+  const heading = /^#{1,2}\s+(.{1,200})$/m.exec(markdown)?.[1] ?? ''
+  const title = (heading || url.hostname.replace(/^www\./, '')).trim()
+  return {
+    url: url.toString(),
+    title,
+    text: markdown.slice(0, MAX_TEXT_CHARS),
+    truncated: markdown.length > MAX_TEXT_CHARS,
+  }
+}
+
+async function readCrawl4aiCloudPage(url: URL): Promise<Page> {
+  const key = (process.env.CRAWL4AI_KEY ?? '').trim()
+  if (!key) throw new ReaderSkip('no CRAWL4AI_KEY configured')
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), CRAWL_TIMEOUT_MS)
+  let response: Response
+  try {
+    response = await fetch(`${CLOUD_BASE}/scrape`, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${key}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ url: url.toString(), format: 'md' }),
+    })
+  } catch {
+    throw new ReaderSkip('cloud unreachable or timed out')
+  } finally {
+    clearTimeout(timer)
+  }
+
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined)
+    const { benchMs, message } = classifyBackendFailure(response.status)
+    if (benchMs) benchReader('crawl4ai-cloud', benchMs, message)
+    throw new ReaderSkip(`cloud ${message}`)
+  }
+
+  const payload = (await response.json().catch(() => null)) as { ok?: boolean; markdown?: string } | null
+  const markdown = typeof payload?.markdown === 'string' ? payload.markdown : ''
+  if (!payload?.ok || !markdown.trim()) throw new ReaderSkip('cloud returned no markdown')
+  return pageFromMarkdown(url, markdown)
+}
+
+async function readCrawl4aiSelfHostedPage(url: URL): Promise<Page> {
+  const base = (process.env.CRAWL4AI_URL ?? '').trim().replace(/\/+$/, '')
+  if (!base) throw new ReaderSkip('no CRAWL4AI_URL configured')
+  const token = (process.env.CRAWL4AI_TOKEN ?? '').trim()
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), CRAWL_TIMEOUT_MS)
+  let response: Response
+  try {
+    response = await fetch(`${base}/md`, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ url: url.toString() }),
+    })
+  } catch {
+    throw new ReaderSkip('self-hosted server unreachable or timed out')
+  } finally {
+    clearTimeout(timer)
+  }
+
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined)
+    const { benchMs, message } = classifyBackendFailure(response.status)
+    if (benchMs) benchReader('crawl4ai-selfhosted', benchMs, message)
+    throw new ReaderSkip(`self-hosted ${message}`)
+  }
+
+  const payload = (await response.json().catch(() => null)) as { markdown?: string } | null
+  const markdown = typeof payload?.markdown === 'string' ? payload.markdown : ''
+  if (!markdown.trim()) throw new ReaderSkip('self-hosted returned no markdown')
+  return pageFromMarkdown(url, markdown)
+}
+
+/**
+ * Reads a page through the configured chain: crawl4ai Cloud, then a
+ * self-hosted crawl4ai server, then the built-in reader. The first backend
+ * that returns usable text wins; the built-in reader is never benched.
+ */
+async function fetchPage(raw: string): Promise<Page> {
+  const url = await assertSafeUrl(raw)
+  const chain: Array<{ id: string; read: (url: URL) => Promise<Page> }> = [
+    { id: 'crawl4ai-cloud', read: readCrawl4aiCloudPage },
+    { id: 'crawl4ai-selfhosted', read: readCrawl4aiSelfHostedPage },
+    { id: 'builtin', read: (safe) => readBuiltinPage(safe.toString()) },
+  ]
+  const failures: string[] = []
+  for (const reader of chain) {
+    if (reader.id !== 'builtin') {
+      const typed = reader.id as ReaderId
+      if (!readerAvailable(typed)) continue
+    }
+    try {
+      const page = await reader.read(url)
+      if (page.text.trim()) return page
+      failures.push(`${reader.id}: no readable text`)
+    } catch (error) {
+      failures.push(`${reader.id}: ${error instanceof ReaderSkip ? error.message : String(error)}`)
+    }
+  }
+  throw new HttpError(502, 'FETCH_FAILED', `That page could not be read (${failures.join('; ')}).`)
+}
+
+/** Cloud /search backend for handleSearchHttp; benches like the page readers. */
+async function cloudSearch(query: string): Promise<SearchResult[]> {
+  const key = (process.env.CRAWL4AI_KEY ?? '').trim()
+  if (!key) throw new ReaderSkip('no CRAWL4AI_KEY configured')
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), SEARCH_TIMEOUT_MS)
+  let response: Response
+  try {
+    response = await fetch(`${CLOUD_BASE}/search?q=${encodeURIComponent(query)}`, {
+      signal: controller.signal,
+      headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' },
+    })
+  } catch {
+    throw new ReaderSkip('cloud unreachable or timed out')
+  } finally {
+    clearTimeout(timer)
+  }
+
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined)
+    const { benchMs, message } = classifyBackendFailure(response.status)
+    if (benchMs) benchReader('crawl4ai-cloud', benchMs, message)
+    throw new ReaderSkip(`cloud ${message}`)
+  }
+
+  const payload = (await response.json().catch(() => null)) as
+    | { results?: unknown }
+    | unknown[]
+    | null
+  const rows: unknown[] = Array.isArray(payload)
+    ? payload
+    : Array.isArray((payload as { results?: unknown })?.results)
+      ? ((payload as { results: unknown[] }).results)
+      : []
+  const results: SearchResult[] = []
+  const seen = new Set<string>()
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue
+    const entry = row as { url?: unknown; title?: unknown; snippet?: unknown }
+    if (typeof entry.url !== 'string' || !/^https?:\/\//i.test(entry.url)) continue
+    const key2 = entry.url.replace(/\/+$/, '')
+    if (seen.has(key2)) continue
+    seen.add(key2)
+    results.push({
+      url: entry.url,
+      title: typeof entry.title === 'string' && entry.title.trim() ? entry.title : entry.url,
+      snippet: typeof entry.snippet === 'string' ? entry.snippet.slice(0, 400) : '',
+    })
+    if (results.length >= MAX_SEARCH_RESULTS) break
+  }
+  if (!results.length) throw new ReaderSkip('cloud search returned nothing usable')
+  return results
+}
+
+async function runSearch(query: string): Promise<SearchResult[]> {
+  // Crawl4AI cloud search first when a key is configured; DDG is the fallback.
+  if (readerAvailable('crawl4ai-cloud')) {
+    try {
+      const results = await cloudSearch(query)
+      if (results.length) return results
+    } catch {
+      // Any cloud search problem falls through to the built-in engine.
+    }
+  }
+  // html endpoint prefers POST; lite endpoint is the lighter fallback.
+  const primary = await requestSearchEngine('https://html.duckduckgo.com/html/', {
+    method: 'POST',
+    body: new URLSearchParams({ q: query }).toString(),
+  })
+  let results = parseHtmlResults(primary)
+  if (results.length) return results
+
+  const lite = await requestSearchEngine(`https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(query)}`, {
+    method: 'GET',
+  })
+  results = parseLiteResults(lite)
+  if (results.length) return results
+
+  throw new HttpError(502, 'NO_RESULTS', 'The search engine returned nothing readable.')
 }
 
 const MAX_QUERY_CHARS = 300
@@ -386,24 +641,6 @@ async function requestSearchEngine(
   } finally {
     clearTimeout(timer)
   }
-}
-
-async function runSearch(query: string): Promise<SearchResult[]> {
-  // html endpoint prefers POST; lite endpoint is the lighter fallback.
-  const primary = await requestSearchEngine('https://html.duckduckgo.com/html/', {
-    method: 'POST',
-    body: new URLSearchParams({ q: query }).toString(),
-  })
-  let results = parseHtmlResults(primary)
-  if (results.length) return results
-
-  const lite = await requestSearchEngine(`https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(query)}`, {
-    method: 'GET',
-  })
-  results = parseLiteResults(lite)
-  if (results.length) return results
-
-  throw new HttpError(502, 'NO_RESULTS', 'The search engine returned nothing readable.')
 }
 
 export async function handleSearchHttp(req: IncomingMessage, res: ServerResponse) {
