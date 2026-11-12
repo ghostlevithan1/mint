@@ -54,6 +54,12 @@ const MIME_TYPES: Record<string, string> = {
 
 export const TEXT_FILE_LIMIT = 2000
 
+/**
+ * Code blocks render in full up to this many characters; anything longer
+ * becomes a download-only card so the chat stays responsive.
+ */
+export const CODE_INLINE_LIMIT = 24_000
+
 export type FenceInfo = {
   language: string
   filename: string

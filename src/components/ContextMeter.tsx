@@ -7,6 +7,7 @@ type ContextMeterProps = {
   window: number
   max: number
   modelName: string
+  compacting?: boolean
   onCompact: () => void
   onGrow: () => void
 }
@@ -16,6 +17,7 @@ export function ContextMeter({
   window,
   max,
   modelName,
+  compacting,
   onCompact,
   onGrow,
 }: ContextMeterProps) {
@@ -103,9 +105,9 @@ export function ContextMeter({
               <ChevronsUp size={13} />
               {canGrow ? `Grow to ${formatTokens(Math.min(window * 2, max))}` : 'At model max'}
             </button>
-            <button onClick={onCompact} disabled={used < 64}>
+            <button onClick={onCompact} disabled={used < 64 || compacting}>
               <Minimize2 size={13} />
-              Compact now
+              {compacting ? 'Compacting…' : 'Compact now'}
             </button>
           </div>
         </div>

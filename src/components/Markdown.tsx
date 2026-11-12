@@ -2,6 +2,7 @@ import { memo, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Check, Copy, Download, FileCode2 } from 'lucide-react'
 import {
+  CODE_INLINE_LIMIT,
   TEXT_FILE_LIMIT,
   describeFence,
   downloadTextFile,
@@ -197,7 +198,9 @@ type Block =
 
 function CodeFileCard({ code, info }: { code: string; info: FenceInfo }) {
   const [copied, setCopied] = useState(false)
-  const compact = code.length < TEXT_FILE_LIMIT
+  const oversize = code.length >= CODE_INLINE_LIMIT
+  const compact = !oversize && code.length < TEXT_FILE_LIMIT
+  const kb = Math.max(1, Math.round(code.length / 1024))
 
   const copy = async () => {
     try {
@@ -210,7 +213,7 @@ function CodeFileCard({ code, info }: { code: string; info: FenceInfo }) {
   }
 
   return (
-    <figure className={`file-card ${compact ? 'is-compact' : 'is-large'}`}>
+    <figure className={`file-card ${oversize ? 'is-oversize' : compact ? 'is-compact' : 'is-large'}`}>
       <figcaption className="file-card-head">
         <span className="file-card-icon" aria-hidden="true">
           <FileCode2 size={13} />
@@ -236,9 +239,19 @@ function CodeFileCard({ code, info }: { code: string; info: FenceInfo }) {
           </button>
         </span>
       </figcaption>
-      <pre>
-        <code>{code}</code>
-      </pre>
+      {oversize ? (
+        <div className="file-card-note">
+          <FileCode2 size={13} />
+          <p>
+            This file is ~{kb} KB — too long to show in chat. Download it to view the full{' '}
+            {code.length.toLocaleString()} characters; nothing is cut off.
+          </p>
+        </div>
+      ) : (
+        <pre>
+          <code>{code}</code>
+        </pre>
+      )}
     </figure>
   )
 }

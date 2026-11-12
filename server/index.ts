@@ -5,7 +5,7 @@ import { extname, resolve, sep } from 'node:path'
 import { brotliCompress, constants, gzip } from 'node:zlib'
 import { promisify } from 'node:util'
 import { handleChatHttp, handleStatusHttp, sendJson } from './node-http'
-import { handleWebHttp } from './web'
+import { handleSearchHttp, handleWebHttp } from './web'
 
 const compressBrotli = promisify(brotliCompress)
 const compressGzip = promisify(gzip)
@@ -193,6 +193,11 @@ const server = createServer((req, res) => {
 
   if (pathname === '/api/web') {
     void handleWebHttp(req, res)
+    return
+  }
+
+  if (pathname === '/api/search') {
+    void handleSearchHttp(req, res)
     return
   }
 

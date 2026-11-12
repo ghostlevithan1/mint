@@ -268,6 +268,174 @@ async function fetchPage(raw: string): Promise<Page> {
   throw new HttpError(502, 'TOO_MANY_REDIRECTS', 'That link redirected too many times.')
 }
 
+const MAX_QUERY_CHARS = 300
+const MAX_SEARCH_RESULTS = 8
+const SEARCH_TIMEOUT_MS = 9_000
+const SEARCH_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36'
+
+export type SearchResult = { url: string; title: string; snippet: string }
+
+/** DuckDuckGo wraps outbound links as //duckduckgo.com/l/?uddg=<encoded>; unwrap them. */
+function decodeSearchHref(raw: string): string {
+  let href = raw
+  if (href.startsWith('//')) href = `https:${href}`
+  try {
+    const url = new URL(href, 'https://duckduckgo.com')
+    const target = url.searchParams.get('uddg')
+    return target ? decodeURIComponent(target) : url.toString()
+  } catch {
+    return ''
+  }
+}
+
+/** Strips tags/entities from an HTML fragment into plain one-line text. */
+function plainFragment(html: string): string {
+  return decodeEntities(html.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim()
+}
+
+/** Parses the html.duckduckgo.com results page (class result__a / result__snippet). */
+function parseHtmlResults(html: string): SearchResult[] {
+  const results: SearchResult[] = []
+  const seen = new Set<string>()
+  const chunks = html.split(/<a[^>]*class="[^"]*result__a[^"]*"/i).slice(1)
+  for (const chunk of chunks) {
+    const hrefMatch = /href="([^"]+)"/.exec(chunk)
+    if (!hrefMatch) continue
+    const url = decodeSearchHref(hrefMatch[1])
+    if (!/^https?:\/\//i.test(url)) continue
+    let host = ''
+    try {
+      host = new URL(url).hostname.replace(/^www\./, '')
+    } catch {
+      continue
+    }
+    if (!host || host.endsWith('duckduckgo.com')) continue
+    // Title text starts after the opening <a> tag closes.
+    const openEnd = chunk.indexOf('>', hrefMatch.index)
+    const titleEnd = openEnd >= 0 ? chunk.indexOf('</a>', openEnd) : -1
+    const title = openEnd >= 0 && titleEnd > openEnd ? plainFragment(chunk.slice(openEnd + 1, titleEnd)) : ''
+    const snippetRaw = /class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]{0,2000}?)<\/a>/i.exec(chunk)?.[1] ?? ''
+    const snippet = plainFragment(snippetRaw)
+    const key = url.replace(/\/+$/, '')
+    if (seen.has(key)) continue
+    seen.add(key)
+    results.push({ url, title: title || host, snippet: snippet.slice(0, 400) })
+    if (results.length >= MAX_SEARCH_RESULTS) break
+  }
+  return results
+}
+
+/** Fallback parser for lite.duckduckgo.com (result-link / result-snippet classes). */
+function parseLiteResults(html: string): SearchResult[] {
+  const results: SearchResult[] = []
+  const seen = new Set<string>()
+  const chunks = html.split(/<a[^>]*class="[^"]*result-link[^"]*"/i).slice(1)
+  for (const chunk of chunks) {
+    const hrefMatch = /href="([^"]+)"/.exec(chunk)
+    if (!hrefMatch) continue
+    const url = decodeSearchHref(hrefMatch[1])
+    if (!/^https?:\/\//i.test(url)) continue
+    let host = ''
+    try {
+      host = new URL(url).hostname.replace(/^www\./, '')
+    } catch {
+      continue
+    }
+    if (!host || host.endsWith('duckduckgo.com')) continue
+    const openEnd = chunk.indexOf('>', hrefMatch.index)
+    const titleEnd = openEnd >= 0 ? chunk.indexOf('</a>', openEnd) : -1
+    const title = openEnd >= 0 && titleEnd > openEnd ? plainFragment(chunk.slice(openEnd + 1, titleEnd)) : ''
+    const snippetRaw = /class="[^"]*result-snippet[^"]*"[^>]*>([\s\S]{0,2000}?)<\/td>/i.exec(chunk)?.[1] ?? ''
+    const snippet = plainFragment(snippetRaw)
+    const key = url.replace(/\/+$/, '')
+    if (seen.has(key)) continue
+    seen.add(key)
+    results.push({ url, title: title || host, snippet: snippet.slice(0, 400) })
+    if (results.length >= MAX_SEARCH_RESULTS) break
+  }
+  return results
+}
+
+async function requestSearchEngine(
+  url: string,
+  init: { method: 'GET' | 'POST'; body?: string },
+): Promise<string> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), SEARCH_TIMEOUT_MS)
+  try {
+    const response = await fetch(url, {
+      method: init.method,
+      body: init.body,
+      signal: controller.signal,
+      headers: {
+        accept: 'text/html',
+        'accept-language': 'en-US,en;q=0.9',
+        'user-agent': SEARCH_UA,
+        ...(init.body ? { 'content-type': 'application/x-www-form-urlencoded' } : {}),
+      },
+    })
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => undefined)
+      throw new HttpError(502, 'SEARCH_FAILED', `The search engine returned ${response.status}.`)
+    }
+    return await readLimited(response)
+  } catch (error) {
+    if (error instanceof HttpError) throw error
+    throw new HttpError(502, 'SEARCH_FAILED', 'The search engine could not be reached.')
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+async function runSearch(query: string): Promise<SearchResult[]> {
+  // html endpoint prefers POST; lite endpoint is the lighter fallback.
+  const primary = await requestSearchEngine('https://html.duckduckgo.com/html/', {
+    method: 'POST',
+    body: new URLSearchParams({ q: query }).toString(),
+  })
+  let results = parseHtmlResults(primary)
+  if (results.length) return results
+
+  const lite = await requestSearchEngine(`https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(query)}`, {
+    method: 'GET',
+  })
+  results = parseLiteResults(lite)
+  if (results.length) return results
+
+  throw new HttpError(502, 'NO_RESULTS', 'The search engine returned nothing readable.')
+}
+
+export async function handleSearchHttp(req: IncomingMessage, res: ServerResponse) {
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', 'POST')
+    sendJson(res, 405, {
+      error: { code: 'METHOD_NOT_ALLOWED', message: 'Use POST for this endpoint.' },
+    })
+    return
+  }
+
+  try {
+    const body = await readJsonBody(req)
+    const query = typeof body.query === 'string' ? body.query.replace(/\s+/g, ' ').trim() : ''
+    if (!query || query.length > MAX_QUERY_CHARS) {
+      throw new HttpError(400, 'BAD_QUERY', 'Send a search query of 1-300 characters.')
+    }
+    const results = await runSearch(query)
+    sendJson(res, 200, { query, results })
+  } catch (error) {
+    if (error instanceof HttpError) {
+      sendJson(res, error.status, {
+        error: { code: error.code, message: error.message },
+      })
+      return
+    }
+    sendJson(res, 500, {
+      error: { code: 'SEARCH_ERROR', message: 'Web search failed unexpectedly.' },
+    })
+  }
+}
+
 export async function handleWebHttp(req: IncomingMessage, res: ServerResponse) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST')

@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Connect, Plugin } from 'vite'
 import { handleChatHttp, handleStatusHttp } from './node-http'
-import { handleWebHttp } from './web'
+import { handleSearchHttp, handleWebHttp } from './web'
 
 export function mintNvidiaProxy(): Plugin {
   const install = (middlewares: Connect.Server, root: string) => {
@@ -11,6 +11,10 @@ export function mintNvidiaProxy(): Plugin {
 
     middlewares.use('/api/web', (req: IncomingMessage, res: ServerResponse) => {
       void handleWebHttp(req, res)
+    })
+
+    middlewares.use('/api/search', (req: IncomingMessage, res: ServerResponse) => {
+      void handleSearchHttp(req, res)
     })
 
     middlewares.use('/api/chat', (req: IncomingMessage, res: ServerResponse) => {

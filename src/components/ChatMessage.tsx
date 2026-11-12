@@ -105,6 +105,26 @@ export const ChatMessageView = memo(
   const [copied, setCopied] = useState(false)
 
   if (message.role === 'system') {
+    // While /compact runs, the streamed summary is shown live instead of the
+    // usual collapsed note.
+    if (message.phase === 'generating') {
+      return (
+        <article className="msg msg-system is-compacting">
+          <div className="compacting-note" role="status" aria-live="polite">
+            <span className="compacting-head">
+              <Layers size={13} />
+              <strong>Compacting this thread…</strong>
+              <span className="thinking-dots" aria-hidden="true">
+                <i />
+                <i />
+                <i />
+              </span>
+            </span>
+            {message.content && <pre className="compacting-live">{message.content}</pre>}
+          </div>
+        </article>
+      )
+    }
     return (
       <article className="msg msg-system">
         <details className="context-note">
@@ -210,13 +230,24 @@ export const ChatMessageView = memo(
           {message.stopped && <span className="stopped-tag">STOPPED</span>}
         </header>
 
-        {message.webSources && message.webSources.length > 0 && (
+        {(message.webQuery !== undefined ||
+          (message.webSources && message.webSources.length > 0)) && (
           <div className="web-sources">
-            <span className="web-sources-label">
-              <Globe2 size={11} />
-              Read {message.webSources.length === 1 ? '1 link' : `${message.webSources.length} links`}
-            </span>
-            {message.webSources.map((source) => (
+            {message.webQuery ? (
+              <span className="web-sources-label">
+                <Globe2 size={11} />
+                Searched the web
+                {message.webSources && message.webSources.length > 0
+                  ? ` · ${message.webSources.length} source${message.webSources.length === 1 ? '' : 's'}`
+                  : ''}
+              </span>
+            ) : (
+              <span className="web-sources-label">
+                <Globe2 size={11} />
+                Read {message.webSources?.length === 1 ? '1 link' : `${message.webSources?.length ?? 0} links`}
+              </span>
+            )}
+            {message.webSources?.map((source) => (
               <a
                 key={source.url}
                 href={source.url}
@@ -227,6 +258,7 @@ export const ChatMessageView = memo(
                 {source.title}
               </a>
             ))}
+            {message.webError && <small className="web-sources-error">{message.webError}</small>}
           </div>
         )}
 

@@ -29,6 +29,10 @@ export type ChatMessage = {
   reasoning?: string
   error?: string
   webSources?: WebSource[]
+  /** Query used when this turn ran a web search, empty if it only read links. */
+  webQuery?: string
+  /** Web-search failure note; the answer still streams from model knowledge. */
+  webError?: string
 }
 
 export type WebSource = {

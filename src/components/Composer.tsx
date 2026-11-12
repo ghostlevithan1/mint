@@ -5,6 +5,7 @@ import {
   FileCode2,
   FileSpreadsheet,
   FileText,
+  Globe,
   Image as ImageIcon,
   Loader2,
   Paperclip,
@@ -33,6 +34,8 @@ type ComposerProps = {
   routeNotice: string
   textareaRef: MutableRefObject<HTMLTextAreaElement | null>
   onToggleShield: () => void
+  webSearchOn: boolean
+  onToggleWebSearch: () => void
   onFixRouting: () => void
   onDismissRouteNotice: () => void
   onAttachFiles: (files: FileList | File[]) => void
@@ -61,6 +64,8 @@ export function Composer({
   routeNotice,
   textareaRef,
   onToggleShield,
+  webSearchOn,
+  onToggleWebSearch,
   onFixRouting,
   onDismissRouteNotice,
   onAttachFiles,
@@ -226,6 +231,16 @@ export function Composer({
               <ShieldCheck size={14} />
               Shield {shieldOn ? 'on' : 'off'}
             </button>
+            <button
+              type="button"
+              className={`composer-web ${webSearchOn ? 'is-on' : 'is-off'}`}
+              onClick={onToggleWebSearch}
+              aria-pressed={webSearchOn}
+              title="Search the web for fresh info before answering"
+            >
+              <Globe size={14} />
+              Web {webSearchOn ? 'on' : 'off'}
+            </button>
             <span className="composer-limit">
               {attachments.length}/{MAX_FILES} files · 25 MB max
             </span>
@@ -256,6 +271,11 @@ export function Composer({
       </div>
 
       <div className="composer-note">
+        <span className="ai-disclaimer">
+          <TriangleAlert size={11} />
+          Mint can make mistakes — check important info
+        </span>
+        <span className="composer-note-sep" />
         <span className={shieldOn ? undefined : 'is-off'}>
           <ShieldCheck size={11} />
           {shieldOn ? 'Names are shielded on this device' : 'Shield off — text is sent as written'}

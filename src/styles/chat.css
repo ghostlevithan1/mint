@@ -1691,6 +1691,55 @@
   background: rgba(var(--violet-rgb), 0.13);
 }
 
+.web-sources-error {
+  flex: 1 1 100%;
+  color: var(--amber);
+  font-family: var(--mono);
+  font-size: 8.5px;
+}
+
+/* /compact progress: live summary streaming inside the thread */
+.msg-system.is-compacting {
+  display: flex;
+  justify-content: center;
+}
+
+.compacting-note {
+  max-width: 640px;
+  padding: 10px 13px;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  background: rgba(var(--wash-rgb), 0.4);
+}
+
+.compacting-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--dim);
+  font-size: 10px;
+}
+
+.compacting-head svg {
+  color: var(--violet);
+}
+
+.compacting-head strong {
+  font-size: 10.5px;
+  color: var(--text-soft);
+}
+
+.compacting-live {
+  margin: 8px 0 0;
+  max-height: 180px;
+  overflow-y: auto;
+  color: var(--dim);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
 .stopped-tag,
 .live-tag {
   padding: 2px 5px;
@@ -2236,9 +2285,26 @@
   tab-size: 2;
 }
 
-.markdown .file-card.is-large pre {
-  max-height: 320px;
-  overflow-y: auto;
+/* Long code renders in full — no height clamp, the page scrolls naturally. */
+
+.file-card-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 10px 11px;
+  color: var(--text-soft);
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+
+.file-card-note svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--violet);
+}
+
+.file-card-note p {
+  margin: 0;
 }
 
 .markdown .file-card code {
@@ -2585,6 +2651,34 @@
   color: var(--amber);
 }
 
+.composer-web {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--line-soft);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 10px;
+  white-space: nowrap;
+  transition:
+    border-color 140ms ease,
+    color 140ms ease,
+    background 140ms ease;
+}
+
+.composer-web.is-on {
+  border-color: rgba(var(--violet-rgb), 0.35);
+  background: rgba(var(--violet-rgb), 0.1);
+  color: var(--violet);
+}
+
+.composer-web.is-off {
+  color: var(--dim);
+}
+
 .composer-limit {
   padding-left: 4px;
   color: var(--dim);
@@ -2691,6 +2785,10 @@
   width: 1px;
   height: 9px;
   background: var(--line-strong);
+}
+
+.composer-note .ai-disclaimer svg {
+  color: var(--amber);
 }
 
 /* Drag and drop */
@@ -2969,7 +3067,8 @@
     padding: 10px;
   }
 
-  .composer-shield {
+  .composer-shield,
+  .composer-web {
     padding: 0 7px;
   }
 

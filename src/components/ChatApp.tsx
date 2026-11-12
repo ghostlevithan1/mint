@@ -4,7 +4,7 @@ import { modelById } from '../lib/chat'
 import { clampContextWindow, contextMaxTokens, conversationTokens } from '../lib/context'
 import { redactText } from '../lib/privacy'
 import { applyTheme, getStoredTheme, saveTheme, type Theme } from '../lib/theme'
-import { getStoredJpegConversion, saveJpegConversion } from '../lib/preferences'
+import { getStoredJpegConversion, getStoredWebSearch, saveJpegConversion, saveWebSearch } from '../lib/preferences'
 import { useConversations } from '../hooks/useConversations'
 import { useProviderStatus } from '../hooks/useProviderStatus'
 import type { Attachment } from '../lib/files'
@@ -19,6 +19,7 @@ export function ChatApp() {
     activeChat,
     activeId,
     isGenerating,
+    compactingChatId,
     sendMessage,
     stopGenerating,
     regenerate,
@@ -35,6 +36,7 @@ export function ChatApp() {
   const [defaultModelId, setDefaultModelId] = useState(DEFAULT_MODEL_ID)
   const [themeId, setThemeId] = useState<Theme>(getStoredTheme)
   const [convertImagesToJpeg, setConvertImagesToJpeg] = useState(getStoredJpegConversion)
+  const [webSearchOn, setWebSearchOn] = useState(getStoredWebSearch)
   const [shieldOn, setShieldOn] = useState(true)
   const [showMetrics, setShowMetrics] = useState(true)
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -103,6 +105,10 @@ export function ChatApp() {
   }, [convertImagesToJpeg])
 
   useEffect(() => {
+    saveWebSearch(webSearchOn)
+  }, [webSearchOn])
+
+  useEffect(() => {
     if (!sidebarOpen) return
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setSidebarOpen(false)
@@ -111,8 +117,15 @@ export function ChatApp() {
     return () => document.removeEventListener('keydown', onKey)
   }, [sidebarOpen])
 
-  const handleSend = (text: string, attachments: Attachment[]) => {
-    sendMessage({ text, attachments, shieldOn, model: selectedModel, provider: provider.mode })
+  const handleSend = (text: string, attachments: Attachment[], webSearch?: boolean) => {
+    sendMessage({
+      text,
+      attachments,
+      shieldOn,
+      model: selectedModel,
+      provider: provider.mode,
+      webSearch,
+    })
   }
 
   const handleRegenerate = (assistantId: string) => {
@@ -151,8 +164,11 @@ export function ChatApp() {
         contextUsed={contextUsed}
         contextWindow={contextWindow}
         contextMax={contextMax}
-        onCompact={compactChat}
+        onCompact={() => void compactChat(provider.mode)}
         onGrowContext={() => growContext(selectedModel)}
+        isCompacting={compactingChatId === activeId}
+        webSearchOn={webSearchOn}
+        onToggleWebSearch={() => setWebSearchOn((value) => !value)}
         onSelectModel={handleSelectModel}
         onToggleShield={() => setShieldOn((value) => !value)}
         onSend={handleSend}

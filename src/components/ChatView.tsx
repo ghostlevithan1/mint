@@ -44,9 +44,12 @@ type ChatViewProps = {
   contextMax: number
   onCompact: () => void
   onGrowContext: () => void
+  isCompacting: boolean
+  webSearchOn: boolean
+  onToggleWebSearch: () => void
   onSelectModel: (id: string) => void
   onToggleShield: () => void
-  onSend: (text: string, attachments: Attachment[]) => void
+  onSend: (text: string, attachments: Attachment[], webSearch?: boolean) => void
   onStop: () => void
   onRegenerate: (assistantId: string) => void
   onInspectMessage: (assistantId: string) => void
@@ -94,6 +97,9 @@ export function ChatView({
   contextMax,
   onCompact,
   onGrowContext,
+  isCompacting,
+  webSearchOn,
+  onToggleWebSearch,
   onSelectModel,
   onToggleShield,
   onSend,
@@ -155,7 +161,7 @@ export function ChatView({
   const submit = () => {
     if (isGenerating || reading) return
     if (draft.trim().toLowerCase() === '/compact') {
-      onCompact()
+      void onCompact()
       setDraft('')
       textareaRef.current?.focus()
       return
@@ -166,7 +172,7 @@ export function ChatView({
       return
     }
     stickRef.current = true
-    onSend(draft, attachments)
+    onSend(draft, attachments, webSearchOn)
     setDraft('')
     setRouteNotice(null)
     clear()
@@ -267,6 +273,7 @@ export function ChatView({
             window={contextWindow}
             max={contextMax}
             modelName={model.name}
+            compacting={isCompacting}
             onCompact={onCompact}
             onGrow={onGrowContext}
           />
@@ -398,6 +405,8 @@ export function ChatView({
           onDismissRouteNotice={() => setRouteNotice(null)}
           textareaRef={textareaRef}
           onToggleShield={onToggleShield}
+          webSearchOn={webSearchOn}
+          onToggleWebSearch={onToggleWebSearch}
           onAttachFiles={(files) => void handleFiles(files)}
           onRemoveFile={handleRemoveFile}
           onSend={submit}

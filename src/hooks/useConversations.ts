@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { MODELS, modelCapabilities, type Model, type Redaction } from '../lib/data'
 import { buildDemoAnswer, tokenize } from '../lib/demo-engine'
 import { detectRedactionsAsync, redactText, rehydrateText } from '../lib/privacy'
-import { fetchWebContext, extractUrls } from '../lib/web'
+import { fetchWebContext, extractUrls, fetchWebSearchContext } from '../lib/web'
 import {
   ChatApiError,
   streamNvidiaChat,
@@ -16,6 +16,7 @@ import {
   uid,
   type ChatMessage,
   type Conversation,
+  type WebSource,
 } from '../lib/chat'
 import {
   COMPACT_AT,
@@ -46,6 +47,8 @@ type SendInput = {
   shieldOn: boolean
   model: Model
   provider: ProviderMode
+  /** Web search toggle from the composer. */
+  webSearch?: boolean
 }
 
 type RunInput = {
@@ -59,6 +62,8 @@ type RunInput = {
   provider: ProviderMode
   history: ChatMessage[]
   contextWindow: number
+  /** When on, the turn starts with a real web search of the prompt. */
+  webSearch?: boolean
 }
 
 function createBlankChat(): Conversation {
@@ -82,7 +87,7 @@ function buildLivePrompt(prompt: string, context: string, files: string[], web =
   const parts = [prompt]
   if (files.length) parts.push(`Attached files: ${files.join(', ')}`)
   if (context) parts.push(`Attached file context:\n\n${context}`)
-  if (web) parts.push(`Web page context (read just now):\n\n${web}`)
+  if (web) parts.push(`Web context (searched or read just now):\n\n${web}`)
   return parts.join('\n\n---\n\n')
 }
 
@@ -117,6 +122,7 @@ async function compressWithModel(
   messages: ChatMessage[],
   model: Model,
   provider: ProviderMode,
+  onDelta?: (delta: string, running: string) => void,
 ): Promise<string> {
   if (provider === 'nvidia' && messages.length) {
     const controller = new AbortController()
@@ -141,6 +147,7 @@ async function compressWithModel(
           signal: controller.signal,
           onDelta: (delta) => {
             summary += delta
+            onDelta?.(delta, summary)
           },
         },
       )
@@ -161,6 +168,9 @@ export function useConversations() {
   const [activeId, setActiveId] = useState(() => chats[0]?.id ?? '')
   const [isGenerating, setIsGenerating] = useState(false)
   const [generatingChatId, setGeneratingChatId] = useState<string | null>(null)
+  /** Chat id whose manual /compact is currently running a model summary. */
+  const [compactingChatId, setCompactingChatId] = useState<string | null>(null)
+  const compactingRef = useRef(false)
   const loadedRef = useRef(false)
 
   const runIdRef = useRef(0)
@@ -394,7 +404,7 @@ export function useConversations() {
     const links = modelCapabilities(input.model).includes('web')
       ? extractUrls(input.text)
       : []
-    if (links.length) {
+    if (input.webSearch || links.length) {
       patchMessage(input.chatId, input.assistantId, { phase: 'routing' })
       const webController = new AbortController()
       abortRef.current = webController
@@ -402,12 +412,32 @@ export function useConversations() {
         18_000,
         Math.max(1800, Math.floor(windowTokens * 0.5 * 4)),
       )
-      const web = await fetchWebContext(links, webController.signal, webBudget)
-      if (runIdRef.current !== runId) return
-      abortRef.current = null
-      webContext = web.context
-      if (web.sources.length) {
-        patchMessage(input.chatId, input.assistantId, { webSources: web.sources })
+      try {
+        let searchSources: WebSource[] = []
+        if (input.webSearch) {
+          // Web search runs first: results + top pages become the brief.
+          const search = await fetchWebSearchContext(input.text, webController.signal, webBudget)
+          if (runIdRef.current !== runId) return
+          webContext = search.context
+          searchSources = search.sources
+          patchMessage(input.chatId, input.assistantId, {
+            webQuery: search.query,
+            webSources: search.sources,
+            webError: search.error,
+          })
+        }
+        if (links.length) {
+          const web = await fetchWebContext(links, webController.signal, webBudget)
+          if (runIdRef.current !== runId) return
+          webContext = [webContext, web.context].filter(Boolean).join('\n\n---\n\n')
+          if (web.sources.length) {
+            const seen = new Set(searchSources.map((source) => source.url))
+            const merged = [...searchSources, ...web.sources.filter((source) => !seen.has(source.url))]
+            patchMessage(input.chatId, input.assistantId, { webSources: merged })
+          }
+        }
+      } finally {
+        abortRef.current = null
       }
     }
 
@@ -609,6 +639,7 @@ export function useConversations() {
     shieldOn,
     model,
     provider,
+    webSearch,
   }: SendInput) => {
     if (isGenerating) return
     const content = text.trim()
@@ -712,6 +743,7 @@ export function useConversations() {
       provider,
       history,
       contextWindow: window,
+      webSearch,
     })
   }
 
@@ -841,11 +873,86 @@ export function useConversations() {
     setGeneratingChatId(null)
   }
 
-  const compactChat = () => {
-    const chat = chats.find((item) => item.id === activeId)
+  /**
+   * Manual /compact with visible progress: the model streams the summary live
+   * into the thread, then older turns are replaced by that brief. Falls back
+   * to the instant local summary when the model call fails or times out.
+   */
+  const compactChat = async (provider: ProviderMode) => {
+    const chat = chatsRef.current.find((item) => item.id === activeIdRef.current)
     if (!chat || chat.messages.length < 3) return
-    const compacted = compactMessages(chat.messages, 4)
-    if (compacted === chat.messages) return
+    if (compactingRef.current || isGenerating) return
+
+    compactingRef.current = true
+    const guard = runIdRef.current
+    const model = modelById(MODELS, chat.modelId)
+    const compactMessageId = uid()
+    const now = Date.now()
+
+    setIsGenerating(true)
+    setGeneratingChatId(chat.id)
+    setCompactingChatId(chat.id)
+
+    // Visible progress marker lives in the thread while the summary streams.
+    setChats((current) =>
+      current.map((item) =>
+        item.id === chat.id
+          ? {
+              ...item,
+              updatedAt: now,
+              messages: [
+                ...item.messages,
+                {
+                  id: compactMessageId,
+                  role: 'system' as const,
+                  content: '',
+                  createdAt: now,
+                  phase: 'generating' as const,
+                },
+              ],
+            }
+          : item,
+      ),
+    )
+
+    let summary = ''
+    if (provider === 'nvidia') {
+      const controller = new AbortController()
+      abortRef.current = controller
+      try {
+        await compressWithModel(chat.messages, model, provider, (_delta, running) => {
+          if (runIdRef.current !== guard) return
+          summary = running
+          setChats((current) =>
+            current.map((item) =>
+              item.id === chat.id
+                ? {
+                    ...item,
+                    messages: item.messages.map((message) =>
+                      message.id === compactMessageId
+                        ? { ...message, content: running }
+                        : message,
+                    ),
+                  }
+                : item,
+            ),
+          )
+        })
+      } finally {
+        abortRef.current = null
+      }
+    }
+
+    if (runIdRef.current !== guard) {
+      // The run was taken over (stop/new send); that run owns the UI now.
+      // isGenerating is managed by stopGenerating/sendMessage already.
+      compactingRef.current = false
+      setCompactingChatId(null)
+      return
+    }
+
+    if (!summary.trim()) summary = localSummary(chat.messages)
+    const compacted = compactedHistory(chat.messages, summary.trim(), 4)
     setChats((current) =>
       current.map((item) =>
         item.id === chat.id
@@ -853,6 +960,10 @@ export function useConversations() {
           : item,
       ),
     )
+    setCompactingChatId(null)
+    setIsGenerating(false)
+    setGeneratingChatId(null)
+    compactingRef.current = false
   }
 
   const growContext = (model: Model) => {
@@ -894,6 +1005,7 @@ export function useConversations() {
     activeId,
     isGenerating,
     generatingChatId,
+    compactingChatId,
     sendMessage,
     stopGenerating,
     regenerate,
