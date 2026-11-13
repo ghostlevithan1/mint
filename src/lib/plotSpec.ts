@@ -48,8 +48,25 @@ const FUNCTIONS: Record<string, (...args: number[]) => number> = {
 }
 const CONSTANTS: Record<string, number> = { pi: Math.PI, e: Math.E, tau: 2 * Math.PI }
 
+/** Unicode maths the model or a student may paste in, mapped to the parser's names. */
+const SYMBOLS: Record<string, string> = {
+  'π': ' pi ',
+  'τ': ' tau ',
+  '−': ' - ',
+  '–': ' - ',
+  '—': ' - ',
+  '×': ' * ',
+  '·': ' * ',
+  '⋅': ' * ',
+  '÷': ' / ',
+}
+
+function normalizeExpression(expr: string): string {
+  return expr.replace(/[πτ−–—×·⋅÷]/g, (symbol) => SYMBOLS[symbol] ?? symbol)
+}
+
 function tokenize(expr: string): string[] {
-  const tokens = expr.replace(/\*\*/g, '^').match(/\d*\.?\d+(?:e[+-]?\d+)?|[a-z_][a-z0-9_]*|[-+*/^(),]|\S/gi)
+  const tokens = normalizeExpression(expr).trim().replace(/\*\*/g, '^').match(/\d*\.?\d+(?:e[+-]?\d+)?|[a-z_][a-z0-9_]*|[-+*/^(),]|\S/gi)
   return tokens ?? []
 }
 

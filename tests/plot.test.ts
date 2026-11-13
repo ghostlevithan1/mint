@@ -85,12 +85,24 @@ test('every plot example in the system prompt is valid', () => {
 test('every equation name the prompt allows is supported by the parser', () => {
   const listed = SYSTEM_PROMPT.match(/Allowed names: ([^.]+)\./)?.[1]
   assert.ok(listed, 'the prompt lists the equation names')
-  const constants = new Set(['pi', 'e', 'tau'])
+  const constants = new Set(['x', 'pi', 'π', 'e', 'tau', 'τ'])
   for (const item of listed.split(',')) {
     const name = item.replace(/\s*\(.*\)$/, '').trim()
     const expr = constants.has(name) ? name : `${name}(x)`
     assert.doesNotThrow(() => compileExpression(expr), `${name} is documented but not supported`)
   }
+})
+
+test('unicode constants and operators are accepted in equations', () => {
+  assert.equal(at('π', 0), Math.PI)
+  assert.equal(at('2π', 0), 2 * Math.PI)
+  assert.equal(at('πx', 2), 2 * Math.PI)
+  assert.equal(at('sin(π/2)', 0), 1)
+  assert.equal(at('τ', 0), 2 * Math.PI)
+  assert.equal(at('e', 0), Math.E)
+  assert.equal(at('2e', 0), 2 * Math.E)
+  assert.equal(at('2×3 + 4÷2 − 1', 0), 7)
+  assert.equal(at('x^2 − 4', 3), 5)
 })
 
 test('the bar, histogram and scatter shapes the prompt describes parse', () => {
