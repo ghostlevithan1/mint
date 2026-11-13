@@ -88,20 +88,20 @@ export function PayloadModal({
                 : 'Your prompt will be sent without redaction. Names can identify you.'}
             </span>
           </div>
-          <div className="payload-status-code">{shieldOn ? 'ON' : 'OFF'}</div>
+          <div className="payload-status-code">{shieldOn ? 'On' : 'Off'}</div>
         </div>
 
         <div className="payload-grid">
           <div className="payload-pane">
             <div className="pane-top">
-              <span>REQUEST PREVIEW</span>
+              <span>Request preview</span>
               <button className="subtle-button" onClick={copyPayload}>
                 {copied ? <Check size={13} /> : <Copy size={13} />}
                 {copied ? 'Copied' : 'Copy'}
               </button>
             </div>
             <div className="payload-code">
-              <span className="code-label">PROMPT</span>
+              <span className="code-label">Prompt</span>
               <pre>{payload}</pre>
             </div>
             <div className="payload-footnote">
@@ -113,7 +113,7 @@ export function PayloadModal({
 
           <div className="substitution-pane">
             <div className="pane-top">
-              <span>SUBSTITUTIONS</span>
+              <span>Substitutions</span>
               <button
                 className="subtle-button"
                 onClick={() => setShowOriginals((value) => !value)}
@@ -147,15 +147,15 @@ export function PayloadModal({
             )}
             <div className="substitution-summary">
               <div>
-                <span>NAMES</span>
+                <span>Names</span>
                 <strong>{redactions.filter((item) => item.kind === 'name').length}</strong>
               </div>
               <div>
-                <span>EMAILS</span>
+                <span>Emails</span>
                 <strong>{redactions.filter((item) => item.kind === 'email').length}</strong>
               </div>
               <div>
-                <span>PHONES</span>
+                <span>Phones</span>
                 <strong>{redactions.filter((item) => item.kind === 'phone').length}</strong>
               </div>
             </div>

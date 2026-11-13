@@ -154,7 +154,7 @@ export function SettingsModal({
       >
         <aside className="settings-nav">
           <div className="settings-nav-head">
-            <span className="eyebrow">WORKSPACE</span>
+            <span className="eyebrow">Workspace</span>
             <h2 id="settings-title">Settings</h2>
           </div>
           <div className="settings-tabs" role="tablist" aria-orientation="vertical">

@@ -275,16 +275,16 @@ export const ChatMessageView = memo(
               </span>
             </>
           )}
-          {message.provider === 'nvidia' && <span className="live-tag">LIVE</span>}
+          {message.provider === 'nvidia' && <span className="live-tag">Live</span>}
           {message.fallbackFrom && (
             <span
               className="fallback-tag"
               title="The selected model was unavailable upstream, so the default model answered."
             >
-              FALLBACK MODEL
+              Fallback model
             </span>
           )}
-          {message.stopped && <span className="stopped-tag">STOPPED</span>}
+          {message.stopped && <span className="stopped-tag">Stopped</span>}
         </header>
 
         {(message.webQuery !== undefined ||
@@ -402,7 +402,7 @@ export const ChatMessageView = memo(
               <strong>{stats.elapsed.toFixed(1)}s</strong>
             </div>
             <span className={`sim-tag ${message.provider === 'nvidia' ? 'is-live' : ''}`}>
-              {message.provider === 'nvidia' ? 'NVIDIA NIM' : 'SIMULATED'}
+              {message.provider === 'nvidia' ? 'NVIDIA NIM' : 'Simulated'}
             </span>
           </div>
         )}

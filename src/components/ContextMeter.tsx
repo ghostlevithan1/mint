@@ -64,7 +64,7 @@ export function ContextMeter({
         <div className="context-popover" role="dialog" aria-label="Context window">
           <div className="context-popover-head">
             <div>
-              <span className="eyebrow">CONTEXT WINDOW</span>
+              <span className="eyebrow">Context window</span>
               <strong>{modelName}</strong>
             </div>
             <button

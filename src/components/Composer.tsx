@@ -10,7 +10,7 @@ import {
   Loader2,
   Paperclip,
   ShieldCheck,
-  Sparkles,
+  ArrowLeftRight,
   Square,
   TriangleAlert,
   X,
@@ -180,7 +180,7 @@ export function Composer({
 
         {routeNotice && (
           <div className="composer-route-note" role="status">
-            <Sparkles size={12} />
+            <ArrowLeftRight size={12} />
             <span>{routeNotice}</span>
             <button
               type="button"

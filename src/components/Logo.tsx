@@ -3,13 +3,12 @@ export function Logo({ compact = false }: { compact?: boolean }) {
     <a className="brand" href="#top" aria-label={compact ? 'Mint home' : undefined}>
       <span className="brand-mark" aria-hidden="true">
         <svg viewBox="0 0 30 30" role="img">
-          <path d="M4 26V7h5.1L15 17.6 20.9 7H26v19h-5V16.1L15 26l-6-9.9V26H4Z" fill="currentColor" />
-          <path d="M23.5 2H27v3.5h-3.5z" fill="var(--green-bright)" />
+          <path d="M5 25V6h4.8L15 17.2 20.2 6H25v19h-4.6V14.6L15 24.4l-5.4-9.8V25H5Z" fill="currentColor" />
         </svg>
       </span>
       {!compact && (
         <span className="brand-word">
-          <strong>MINT</strong>
+          <strong>Mint</strong>
           <span>Private AI</span>
         </span>
       )}

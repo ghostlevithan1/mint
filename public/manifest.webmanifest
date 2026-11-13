@@ -4,8 +4,8 @@
   "description": "A private, chat-first AI workspace that shields personal identifiers on your device.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#080b08",
-  "theme_color": "#080b08",
+  "background_color": "#121310",
+  "theme_color": "#121310",
   "icons": [
     {
       "src": "/favicon.svg",

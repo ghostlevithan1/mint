@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { DragEvent } from 'react'
 import {
+  ArrowDown,
+  ArrowUpRight,
   ChevronDown,
   ChevronUp,
   Code2,
   FileText,
+  LockKeyhole,
   Mail,
   Minimize2,
   PanelLeft,
@@ -417,45 +420,77 @@ export function ChatView({
       {isEmpty ? (
         <div className="chat-empty">
           <div className="empty-inner">
-            <div className="empty-mark" aria-hidden="true">
-              <span>M</span>
-            </div>
-            <p className="empty-kicker">Private AI workspace</p>
-            <h1>Think out loud — names stay here</h1>
-            <p className="empty-copy">
-              Ask anything, or bring a file for context.{' '}
-              {shieldOn
-                ? 'Names and contact details are replaced with placeholders on this device before the request is routed.'
-                : 'The PII shield is off, so your prompt and files are sent as written.'}
-            </p>
+            <div className="empty-lede">
+              <p className="empty-kicker">Private AI workspace</p>
+              <h1>Think out loud — names stay here</h1>
+              <p className="empty-copy">
+                Ask anything, or bring a file for context.{' '}
+                {shieldOn
+                  ? 'Names and contact details are replaced with placeholders on this device before the request is routed.'
+                  : 'The PII shield is off, so your prompt and files are sent as written.'}
+              </p>
 
-            <div className="suggestion-grid">
-              {SUGGESTIONS.map((item) => (
-                <button
-                  className="suggestion"
-                  key={item.title}
-                  onClick={() => useSuggestion(item.prompt)}
-                >
-                  <span className="suggestion-icon">
-                    <item.icon size={16} />
-                  </span>
-                  <span className="suggestion-copy">
-                    <strong>{item.title}</strong>
-                    <small>{item.copy}</small>
-                  </span>
-                  <span className="suggestion-arrow">
-                    <ChevronDown size={13} className="suggestion-arrow-icon" />
-                  </span>
-                </button>
-              ))}
+              <div className="suggestion-list">
+                {SUGGESTIONS.map((item) => (
+                  <button
+                    className="suggestion"
+                    key={item.title}
+                    onClick={() => useSuggestion(item.prompt)}
+                  >
+                    <span className="suggestion-icon">
+                      <item.icon size={15} />
+                    </span>
+                    <span className="suggestion-copy">
+                      <strong>{item.title}</strong>
+                      <small>{item.copy}</small>
+                    </span>
+                    <span className="suggestion-arrow">
+                      <ArrowUpRight size={13} className="suggestion-arrow-icon" />
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              <div className={`empty-privacy ${shieldOn ? '' : 'is-off'}`}>
+                <ShieldCheck size={13} />
+                <span>Shield {shieldOn ? 'is on' : 'is off'}</span>
+                <span className="empty-privacy-sep" />
+                <span>{MAX_FILES} files · 25 MB each</span>
+              </div>
             </div>
 
-            <div className={`empty-privacy ${shieldOn ? '' : 'is-off'}`}>
-              <ShieldCheck size={13} />
-              <span>Shield {shieldOn ? 'is on' : 'is off'}</span>
-              <span className="empty-privacy-sep" />
-              <span>25 MB per file</span>
-            </div>
+            <figure className="redact-demo" aria-hidden="true">
+              <div className="redact-demo-head">
+                <ShieldCheck size={13} />
+                What happens to your prompt
+              </div>
+              <div className="redact-doc">
+                <div>
+                  <span className="redact-block-label">On this device</span>
+                  <p className="redact-doc-body">
+                    Call <span className="redact-bar">Dana Whitmore</span> at{' '}
+                    <span className="redact-bar">(415) 555-0134</span> about the lease — or write to{' '}
+                    <span className="redact-bar">dana@whitmore-law.com</span>.
+                  </p>
+                </div>
+                <div className="redact-arrow">
+                  <ArrowDown size={12} />
+                  <span>Redacted before the request leaves</span>
+                </div>
+                <div>
+                  <span className="redact-block-label">What the server sees</span>
+                  <p className="redact-doc-body is-redacted">
+                    Call <span className="redact-chip">[PERSON_01]</span> at{' '}
+                    <span className="redact-chip">[PHONE_01]</span> about the lease — or write to{' '}
+                    <span className="redact-chip">[EMAIL_01]</span>.
+                  </p>
+                </div>
+              </div>
+              <div className="redact-demo-foot">
+                <LockKeyhole size={12} />
+                <span>Names, emails and phone numbers are swapped locally. Originals are rehydrated only in this tab.</span>
+              </div>
+            </figure>
           </div>
         </div>
       ) : (
