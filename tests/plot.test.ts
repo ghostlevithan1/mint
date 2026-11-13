@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { compileExpression, niceTicks, parsePlotSpec, PlotError, sharedTicks } from '../src/lib/plotSpec.ts'
+import { compileExpression, formatTick, niceTicks, parsePlotSpec, PlotError, sharedTicks } from '../src/lib/plotSpec.ts'
 import { parseDiagramSpec, wrapLabel } from '../src/lib/diagramSpec.ts'
 import { SYSTEM_PROMPT, withSystemPrompt } from '../server/core.ts'
 
@@ -132,6 +132,22 @@ test('the shared tick step stays readable for very different spans', () => {
   for (let i = 1; i < tall.x.length; i += 1) assert.equal(tall.x[i] - tall.x[i - 1], tall.step)
   for (let i = 1; i < tall.y.length; i += 1) assert.equal(tall.y[i] - tall.y[i - 1], tall.step)
   assert.ok(tall.step > 0)
+})
+
+test('tick labels shorten to fit the y-axis margin instead of escaping it', () => {
+  // The y-axis budget is M.left - 10 = 46 viewBox units.
+  assert.equal(formatTick(0, 46), '0')
+  assert.equal(formatTick(100, 46), '100')
+  assert.equal(formatTick(10000, 46), '10000')
+  assert.equal(formatTick(-10000, 46), '-10000')
+  assert.equal(formatTick(100000, 46), '1.0e+5')
+  assert.equal(formatTick(-100000, 46), '-1e+5')
+  assert.equal(formatTick(150000, 46), '1.5e+5')
+  assert.equal(formatTick(-1234000, 46), '-1e+6')
+  assert.equal(formatTick(1e10, 46), '1e+10')
+  assert.equal(formatTick(-0.00001, 46), '-1e-5')
+  // Labels that already fit are never reformatted.
+  assert.equal(formatTick(2.5, 46), '2.5')
 })
 
 test('diagram specs validate their type and node count', () => {

@@ -4,6 +4,8 @@
  * through a small whitelist parser: nothing model-written is ever eval'd.
  */
 
+import { estimateTextWidth } from './plotGeometry'
+
 const MAX_EXPR_CHARS = 300
 const DEFAULT_SAMPLES = 400
 const MAX_SAMPLES = 2000
@@ -380,4 +382,30 @@ export function sharedTicks(
 ): { x: number[]; y: number[]; step: number } {
   const step = Math.max(niceStep((x1 - x0) / xTarget), niceStep((y1 - y0) / yTarget))
   return { x: ticksBetween(x0, x1, step), y: ticksBetween(y0, y1, step), step }
+}
+
+// ---------- tick formatting ----------
+
+/** The default tick label: precise enough to read, short enough to scan. */
+function plainTick(value: number): string {
+  if (value === 0) return '0'
+  const abs = Math.abs(value)
+  if (abs >= 1e5 || abs < 1e-3) return value.toExponential(1)
+  return String(Number(value.toPrecision(4)))
+}
+
+/**
+ * Formats a tick value, falling back to shorter scientific forms when the
+ * label would be wider than `maxWidth` (viewBox units). Long y-axis labels
+ * would otherwise run off the left edge of the canvas, because that axis has
+ * the least room.
+ */
+export function formatTick(value: number, maxWidth = Infinity): string {
+  const base = plainTick(value)
+  if (estimateTextWidth(base) <= maxWidth || value === 0 || !Number.isFinite(value)) return base
+  for (const digits of [1, 0]) {
+    const label = value.toExponential(digits)
+    if (estimateTextWidth(label) <= maxWidth) return label
+  }
+  return value.toExponential(0)
 }

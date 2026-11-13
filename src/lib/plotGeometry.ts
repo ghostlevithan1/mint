@@ -115,6 +115,17 @@ export function clampLabel(x: number, width: number, left: number, right: number
 }
 
 /**
+ * Estimated width of a 12px monospace string, in viewBox units. Wide CJK and
+ * emoji glyphs count double. Estimates, not measures, so layout code can use
+ * them without touching the DOM.
+ */
+export function estimateTextWidth(text: string): number {
+  let width = 0
+  for (const char of text) width += (char.codePointAt(0) ?? 0) > 0x2e80 ? 12 : 7.4
+  return width
+}
+
+/**
  * Places a multi-line readout beside a selected point. It prefers the space
  * above and to the right of the point, flips when that would leave `area`, and
  * clamps as a last resort so the whole block stays inside the plot.

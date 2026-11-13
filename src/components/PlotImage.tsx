@@ -1,12 +1,14 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { Loader2, TriangleAlert } from 'lucide-react'
-import { compileExpression, niceTicks, parsePlotSpec, PlotError, sharedTicks, type PlotData } from '../lib/plotSpec'
-import { clampLabel, insideArea, nearestOnSegment, panView, placeReadout, squareView, zoomView, type View } from '../lib/plotGeometry'
+import { compileExpression, formatTick, niceTicks, parsePlotSpec, PlotError, sharedTicks, type PlotData } from '../lib/plotSpec'
+import { clampLabel, estimateTextWidth, insideArea, nearestOnSegment, panView, placeReadout, squareView, zoomView, type View } from '../lib/plotGeometry'
 
 const W = 640
 const H = 360
-const M = { top: 16, right: 20, bottom: 40, left: 52 }
+// The left margin is wide enough for a 6-character tick label (e.g. -1.0e+5)
+// to end at x = 48 and still start inside the canvas.
+const M = { top: 16, right: 20, bottom: 40, left: 56 }
 const IW = W - M.left - M.right
 const IH = H - M.top - M.bottom
 const SERIES = ['#86d95f', '#8fb4d9', '#e0b26a', '#d6a28c', '#5fc8b0', '#e5484d', '#c9c9cd', '#a1c96a']
@@ -21,30 +23,11 @@ const DOT_RADIUS = 4.5
 type Selection = { x: number; y: number; label: string; color: string }
 type Drag = { id: number; px: number; py: number; view: View; moved: boolean }
 
-function fmt(value: number): string {
-  if (value === 0) return '0'
-  const abs = Math.abs(value)
-  if (abs >= 1e5 || abs < 1e-3) return value.toExponential(1)
-  return String(Number(value.toPrecision(4)))
-}
-
-/** Precise enough for a readout, short enough to stay readable. */
 function coordinate(value: number): string {
   if (value === 0) return '0'
   const abs = Math.abs(value)
   if (abs >= 1e6 || abs < 1e-4) return value.toExponential(2)
   return String(Number(value.toPrecision(5)))
-}
-
-/** Estimated width of a 12px monospace line, in viewBox units. */
-function readoutTextWidth(lines: string[]): number {
-  let widest = 0
-  for (const line of lines) {
-    let width = 0
-    for (const char of line) width += (char.codePointAt(0) ?? 0) > 0x2e80 ? 12 : 7.4
-    if (width > widest) widest = width
-  }
-  return widest + 4
 }
 
 function Chart({ data }: { data: PlotData }) {
@@ -273,7 +256,7 @@ function Chart({ data }: { data: PlotData }) {
     : []
   // Rough width of the 12px monospace readout, in viewBox units, so it can be
   // kept inside the plot frame instead of spilling over the axes.
-  const readoutWidth = readoutTextWidth(readoutLines)
+  const readoutWidth = Math.max(0, ...readoutLines.map(estimateTextWidth)) + 4
   const readout = selection
     ? placeReadout({ x: dotX, y: dotY }, readoutLines.length, readoutWidth, {
         left: M.left,
@@ -312,15 +295,15 @@ function Chart({ data }: { data: PlotData }) {
           <g key={`y${t}`}>
             {data.grid && <line className="plot-grid" x1={M.left} x2={W - M.right} y1={sy(t)} y2={sy(t)} />}
             <text className="plot-tick" x={M.left - 8} y={sy(t)} textAnchor="end" dominantBaseline="middle">
-              {fmt(t)}
+              {formatTick(t, M.left - 10)}
             </text>
           </g>
         ))}
         {xTicks.map((t) => {
-          const label = fmt(t)
+          const label = formatTick(t, W)
           // The first and last ticks sit on the frame, so nudge their labels in
           // rather than letting them hang outside the graph.
-          const labelX = clampLabel(sx(t), readoutTextWidth([label]), M.left, W - M.right)
+          const labelX = clampLabel(sx(t), estimateTextWidth(label), M.left, W - M.right)
           return (
             <g key={`x${t}`}>
               {data.grid && <line className="plot-grid" y1={M.top} y2={H - M.bottom} x1={sx(t)} x2={sx(t)} />}
@@ -389,36 +372,46 @@ function Chart({ data }: { data: PlotData }) {
         </g>
 
         {isBars &&
-          data.bars.map((bar, i) =>
-            showEveryLabel || i % Math.ceil(data.bars.length / 8) === 0 ? (
-              <text key={`b${i}`} className="plot-tick" x={M.left + band * (i + 0.5)} y={H - M.bottom + 18} textAnchor="middle">
-                {bar.label.length > 10 ? `${bar.label.slice(0, 9)}…` : bar.label}
+          data.bars.map((bar, i) => {
+            if (!(showEveryLabel || i % Math.ceil(data.bars.length / 8) === 0)) return null
+            const label = bar.label.length > 10 ? `${bar.label.slice(0, 9)}…` : bar.label
+            // Labels are centered on their band, so the outermost ones need a
+            // nudge inside rather than hanging over the frame.
+            const labelX = clampLabel(M.left + band * (i + 0.5), estimateTextWidth(label), M.left, W - M.right)
+            return (
+              <text key={`b${i}`} className="plot-tick" x={labelX} y={H - M.bottom + 18} textAnchor="middle">
+                {label}
               </text>
-            ) : null,
-          )}
+            )
+          })}
 
-        {pickedBar && barPick !== null && (
-          <g pointerEvents="none">
-            <line
-              className="plot-readout-guide"
-              x1={M.left + band * (barPick + 0.5)}
-              x2={M.left + band * (barPick + 0.5)}
-              y1={Math.min(sy(Math.max(0, pickedBar.value)), sy(Math.max(y0, Math.min(0, pickedBar.value))))}
-              y2={H - M.bottom}
-            />
-            <text
-              className="plot-readout-text"
-              x={M.left + band * (barPick + 0.5)}
-              y={Math.max(
-                M.top + 14,
-                Math.min(sy(Math.max(0, pickedBar.value)), sy(Math.max(y0, Math.min(0, pickedBar.value)))) - 10,
-              )}
-              textAnchor="middle"
-            >
-              {`${pickedBar.label.length > 16 ? `${pickedBar.label.slice(0, 15)}…` : pickedBar.label}: ${coordinate(pickedBar.value)}`}
-            </text>
-          </g>
-        )}
+        {pickedBar && barPick !== null && (() => {
+          const label = `${pickedBar.label.length > 16 ? `${pickedBar.label.slice(0, 15)}…` : pickedBar.label}: ${coordinate(pickedBar.value)}`
+          // A bar can rise above the window, so hold the guide inside the frame.
+          const top = Math.max(
+            M.top,
+            Math.min(sy(Math.max(0, pickedBar.value)), sy(Math.max(y0, Math.min(0, pickedBar.value)))),
+          )
+          return (
+            <g pointerEvents="none">
+              <line
+                className="plot-readout-guide"
+                x1={M.left + band * (barPick + 0.5)}
+                x2={M.left + band * (barPick + 0.5)}
+                y1={top}
+                y2={H - M.bottom}
+              />
+              <text
+                className="plot-readout-text"
+                x={clampLabel(M.left + band * (barPick + 0.5), estimateTextWidth(label), M.left, W - M.right)}
+                y={Math.max(M.top + 14, top - 10)}
+                textAnchor="middle"
+              >
+                {label}
+              </text>
+            </g>
+          )
+        })()}
 
         {selection && readout && (
           <g pointerEvents="none">

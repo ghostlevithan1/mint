@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   clampLabel,
+  estimateTextWidth,
   insideArea,
   MAX_ZOOM,
   nearestOnSegment,
@@ -174,4 +175,11 @@ test('tick labels stay inside the plot frame', () => {
   close(clampLabel(area.left, 20, area.left, area.right), area.left + 10)
   close(clampLabel(area.right, 20, area.left, area.right), area.right - 10)
   close(clampLabel(area.left - 50, 20, area.left, area.right), area.left + 10)
+})
+
+test('text width matches the 12px monospace font, with wide glyphs doubled', () => {
+  close(estimateTextWidth('-100'), 4 * 7.4)
+  close(estimateTextWidth('1.0e+5'), 6 * 7.4)
+  assert.ok(estimateTextWidth('坐标') > estimateTextWidth('ab'))
+  close(estimateTextWidth(''), 0)
 })
