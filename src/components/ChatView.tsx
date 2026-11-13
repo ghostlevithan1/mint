@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { DragEvent } from 'react'
 import {
-  ArrowDown,
   ArrowUpRight,
   ChevronDown,
   ChevronUp,
@@ -14,7 +13,6 @@ import {
   Scale,
   Search,
   Settings,
-  ShieldCheck,
   UploadCloud,
   X,
 } from 'lucide-react'
@@ -67,25 +65,25 @@ const SUGGESTIONS = [
   {
     icon: FileText,
     title: 'Summarize a document',
-    copy: 'Decisions, risks, and open questions.',
+    copy: 'Decisions, risks and open questions',
     prompt: SAMPLE_PROMPTS[0],
   },
   {
     icon: Scale,
     title: 'Review a contract',
-    copy: 'Spot unusual terms before signing.',
+    copy: 'Unusual terms to check before signing',
     prompt: SAMPLE_PROMPTS[1],
   },
   {
     icon: Mail,
     title: 'Draft a reply',
-    copy: 'Turn context into a clear email.',
+    copy: 'A clear email from the thread you paste',
     prompt: SAMPLE_PROMPTS[2],
   },
   {
     icon: Code2,
     title: 'Audit some code',
-    copy: 'Surface bugs and cleanup work.',
+    copy: 'Bugs, edge cases and cleanup',
     prompt: 'Review this TypeScript module for correctness, edge cases, and cleanup opportunities.',
   },
 ]
@@ -421,13 +419,13 @@ export function ChatView({
         <div className="chat-empty">
           <div className="empty-inner">
             <div className="empty-lede">
-              <p className="empty-kicker">Private AI workspace</p>
-              <h1>Think out loud — names stay here</h1>
+              <h1>
+                Ask anything. <span>Names stay on this device.</span>
+              </h1>
               <p className="empty-copy">
-                Ask anything, or bring a file for context.{' '}
                 {shieldOn
-                  ? 'Names and contact details are replaced with placeholders on this device before the request is routed.'
-                  : 'The PII shield is off, so your prompt and files are sent as written.'}
+                  ? 'Names, emails and phone numbers become placeholders before your prompt leaves this tab, and come back when the answer arrives.'
+                  : 'The shield is off, so your prompt and files are sent as written.'}
               </p>
 
               <div className="suggestion-list">
@@ -437,59 +435,37 @@ export function ChatView({
                     key={item.title}
                     onClick={() => useSuggestion(item.prompt)}
                   >
-                    <span className="suggestion-icon">
-                      <item.icon size={15} />
-                    </span>
+                    <item.icon size={16} strokeWidth={1.5} className="suggestion-icon" />
                     <span className="suggestion-copy">
                       <strong>{item.title}</strong>
                       <small>{item.copy}</small>
                     </span>
-                    <span className="suggestion-arrow">
-                      <ArrowUpRight size={13} className="suggestion-arrow-icon" />
-                    </span>
+                    <ArrowUpRight size={16} strokeWidth={1.5} className="suggestion-arrow" />
                   </button>
                 ))}
-              </div>
-
-              <div className={`empty-privacy ${shieldOn ? '' : 'is-off'}`}>
-                <ShieldCheck size={13} />
-                <span>Shield {shieldOn ? 'is on' : 'is off'}</span>
-                <span className="empty-privacy-sep" />
-                <span>{MAX_FILES} files · 25 MB each</span>
               </div>
             </div>
 
             <figure className="redact-demo" aria-hidden="true">
-              <div className="redact-demo-head">
-                <ShieldCheck size={13} />
-                What happens to your prompt
+              <div className="paper paper-back">
+                <span className="paper-label">Your prompt</span>
+                <p>
+                  Call <mark>Dana Whitmore</mark> at <mark>(415) 555-0134</mark> about the lease
+                  renewal, or write to <mark>dana@whitmore-law.com</mark> before Friday.
+                </p>
               </div>
-              <div className="redact-doc">
-                <div>
-                  <span className="redact-block-label">On this device</span>
-                  <p className="redact-doc-body">
-                    Call <span className="redact-bar">Dana Whitmore</span> at{' '}
-                    <span className="redact-bar">(415) 555-0134</span> about the lease — or write to{' '}
-                    <span className="redact-bar">dana@whitmore-law.com</span>.
-                  </p>
-                </div>
-                <div className="redact-arrow">
-                  <ArrowDown size={12} />
-                  <span>Redacted before the request leaves</span>
-                </div>
-                <div>
-                  <span className="redact-block-label">What the server sees</span>
-                  <p className="redact-doc-body is-redacted">
-                    Call <span className="redact-chip">[PERSON_01]</span> at{' '}
-                    <span className="redact-chip">[PHONE_01]</span> about the lease — or write to{' '}
-                    <span className="redact-chip">[EMAIL_01]</span>.
-                  </p>
-                </div>
+              <div className="paper paper-front">
+                <span className="paper-label">What the model receives</span>
+                <p>
+                  Call <span className="censor">PERSON_01</span> at{' '}
+                  <span className="censor">PHONE_01</span> about the lease renewal, or write to{' '}
+                  <span className="censor">EMAIL_01</span> before Friday.
+                </p>
               </div>
-              <div className="redact-demo-foot">
-                <LockKeyhole size={12} />
-                <span>Names, emails and phone numbers are swapped locally. Originals are rehydrated only in this tab.</span>
-              </div>
+              <figcaption className="redact-demo-foot">
+                <LockKeyhole size={14} strokeWidth={1.5} />
+                Originals are restored only in this tab
+              </figcaption>
             </figure>
           </div>
         </div>
