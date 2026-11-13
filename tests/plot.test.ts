@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { compileExpression, niceTicks, parsePlotSpec, PlotError } from '../src/lib/plotSpec.ts'
 import { parseDiagramSpec, wrapLabel } from '../src/lib/diagramSpec.ts'
-import { withSystemPrompt } from '../server/core.ts'
+import { SYSTEM_PROMPT, withSystemPrompt } from '../server/core.ts'
 
 const at = (expr: string, x: number) => compileExpression(expr)(x)
 
@@ -55,6 +55,36 @@ test('broken specs explain what is wrong', () => {
   assert.throws(() => parsePlotSpec('{"xRange":[0,1]'), /valid JSON/)
   assert.throws(() => parsePlotSpec('{"chart":"pie"}'), /chart/)
   assert.throws(() => parsePlotSpec('{}'), /Nothing to plot/)
+})
+
+test('the plot example in the system prompt is valid', () => {
+  const example = SYSTEM_PROMPT.match(/```plot\n([\s\S]*?)```/)?.[1]
+  assert.ok(example, 'the system prompt contains a plot example')
+  const data = parsePlotSpec(example)
+  assert.equal(data.chart, 'line')
+  assert.equal(data.lines.length, 1)
+  assert.equal(data.markers.length, 3)
+  assert.ok(data.xRange[0] < -1 && data.xRange[1] > 3)
+})
+
+test('every equation name the prompt allows is supported by the parser', () => {
+  const listed = SYSTEM_PROMPT.match(/these names only: ([^.]+)\./)?.[1]
+  assert.ok(listed, 'the prompt lists the equation names')
+  const constants = new Set(['pi', 'e', 'tau'])
+  for (const item of listed.split(',')) {
+    const name = item.replace(/\s*\(.*\)$/, '').trim()
+    const expr = constants.has(name) ? name : `${name}(x)`
+    assert.doesNotThrow(() => compileExpression(expr), `${name} is documented but not supported`)
+  }
+})
+
+test('the bar, histogram and scatter shapes the prompt describes parse', () => {
+  const bar = parsePlotSpec(JSON.stringify({ chart: 'bar', series: [{ x: ['A', 'B'], y: [3, 5] }] }))
+  assert.deepEqual(bar.bars.map((b) => b.label), ['A', 'B'])
+  const hist = parsePlotSpec(JSON.stringify({ chart: 'histogram', data: [1, 2, 2, 3, 3, 3], bins: 4 }))
+  assert.equal(hist.bars.length, 4)
+  const scatter = parsePlotSpec(JSON.stringify({ chart: 'scatter', series: [{ x: [1, 2], y: [3, 4] }] }))
+  assert.equal(scatter.lines[0].mode, 'scatter')
 })
 
 test('ticks land on round numbers', () => {
