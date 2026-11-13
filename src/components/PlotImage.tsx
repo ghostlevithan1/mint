@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { Loader2, TriangleAlert } from 'lucide-react'
 import { compileExpression, niceTicks, parsePlotSpec, PlotError, sharedTicks, type PlotData } from '../lib/plotSpec'
-import { insideArea, nearestOnSegment, panView, placeReadout, squareView, zoomView, type View } from '../lib/plotGeometry'
+import { clampLabel, insideArea, nearestOnSegment, panView, placeReadout, squareView, zoomView, type View } from '../lib/plotGeometry'
 
 const W = 640
 const H = 360
@@ -316,14 +316,20 @@ function Chart({ data }: { data: PlotData }) {
             </text>
           </g>
         ))}
-        {xTicks.map((t) => (
-          <g key={`x${t}`}>
-            {data.grid && <line className="plot-grid" y1={M.top} y2={H - M.bottom} x1={sx(t)} x2={sx(t)} />}
-            <text className="plot-tick" x={sx(t)} y={H - M.bottom + 18} textAnchor="middle">
-              {fmt(t)}
-            </text>
-          </g>
-        ))}
+        {xTicks.map((t) => {
+          const label = fmt(t)
+          // The first and last ticks sit on the frame, so nudge their labels in
+          // rather than letting them hang outside the graph.
+          const labelX = clampLabel(sx(t), readoutTextWidth([label]), M.left, W - M.right)
+          return (
+            <g key={`x${t}`}>
+              {data.grid && <line className="plot-grid" y1={M.top} y2={H - M.bottom} x1={sx(t)} x2={sx(t)} />}
+              <text className="plot-tick" x={labelX} y={H - M.bottom + 18} textAnchor="middle">
+                {label}
+              </text>
+            </g>
+          )
+        })}
 
         {/* The x = 0 and y = 0 axes, when they are in view, so graphs read like a maths book. */}
         {y0 < 0 && y1 > 0 && <line className="plot-axis" x1={M.left} x2={W - M.right} y1={sy(0)} y2={sy(0)} />}

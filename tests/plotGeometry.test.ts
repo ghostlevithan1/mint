@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  clampLabel,
   insideArea,
   MAX_ZOOM,
   nearestOnSegment,
@@ -166,4 +167,11 @@ test('a point outside the plot area is hidden, with clearance for its dot', () =
   assert.equal(insideArea({ x: 52, y: 150 }, area), true)
   assert.equal(insideArea({ x: 52, y: 150 }, area, 5), false)
   assert.equal(insideArea({ x: 620, y: 320 }, area, 5), false)
+})
+
+test('tick labels stay inside the plot frame', () => {
+  close(clampLabel(300, 20, area.left, area.right), 300)
+  close(clampLabel(area.left, 20, area.left, area.right), area.left + 10)
+  close(clampLabel(area.right, 20, area.left, area.right), area.right - 10)
+  close(clampLabel(area.left - 50, 20, area.left, area.right), area.left + 10)
 })

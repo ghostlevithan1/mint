@@ -107,6 +107,13 @@ export function insideArea(
   )
 }
 
+/** Keeps a centered label inside [left, right] while its tick stays put. */
+export function clampLabel(x: number, width: number, left: number, right: number): number {
+  const half = Math.max(0, width) / 2
+  if (right - left <= half * 2) return (left + right) / 2
+  return clamp(x, left + half, right - half)
+}
+
 /**
  * Places a multi-line readout beside a selected point. It prefers the space
  * above and to the right of the point, flips when that would leave `area`, and
