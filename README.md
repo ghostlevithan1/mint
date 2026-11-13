@@ -55,7 +55,6 @@ guard.
 - `/api/chat`: **15 requests per minute per client IP**. This is the budget that
   keeps one visitor or script from draining the NVIDIA key.
 - `/api/web` and `/api/search`: 60 requests per minute per client IP.
-- `/api/plot`: 30 requests per minute per client IP.
 - `MINT_RATE_LIMIT=0` disables chat limiting for local testing.
 
 Visitors behind the same router share one budget, so a busy household or office
@@ -132,11 +131,9 @@ that `Esc` stops the request.
   chat) — the browser sends no cookies and no referrer.
 - **Plots** — ask any model to chart something ("plot y = x^2 - 4", "graph a bar
   chart of quarterly revenue") and it answers with a fenced `plot` spec that the
-  server renders to a PNG with Python + matplotlib and shows inline. Specs are
-  validated and rendered deterministically — the model never runs code, and
-  equations are evaluated on a whitelist of math functions. Requires `python`
-  with `matplotlib` and `numpy` on the server (see `requirements.txt`); without
-  them `/api/plot` answers 503 and the rest of the app keeps working.
+  browser draws as an SVG graph, with marked points for roots and turning points.
+  Specs are validated and equations go through a whitelist parser, so the model
+  never runs code. No server or Python is involved.
 - **Enter** sends; **Shift + Enter** adds a line; **Esc** stops generation.
 - **Export all chats** (Settings → Privacy) downloads one JSON file.
 - **Stop** ends a streamed answer; **Regenerate** re-runs the last response.
@@ -185,8 +182,7 @@ meta tag, so a deployed instance stays out of search engines.
 
 ## Deploy on Render
 
-`render.yaml` describes the service. The build also runs `pip install -r
-requirements.txt` (best-effort) for the plotting feature. Set these environment
+`render.yaml` describes the service. Set these environment
 variables in the dashboard (they are `sync: false`, so they are never committed):
 
 - `NVIDIA_API_KEY` — enables live inference
@@ -201,13 +197,10 @@ configuration, while `/api/chat`, `/api/web` and `/api/search` are limited per I
 ```
 server/
   index.ts                   production HTTP server, static files, security headers
-  limits.ts                  per-IP rate limiting for chat, web, search, and plots
+  limits.ts                  per-IP rate limiting for chat, web and search
   core.ts                    model mapping, upstream SSE, fallback on 404/410
   node-http.ts               /api/chat and /api/status handlers
   web.ts                     /api/web page reader and /api/search
-  plot.ts                    /api/plot spawn wrapper (scrubbed env, timeout, size caps)
-  plot-http.ts               /api/plot HTTP handler
-  plot.py                    deterministic spec-to-PNG renderer (no code execution)
   nvidia.ts                  Vite dev/preview proxy with the same limits
 src/
   components/
@@ -217,7 +210,7 @@ src/
     Composer.tsx             text input, attachments, paste, shield, send/stop
     ChatMessage.tsx          message bubbles, markdown, metrics, waiting timer
     SettingsModal.tsx        general, privacy, storage, export, about
-    PlotImage.tsx            renders the ```plot fence as an inline figure
+    PlotImage.tsx            draws the ```plot fence as an SVG graph
     PayloadModal.tsx         redacted payload audit
   hooks/
     useConversations.ts      chats, streaming, compacting, undo, storage errors
@@ -227,7 +220,7 @@ src/
     chat.ts                  conversation and message types
     storage.ts               IndexedDB persistence and usage estimate
     nvidia.ts                browser-side SSE parser for /api/chat
-    plots.ts                 client for /api/plot, memoized per session
+    plotSpec.ts              plot spec validation and the safe equation parser
     web.ts                   link reading and web search client
     files.ts                 attachment kinds, reading, validation
     privacy.ts               PII detection, redaction, rehydration

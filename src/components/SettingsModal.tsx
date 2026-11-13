@@ -17,9 +17,11 @@ import {
   X,
 } from 'lucide-react'
 import { MOD_KEY } from '../lib/platform'
+import { LeafMark } from './Logo'
 import { MODEL_TYPES, MODELS, modelsByType, typeInfo } from '../lib/data'
 import type { ProviderStatus } from '../lib/provider'
 import { formatBytes } from '../lib/privacy'
+import { getStoredProfile, PROFILE_MAX_CHARS, saveProfile } from '../lib/preferences'
 import { storageUsage } from '../lib/storage'
 import { ModelCapabilityBadges, ModelLogo } from './ModelLogo'
 
@@ -98,6 +100,7 @@ export function SettingsModal({
   onRefreshProvider,
 }: SettingsModalProps) {
   const [tab, setTab] = useState<SettingsTab>(initialTab)
+  const [profile, setProfile] = useState(getStoredProfile)
   const [usage, setUsage] = useState<{ usage: number; quota: number } | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
 
@@ -149,7 +152,6 @@ export function SettingsModal({
       >
         <aside className="settings-nav">
           <div className="settings-nav-head">
-            <span className="eyebrow">Workspace</span>
             <h2 id="settings-title">Settings</h2>
           </div>
           <div className="settings-tabs" role="tablist" aria-orientation="vertical">
@@ -181,14 +183,36 @@ export function SettingsModal({
             <div className="settings-pane">
               <div className="settings-pane-head">
                 <h3>General</h3>
-                <p>Choose how new messages run and what the workspace shows you.</p>
+                <p>How Mint answers and what it shows you</p>
               </div>
+
+              <section className="settings-section">
+                <h4>
+                  <label htmlFor="mint-profile">About you</label>
+                </h4>
+                <p className="settings-help">
+                  Mint uses this to pitch every explanation at your level. Your year, subjects,
+                  exams coming up and how you like things explained. No need for your name.
+                </p>
+                <textarea
+                  id="mint-profile"
+                  className="profile-input"
+                  value={profile}
+                  maxLength={PROFILE_MAX_CHARS}
+                  rows={4}
+                  placeholder="Year 10. Doing GCSE maths, biology and history. I get lost in long paragraphs, so diagrams and worked examples help."
+                  onChange={(event) => {
+                    setProfile(event.target.value)
+                    saveProfile(event.target.value)
+                  }}
+                />
+              </section>
 
               <section className="settings-section">
                 <h4>Model type</h4>
                 <p className="settings-help">
-                  Choose the intelligence tier for the task. It selects a matching model — you can
-                  still switch models below.
+                  Quick answers fast, Intelligent thinks harder on tough problems. You can still
+                  pick a specific model below.
                 </p>
                 <div className="model-type-grid" role="radiogroup" aria-label="Model type">
                   {MODEL_TYPES.map((type) => {
@@ -431,22 +455,24 @@ export function SettingsModal({
             <div className="settings-pane">
               <div className="settings-pane-head">
                 <h3>About Mint</h3>
-                <p>A private AI workspace built around the conversation.</p>
+                <p>A tutor that explains things your way</p>
               </div>
 
               <div className="about-lockup">
-                <span className="about-mark">M</span>
+                <span className="about-mark">
+                  <LeafMark size={26} />
+                </span>
                 <div>
                   <strong>Mint</strong>
-                  <span>Private AI workspace · v1.0</span>
+                  <span>School AI · v1.0</span>
                 </div>
               </div>
 
               <p className="about-copy">
-                Chat history, attachments, and redaction stay in this browser. When live inference
-                is available, prompts are relayed by the workspace server to NVIDIA NIM for the
-                length of the request and never stored there. Without a key, answers come from the
-                local demo engine.
+                Your chats and files stay in this browser, and names are swapped for placeholders
+                before a question is sent. When live models are available, questions go through
+                the Mint server to NVIDIA NIM and are not stored there. Without a key, answers come
+                from the local demo engine.
               </p>
 
               <div className={`settings-provider ${provider.mode === 'nvidia' ? 'is-live' : ''}`}>

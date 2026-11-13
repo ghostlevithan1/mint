@@ -1,13 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import {
-  ChevronRight,
-  LockKeyhole,
   MessageSquare,
   PanelLeftClose,
   Pencil,
   Plus,
   Search,
-  ShieldCheck,
   Trash2,
   X,
 } from 'lucide-react'
@@ -19,14 +16,12 @@ type SidebarProps = {
   chats: Conversation[]
   activeId: string
   open: boolean
-  shieldOn: boolean
   onClose: () => void
   onOpen: () => void
   onNewChat: () => void
   onSelectChat: (id: string) => void
   onDeleteChat: (id: string) => void
   onRenameChat: (id: string, title: string) => void
-  onOpenSettings: (tab: 'general' | 'privacy' | 'about') => void
 }
 
 function timeLabel(timestamp: number) {
@@ -37,14 +32,12 @@ export function Sidebar({
   chats,
   activeId,
   open,
-  shieldOn,
   onClose,
   onOpen,
   onNewChat,
   onSelectChat,
   onDeleteChat,
   onRenameChat,
-  onOpenSettings,
 }: SidebarProps) {
   const [search, setSearch] = useState('')
   const [renamingId, setRenamingId] = useState<string | null>(null)
@@ -143,7 +136,7 @@ export function Sidebar({
             <p className="history-empty">
               {search
                 ? 'No chats match that search.'
-                : 'No chats yet. Your first prompt starts the history.'}
+                : 'No chats yet'}
             </p>
           ) : (
             <div className="history-list">
@@ -207,22 +200,6 @@ export function Sidebar({
           )}
         </div>
 
-        <div className="sidebar-bottom">
-          <button className="privacy-row" onClick={() => onOpenSettings('privacy')}>
-            <span className={`privacy-row-icon ${shieldOn ? 'on' : 'off'}`}>
-              <ShieldCheck size={16} />
-            </span>
-            <span className="privacy-row-copy">
-              <strong>PII shield {shieldOn ? 'on' : 'off'}</strong>
-              <small>Names stay on this device</small>
-            </span>
-            <ChevronRight size={14} className="privacy-row-arrow" />
-          </button>
-
-          <p className="sidebar-note">
-            <LockKeyhole size={11} /> Chats are saved in this browser only
-          </p>
-        </div>
       </aside>
     </>
   )

@@ -14,7 +14,7 @@ import {
   Image as ImageIcon,
   Layers,
   RefreshCw,
-  ShieldCheck,
+  BookOpen,
   Timer,
   Zap,
 } from 'lucide-react'
@@ -24,6 +24,7 @@ import type { Attachment } from '../lib/files'
 import { formatBytes } from '../lib/privacy'
 import { extractImageLinks } from '../lib/imageLinks'
 import { Markdown } from './Markdown'
+import { LeafMark } from './Logo'
 import { ModelLogo } from './ModelLogo'
 import { RemoteImage } from './RemoteImage'
 
@@ -60,12 +61,12 @@ function AttachmentChips({ files }: { files: Attachment[] }) {
 
 const PHASE_COPY = {
   shielding: {
-    title: 'Shielding the request',
-    detail: 'Names and contact details are being replaced with local placeholders.',
+    title: 'Reading your question',
+    detail: 'Getting your question ready.',
   },
   routing: {
-    title: 'Routing the request',
-    detail: 'Opening a private path to the selected model.',
+    title: 'Thinking',
+    detail: 'Working out the answer.',
   },
 }
 
@@ -93,24 +94,24 @@ function WaitingProgress({
   const seconds = Math.max(0, Math.floor((now - startedAt) / 1000))
   const title = routing
     ? seconds >= 20
-      ? 'Waiting on the model'
-      : 'Routing the request'
-    : 'Shielding the request'
+      ? 'Still thinking'
+      : 'Thinking'
+    : 'Reading your question'
   const hint =
     !routing && seconds < 4
       ? detail
       : seconds >= 30
         ? 'This model is very slow to start. Press Esc to stop, or keep waiting.'
         : seconds >= 10
-          ? 'Some models take 20–30 seconds to warm up. Still working — Esc stops it.'
+          ? 'Some models take 20 to 30 seconds to start. Esc stops it.'
           : routing
-            ? 'Opening a private path to the selected model.'
+            ? PHASE_COPY.routing.detail
             : detail
 
   return (
     <div className="thinking" role="status" aria-live="polite">
       <span className="thinking-orb">
-        {routing ? <Zap size={15} /> : <ShieldCheck size={15} />}
+        {routing ? <Zap size={15} /> : <BookOpen size={15} />}
       </span>
       <span className="thinking-copy">
         <strong>
@@ -221,18 +222,6 @@ export const ChatMessageView = memo(
             <RemoteImage key={image.url} url={image.url} alt={image.alt} />
           ))}
         </div>
-        {message.shieldOn && (message.redactionCount ?? 0) > 0 && (
-          <span className="user-shield-note">
-            <ShieldCheck size={12} />
-            {message.redactionCount} identifier{message.redactionCount === 1 ? '' : 's'} shielded
-            locally
-          </span>
-        )}
-        {!message.shieldOn && (
-          <span className="user-shield-note off">
-            <ShieldCheck size={12} /> Shield was off for this message
-          </span>
-        )}
       </article>
     )
   }
@@ -257,7 +246,6 @@ export const ChatMessageView = memo(
     window.setTimeout(() => URL.revokeObjectURL(url), 4000)
   }
 
-  const redactions = message.redactions ?? []
   const stats = message.stats
   const waiting = message.phase === 'shielding' || message.phase === 'routing'
   const streaming = message.phase === 'generating'
@@ -265,7 +253,9 @@ export const ChatMessageView = memo(
   return (
     <article className="msg msg-assistant">
       <div className="assistant-rail" aria-hidden="true">
-        <span className="assistant-mark">M</span>
+        <span className="assistant-mark">
+          <LeafMark size={16} />
+        </span>
       </div>
       <div className="assistant-body">
         <header className="assistant-head">
@@ -340,11 +330,7 @@ export const ChatMessageView = memo(
             routing={message.phase === 'routing'}
             startedAt={message.createdAt}
             detail={
-              message.phase === 'routing'
-                ? message.provider === 'nvidia'
-                  ? 'Opening a secure path to the selected model.'
-                  : 'Opening a private path to the local demo engine.'
-                : PHASE_COPY.shielding.detail
+              message.phase === 'routing' ? PHASE_COPY.routing.detail : PHASE_COPY.shielding.detail
             }
           />
         )}
@@ -364,21 +350,11 @@ export const ChatMessageView = memo(
           <p className="assistant-empty">No response captured. Try running this prompt again.</p>
         )}
 
-        {message.phase === 'done' && message.content && (
+        {message.phase === 'done' && message.content && canInspect && (
           <div className="message-meta">
-            <span className="rehydrate-note">
-              <Fingerprint size={12} />
-              {message.shieldOn && redactions.length > 0
-                ? `${redactions.length} identifier${redactions.length === 1 ? '' : 's'} restored locally · model saw placeholders`
-                : message.shieldOn
-                  ? 'No personal identifiers detected in this request'
-                  : 'PII shield was off for this request'}
-            </span>
-            {canInspect && (
-              <button className="meta-link" onClick={onInspect}>
-                Inspect payload
-              </button>
-            )}
+            <button className="meta-link" onClick={onInspect}>
+              See what was sent
+            </button>
           </div>
         )}
 
@@ -397,13 +373,13 @@ export const ChatMessageView = memo(
             </div>
             <div className="metric-cell">
               <span>
-                <Zap size={11} /> TOKENS
+                <Zap size={11} /> Tokens
               </span>
               <strong>{stats.tokens}</strong>
             </div>
             <div className="metric-cell">
               <span>
-                <Fingerprint size={11} /> ELAPSED
+                <Fingerprint size={11} /> Elapsed
               </span>
               <strong>{stats.elapsed.toFixed(1)}s</strong>
             </div>

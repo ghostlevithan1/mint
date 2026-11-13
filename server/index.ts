@@ -6,7 +6,6 @@ import { brotliCompress, constants, gzip } from 'node:zlib'
 import { promisify } from 'node:util'
 import { handleChatHttp, handleStatusHttp, sendJson } from './node-http'
 import { guardApi } from './limits'
-import { handlePlotHttp } from './plot-http'
 import { handleSearchHttp, handleWebHttp } from './web'
 
 const compressBrotli = promisify(brotliCompress)
@@ -238,12 +237,6 @@ const server = createServer((req, res) => {
   if (pathname === '/api/chat') {
     if (!guardApi(req, res, 'chat')) return
     void handleChatHttp(req, res, root)
-    return
-  }
-
-  if (pathname === '/api/plot') {
-    if (!guardApi(req, res, 'plot')) return
-    void handlePlotHttp(req, res)
     return
   }
 

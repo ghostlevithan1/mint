@@ -4,21 +4,19 @@ import {
   ArrowUpRight,
   ChevronDown,
   ChevronUp,
-  Code2,
-  FileText,
-  LockKeyhole,
-  Mail,
+  LineChart,
+  ListChecks,
   Minimize2,
   PanelLeft,
-  Scale,
+  PenLine,
   Search,
   Settings,
+  Shapes,
   UploadCloud,
   X,
 } from 'lucide-react'
-import { MODELS, MAX_FILES, SAMPLE_PROMPTS, typeInfo, type Model } from '../lib/data'
+import { MODELS, MAX_FILES, typeInfo, type Model } from '../lib/data'
 import { modelById, type Conversation } from '../lib/chat'
-import type { ProviderStatus } from '../lib/provider'
 import type { Attachment } from '../lib/files'
 import {
   capabilityLabel,
@@ -38,8 +36,6 @@ import { ModelSwitchModal } from './ModelSwitchModal'
 type ChatViewProps = {
   chat: Conversation
   model: Model
-  provider: ProviderStatus
-  shieldOn: boolean
   showMetrics: boolean
   convertImagesToJpeg: boolean
   isGenerating: boolean
@@ -52,7 +48,6 @@ type ChatViewProps = {
   webSearchOn: boolean
   onToggleWebSearch: () => void
   onSelectModel: (id: string) => void
-  onToggleShield: () => void
   onSend: (text: string, attachments: Attachment[], webSearch?: boolean) => void
   onStop: () => void
   onRegenerate: (assistantId: string) => void
@@ -63,36 +58,34 @@ type ChatViewProps = {
 
 const SUGGESTIONS = [
   {
-    icon: FileText,
-    title: 'Summarize a document',
-    copy: 'Decisions, risks and open questions',
-    prompt: SAMPLE_PROMPTS[0],
+    icon: Shapes,
+    title: 'Explain it with a diagram',
+    copy: 'How photosynthesis works',
+    prompt: 'Explain how photosynthesis works with a labelled diagram, then check my understanding with two questions.',
   },
   {
-    icon: Scale,
-    title: 'Review a contract',
-    copy: 'Unusual terms to check before signing',
-    prompt: SAMPLE_PROMPTS[1],
+    icon: LineChart,
+    title: 'Graph a function',
+    copy: 'y = x² − 2x − 3 and its roots',
+    prompt: 'Plot y = x^2 - 2x - 3, mark where it crosses the x-axis, and explain step by step how to find those roots.',
   },
   {
-    icon: Mail,
-    title: 'Draft a reply',
-    copy: 'A clear email from the thread you paste',
-    prompt: SAMPLE_PROMPTS[2],
+    icon: ListChecks,
+    title: 'Quiz me',
+    copy: 'Ten questions on the French Revolution',
+    prompt: 'Quiz me with ten questions on the French Revolution, one at a time, and explain each answer after I reply.',
   },
   {
-    icon: Code2,
-    title: 'Audit some code',
-    copy: 'Bugs, edge cases and cleanup',
-    prompt: 'Review this TypeScript module for correctness, edge cases, and cleanup opportunities.',
+    icon: PenLine,
+    title: 'Check my working',
+    copy: 'Find the step where it went wrong',
+    prompt: 'I will paste my solution. Find the first step where it goes wrong and explain why, without just giving me the final answer.',
   },
 ]
 
 export function ChatView({
   chat,
   model,
-  provider,
-  shieldOn,
   showMetrics,
   convertImagesToJpeg,
   isGenerating,
@@ -105,7 +98,6 @@ export function ChatView({
   webSearchOn,
   onToggleWebSearch,
   onSelectModel,
-  onToggleShield,
   onSend,
   onStop,
   onRegenerate,
@@ -338,8 +330,12 @@ export function ChatView({
             <PanelLeft size={17} />
           </button>
           <ModelMenu model={model} onSelect={onSelectModel} />
-          <span className="topbar-sep" aria-hidden="true" />
-          <span className="topbar-title">{isEmpty ? 'New chat' : chat.title}</span>
+          {!isEmpty && (
+            <>
+              <span className="topbar-sep" aria-hidden="true" />
+              <span className="topbar-title">{chat.title}</span>
+            </>
+          )}
         </div>
         <div className="topbar-right">
           <ContextMeter
@@ -351,14 +347,6 @@ export function ChatView({
             onCompact={onCompact}
             onGrow={onGrowContext}
           />
-          <button
-            className={`topbar-shield ${shieldOn ? 'is-on' : 'is-off'}`}
-            onClick={() => onOpenSettings('privacy')}
-            title="Open privacy settings"
-          >
-            <span className="status-dot" />
-            <span className="topbar-shield-label">Shield {shieldOn ? 'on' : 'off'}</span>
-          </button>
           <button
             className="icon-button"
             onClick={() => onOpenSettings('general')}
@@ -420,12 +408,11 @@ export function ChatView({
           <div className="empty-inner">
             <div className="empty-lede">
               <h1>
-                Ask anything. <span>Names stay on this device.</span>
+                Learn anything. <span>Explained the way you understand it.</span>
               </h1>
               <p className="empty-copy">
-                {shieldOn
-                  ? 'Names, emails and phone numbers become placeholders before your prompt leaves this tab, and come back when the answer arrives.'
-                  : 'The shield is off, so your prompt and files are sent as written.'}
+                Ask a question and Mint teaches it step by step, with diagrams, graphs and pictures
+                when words are not enough.
               </p>
 
               <div className="suggestion-list">
@@ -446,26 +433,25 @@ export function ChatView({
               </div>
             </div>
 
-            <figure className="redact-demo" aria-hidden="true">
-              <div className="paper paper-back">
-                <span className="paper-label">Your prompt</span>
-                <p>
-                  Call <mark>Dana Whitmore</mark> at <mark>(415) 555-0134</mark> about the lease
-                  renewal, or write to <mark>dana@whitmore-law.com</mark> before Friday.
+            <figure className="lesson-sheet" aria-hidden="true">
+              <div className="paper paper-graph">
+                <p className="paper-title">y = x² − 2x − 3</p>
+                <svg className="graph" viewBox="0 0 320 200">
+                  <line className="graph-axis" x1="0" y1="100" x2="320" y2="100" />
+                  <line className="graph-axis" x1="113.3" y1="0" x2="113.3" y2="200" />
+                  <path className="graph-curve" d="M20 10 Q160 334 300 10" />
+                  <line className="graph-guide" x1="160" y1="100" x2="160" y2="172" />
+                  <circle className="graph-root" cx="66.7" cy="100" r="5" />
+                  <circle className="graph-root" cx="253.3" cy="100" r="5" />
+                  <circle className="graph-vertex" cx="160" cy="172" r="3.5" />
+                  <text x="56" y="90" textAnchor="end">−1</text>
+                  <text x="264" y="90">3</text>
+                  <text x="170" y="188">(1, −4)</text>
+                </svg>
+                <p className="paper-note">
+                  Crosses the x-axis at <mark>x = −1</mark> and <mark>x = 3</mark>
                 </p>
               </div>
-              <div className="paper paper-front">
-                <span className="paper-label">What the model receives</span>
-                <p>
-                  Call <span className="censor">PERSON_01</span> at{' '}
-                  <span className="censor">PHONE_01</span> about the lease renewal, or write to{' '}
-                  <span className="censor">EMAIL_01</span> before Friday.
-                </p>
-              </div>
-              <figcaption className="redact-demo-foot">
-                <LockKeyhole size={14} strokeWidth={1.5} />
-                Originals are restored only in this tab
-              </figcaption>
             </figure>
           </div>
         </div>
@@ -527,14 +513,11 @@ export function ChatView({
           uploadError={error}
           reading={reading}
           isGenerating={isGenerating}
-          provider={provider}
-          shieldOn={shieldOn}
           routingWarning={routingWarning}
           routeNotice={routeNoticeText}
           onFixRouting={() => setSwitchOpen(true)}
           onDismissRouteNotice={() => setRouteNotice(null)}
           textareaRef={textareaRef}
-          onToggleShield={onToggleShield}
           webSearchOn={webSearchOn}
           onToggleWebSearch={onToggleWebSearch}
           onAttachFiles={(files) => void handleFiles(files)}
@@ -549,7 +532,7 @@ export function ChatView({
           <div className="drop-card">
             <UploadCloud size={26} />
             <strong>Drop files to attach</strong>
-            <span>Up to {MAX_FILES} files · 25 MB each · read on this device</span>
+            <span>Up to {MAX_FILES} files, 25 MB each</span>
           </div>
         </div>
       )}

@@ -42,7 +42,7 @@ export function ChatApp() {
   const [convertImagesToJpeg, setConvertImagesToJpeg] = useState(getStoredJpegConversion)
   const [webSearchOn, setWebSearchOn] = useState(getStoredWebSearch)
   const [shieldOn, setShieldOn] = useState(true)
-  const [showMetrics, setShowMetrics] = useState(true)
+  const [showMetrics, setShowMetrics] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('general')
@@ -202,7 +202,6 @@ export function ChatApp() {
         chats={chats}
         activeId={activeId}
         open={sidebarOpen}
-        shieldOn={shieldOn}
         onClose={() => setSidebarOpen(false)}
         onOpen={() => setSidebarOpen(true)}
         onNewChat={() => {
@@ -215,14 +214,11 @@ export function ChatApp() {
         }}
         onDeleteChat={handleDeleteChat}
         onRenameChat={renameChat}
-        onOpenSettings={openSettings}
       />
 
       <ChatView
         chat={activeChat}
         model={selectedModel}
-        provider={provider}
-        shieldOn={shieldOn}
         showMetrics={showMetrics}
         convertImagesToJpeg={convertImagesToJpeg}
         isGenerating={isGenerating}
@@ -235,7 +231,6 @@ export function ChatApp() {
         webSearchOn={webSearchOn}
         onToggleWebSearch={() => setWebSearchOn((value) => !value)}
         onSelectModel={handleSelectModel}
-        onToggleShield={() => setShieldOn((value) => !value)}
         onSend={handleSend}
         onStop={stopGenerating}
         onRegenerate={handleRegenerate}

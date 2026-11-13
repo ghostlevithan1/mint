@@ -1,17 +1,21 @@
-export function Logo({ compact = false }: { compact?: boolean }) {
+/** Mint's mark: a mint leaf split along its midrib, in one flat colour. */
+export function LeafMark({ size = 20 }: { size?: number }) {
   return (
-    <a className="brand" href="#top" aria-label={compact ? 'Mint home' : undefined}>
-      <span className="brand-mark" aria-hidden="true">
-        <svg viewBox="0 0 30 30" role="img">
-          <path d="M5 25V6h4.8L15 17.2 20.2 6H25v19h-4.6V14.6L15 24.4l-5.4-9.8V25H5Z" fill="currentColor" />
-        </svg>
+    <svg className="leaf-mark" viewBox="0 0 24 24" width={size} height={size} aria-hidden="true">
+      <path d="M4 20C4 11 10 4 20 4Z" transform="translate(-0.7 -0.7)" fill="currentColor" />
+      <path d="M20 4C20 14 13 20 4 20Z" transform="translate(0.7 0.7)" fill="currentColor" />
+      <path d="M4.6 19.4 2 22" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+export function Logo() {
+  return (
+    <a className="brand" href="#top" aria-label="Mint home">
+      <span className="brand-mark">
+        <LeafMark />
       </span>
-      {!compact && (
-        <span className="brand-word">
-          <strong>Mint</strong>
-          <span>Private AI</span>
-        </span>
-      )}
+      <strong className="brand-word">Mint</strong>
     </a>
   )
 }

@@ -222,8 +222,7 @@ function parseLinear(side: string): Side | null {
 
 /**
  * Scripted plots: "plot y = x^2", "graph sin(x)", "draw x^2 - 4".
- * Emits the same ```plot fence the live models use, so the renderer in
- * Markdown.tsx draws it with matplotlib on the server.
+ * Emits the same ```plot fence the live models use, so the browser draws it.
  */
 function plotAnswer(prompt: string): string | null {
   const match = /\b(?:plot|graph|chart|draw)\b/i.exec(prompt)
@@ -255,6 +254,32 @@ function plotAnswer(prompt: string): string | null {
     '```',
     '',
     'Ask for a different range or a second curve and it will add it.',
+  ].join('\n')
+}
+
+/** Scripted diagram for the photosynthesis suggestion, so demo mode shows the diagram renderer. */
+function photosynthesisAnswer(prompt: string): string | null {
+  if (!/photosynthesis/i.test(prompt)) return null
+  const spec = {
+    type: 'steps',
+    title: 'Photosynthesis in a leaf',
+    nodes: [
+      { label: 'Light absorbed', detail: 'Chlorophyll in the chloroplasts traps energy from sunlight.' },
+      { label: 'Water split', detail: 'That energy splits water taken up by the roots, releasing oxygen.' },
+      { label: 'CO₂ taken in', detail: 'Carbon dioxide enters the leaf through tiny pores called stomata.' },
+      { label: 'Glucose made', detail: 'The plant combines carbon dioxide and hydrogen into glucose, its food.' },
+    ],
+  }
+  return [
+    'Photosynthesis is how plants make their own food from light, water and carbon dioxide.',
+    '',
+    '$$6CO_2 + 6H_2O \\xrightarrow{\\text{light}} C_6H_{12}O_6 + 6O_2$$',
+    '',
+    '```diagram',
+    JSON.stringify(spec),
+    '```',
+    '',
+    '**Check:** which gas does the plant give off, and where does it come from?',
   ].join('\n')
 }
 
@@ -470,7 +495,7 @@ function defaultAnswer({ prompt, files, redactions }: AnswerInput) {
   const trimmed = prompt.trim()
   const excerpt = trimmed.slice(0, 180)
   return `## Local demo limitation
-Live inference is not configured, so this reply comes from Mint's built-in demo engine — not a language model. It only covers a few scripted patterns: legal excerpts, research summaries, email drafts, code reviews, and simple math. It has no real answer for this request.
+Live inference is not configured, so this reply comes from Mint's built-in demo engine — not a language model. It only covers a few scripted patterns, like graphs (try "plot y = x^2 - 4"), simple equations and the photosynthesis example. Add an NVIDIA key on the server for real answers.
 
 **Prompt:** ${excerpt}${trimmed.length > 180 ? '…' : ''}${attachmentLine(files)}${audience}`
 }
@@ -485,6 +510,9 @@ function withImageNote(answer: string, images: string[] | undefined) {
 export function buildDemoAnswer(input: AnswerInput): string {
   const plot = plotAnswer(input.prompt)
   if (plot) return withImageNote(plot, input.images)
+
+  const diagram = photosynthesisAnswer(input.prompt)
+  if (diagram) return withImageNote(diagram, input.images)
 
   const math = mathAnswer(input.prompt)
   if (math) return withImageNote(math, input.images)

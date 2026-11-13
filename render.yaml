@@ -3,9 +3,7 @@ services:
     name: mint-private-ai
     runtime: node
     plan: free
-    # pip install is best-effort: if the image lacks pip or matplotlib, the
-    # app still builds and /api/plot answers 503 until they are available.
-    buildCommand: npm ci --include=dev && (pip install -r requirements.txt || true) && npm run build
+    buildCommand: npm ci --include=dev && npm run build
     startCommand: npm start
     healthCheckPath: /healthz
     autoDeploy: true
