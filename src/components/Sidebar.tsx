@@ -12,6 +12,7 @@ import {
   X,
 } from 'lucide-react'
 import { Logo } from './Logo'
+import { MOD_KEY } from '../lib/platform'
 import type { Conversation } from '../lib/chat'
 
 type SidebarProps = {
@@ -126,14 +127,14 @@ export function Sidebar({
               <X size={12} />
             </button>
           ) : (
-            <kbd>Ctrl K</kbd>
+            <kbd>{MOD_KEY} K</kbd>
           )}
         </label>
 
         <div className="chat-history">
           <div className="history-head">
             <span>Chats</span>
-            <span>{visibleChats.length}</span>
+            {visibleChats.length > 0 && <span>{visibleChats.length}</span>}
           </div>
           {visibleChats.length === 0 ? (
             <p className="history-empty">

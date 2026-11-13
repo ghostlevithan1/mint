@@ -3,7 +3,6 @@ import { DEFAULT_MODEL_ID, MODELS } from '../lib/data'
 import { modelById, type Conversation } from '../lib/chat'
 import { clampContextWindow, contextMaxTokens, conversationTokens } from '../lib/context'
 import { redactText } from '../lib/privacy'
-import { applyTheme, getStoredTheme, saveTheme, type Theme } from '../lib/theme'
 import { getStoredJpegConversion, getStoredWebSearch, saveJpegConversion, saveWebSearch } from '../lib/preferences'
 import { useConversations } from '../hooks/useConversations'
 import { useProviderStatus } from '../hooks/useProviderStatus'
@@ -40,7 +39,6 @@ export function ChatApp() {
   const { status: provider, refresh: refreshProvider } = useProviderStatus()
 
   const [defaultModelId, setDefaultModelId] = useState(DEFAULT_MODEL_ID)
-  const [themeId, setThemeId] = useState<Theme>(getStoredTheme)
   const [convertImagesToJpeg, setConvertImagesToJpeg] = useState(getStoredJpegConversion)
   const [webSearchOn, setWebSearchOn] = useState(getStoredWebSearch)
   const [shieldOn, setShieldOn] = useState(true)
@@ -131,11 +129,6 @@ export function ChatApp() {
       shieldOn: assistant.shieldOn !== false,
     }
   }, [payloadMessageId, chats])
-
-  useEffect(() => {
-    applyTheme(themeId)
-    saveTheme(themeId)
-  }, [themeId])
 
   useEffect(() => {
     saveJpegConversion(convertImagesToJpeg)
@@ -276,7 +269,6 @@ export function ChatApp() {
         shieldOn={shieldOn}
         modelId={selectedModel.id}
         provider={provider}
-        themeId={themeId}
         showMetrics={showMetrics}
         convertImagesToJpeg={convertImagesToJpeg}
         hasPayload={Boolean(lastPayloadId)}
@@ -286,7 +278,6 @@ export function ChatApp() {
         onRefreshProvider={() => void refreshProvider()}
         onShieldChange={setShieldOn}
         onModelChange={handleSelectModel}
-        onThemeChange={setThemeId}
         onShowMetricsChange={setShowMetrics}
         onConvertImagesChange={setConvertImagesToJpeg}
         onExportChats={handleExportChats}

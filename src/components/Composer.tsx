@@ -280,15 +280,7 @@ export function Composer({
       </div>
 
       <div className="composer-note">
-        <span className="ai-disclaimer">
-          <TriangleAlert size={11} />
-          Mint can make mistakes — check important info
-        </span>
-        <span className="composer-note-sep" />
-        <span className={shieldOn ? undefined : 'is-off'}>
-          <ShieldCheck size={11} />
-          {shieldOn ? 'Names are shielded on this device' : 'Shield off — text is sent as written'}
-        </span>
+        <span className="ai-disclaimer">Mint can make mistakes. Check important info.</span>
         <span className="composer-note-sep" />
         <span
           className={`composer-provider ${provider.mode === 'nvidia' ? 'is-live' : ''}`}

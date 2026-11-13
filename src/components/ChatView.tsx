@@ -422,7 +422,9 @@ export function ChatView({
           <div className="empty-inner">
             <div className="empty-lede">
               <p className="empty-kicker">Private AI workspace</p>
-              <h1>Think out loud — names stay here</h1>
+              <h1>
+                Think out loud. <span>Names stay here.</span>
+              </h1>
               <p className="empty-copy">
                 Ask anything, or bring a file for context.{' '}
                 {shieldOn
@@ -469,7 +471,7 @@ export function ChatView({
                   <span className="redact-block-label">On this device</span>
                   <p className="redact-doc-body">
                     Call <span className="redact-bar">Dana Whitmore</span> at{' '}
-                    <span className="redact-bar">(415) 555-0134</span> about the lease — or write to{' '}
+                    <span className="redact-bar">(415) 555-0134</span> about the lease, or write to{' '}
                     <span className="redact-bar">dana@whitmore-law.com</span>.
                   </p>
                 </div>
@@ -481,7 +483,7 @@ export function ChatView({
                   <span className="redact-block-label">What the server sees</span>
                   <p className="redact-doc-body is-redacted">
                     Call <span className="redact-chip">[PERSON_01]</span> at{' '}
-                    <span className="redact-chip">[PHONE_01]</span> about the lease — or write to{' '}
+                    <span className="redact-chip">[PHONE_01]</span> about the lease, or write to{' '}
                     <span className="redact-chip">[EMAIL_01]</span>.
                   </p>
                 </div>

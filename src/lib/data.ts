@@ -18,7 +18,7 @@ export const MODEL_TYPES: ModelTypeInfo[] = [
     label: 'Quick',
     tagline: 'Fastest',
     detail: 'Drafts, summaries, and light edits where speed matters.',
-    color: '#9BE72F',
+    color: '#9DB49B',
     defaultModelId: 'nemotron-lightning',
   },
   {
@@ -26,7 +26,7 @@ export const MODEL_TYPES: ModelTypeInfo[] = [
     label: 'Normal',
     tagline: 'Balanced',
     detail: 'Everyday reasoning and general chat at a steady pace.',
-    color: '#8ED6FF',
+    color: '#93B6D6',
     defaultModelId: 'minimax-flash',
   },
   {
@@ -34,7 +34,7 @@ export const MODEL_TYPES: ModelTypeInfo[] = [
     label: 'Intelligent',
     tagline: 'Deepest',
     detail: 'Complex analysis, long context, and high-stakes work.',
-    color: '#FFB454',
+    color: '#D8B277',
     defaultModelId: 'mistral-large-4',
   },
 ]
