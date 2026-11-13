@@ -57,18 +57,33 @@ test('broken specs explain what is wrong', () => {
   assert.throws(() => parsePlotSpec('{}'), /Nothing to plot/)
 })
 
-test('the plot example in the system prompt is valid', () => {
-  const example = SYSTEM_PROMPT.match(/```plot\n([\s\S]*?)```/)?.[1]
-  assert.ok(example, 'the system prompt contains a plot example')
-  const data = parsePlotSpec(example)
-  assert.equal(data.chart, 'line')
-  assert.equal(data.lines.length, 1)
-  assert.equal(data.markers.length, 3)
-  assert.ok(data.xRange[0] < -1 && data.xRange[1] > 3)
+test('every plot example in the system prompt is valid', () => {
+  const examples = [...SYSTEM_PROMPT.matchAll(/```plot\n([\s\S]*?)```/g)].map(
+    (match) => match[1],
+  )
+  assert.equal(examples.length, 4, 'the prompt carries one example per chart type')
+  assert.deepEqual(
+    examples.map((code) => parsePlotSpec(code).chart),
+    ['line', 'scatter', 'bar', 'histogram'],
+  )
+
+  const line = parsePlotSpec(examples[0])
+  assert.equal(line.markers.length, 3)
+  assert.ok(line.xRange[0] < -1 && line.xRange[1] > 3)
+  assert.equal(parsePlotSpec(examples[2]).bars.length, 4)
+  assert.equal(parsePlotSpec(examples[3]).bars.length, 5)
+
+  for (const code of examples) {
+    const spec = JSON.parse(code) as { equations?: Array<{ expr: string }> }
+    for (const equation of spec.equations ?? []) {
+      assert.match(equation.expr, /^[\x20-\x7e]+$/, 'equation expressions stay ASCII')
+      assert.doesNotMatch(equation.expr, /\by\s*=/, 'labels hold "y =", not expr')
+    }
+  }
 })
 
 test('every equation name the prompt allows is supported by the parser', () => {
-  const listed = SYSTEM_PROMPT.match(/these names only: ([^.]+)\./)?.[1]
+  const listed = SYSTEM_PROMPT.match(/Allowed names: ([^.]+)\./)?.[1]
   assert.ok(listed, 'the prompt lists the equation names')
   const constants = new Set(['pi', 'e', 'tau'])
   for (const item of listed.split(',')) {
