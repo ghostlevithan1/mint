@@ -33,6 +33,7 @@ export function ModelMenu({ model, onSelect }: ModelMenuProps) {
   return (
     <div className="model-menu-wrap" ref={wrapRef}>
       <button
+        type="button"
         className="model-trigger"
         onClick={() => setOpen((value) => !value)}
         aria-haspopup="listbox"
@@ -78,6 +79,7 @@ export function ModelMenu({ model, onSelect }: ModelMenuProps) {
                     return (
                       <button
                         key={item.id}
+                        type="button"
                         role="option"
                         aria-selected={selected}
                         className={`model-choice ${selected ? 'is-selected' : ''}`}

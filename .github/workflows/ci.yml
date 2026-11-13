@@ -5,6 +5,14 @@ on:
     branches: [main]
   pull_request:
 
+# Read-only token plus one run per ref keeps PR pushes from queueing stale jobs.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest

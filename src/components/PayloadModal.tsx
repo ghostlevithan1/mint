@@ -71,7 +71,7 @@ export function PayloadModal({
             <span className="eyebrow">PII shield / audit view</span>
             <h2 id="payload-title">See exactly what leaves.</h2>
           </div>
-          <button className="icon-button" onClick={onClose} aria-label="Close audit view">
+          <button type="button" className="icon-button" onClick={onClose} aria-label="Close audit view">
             <X size={19} />
           </button>
         </div>
@@ -95,7 +95,7 @@ export function PayloadModal({
           <div className="payload-pane">
             <div className="pane-top">
               <span>Request preview</span>
-              <button className="subtle-button" onClick={copyPayload}>
+              <button type="button" className="subtle-button" onClick={copyPayload}>
                 {copied ? <Check size={13} /> : <Copy size={13} />}
                 {copied ? 'Copied' : 'Copy'}
               </button>
@@ -115,6 +115,7 @@ export function PayloadModal({
             <div className="pane-top">
               <span>Substitutions</span>
               <button
+                type="button"
                 className="subtle-button"
                 onClick={() => setShowOriginals((value) => !value)}
                 aria-pressed={showOriginals}
@@ -170,7 +171,7 @@ export function PayloadModal({
           <span>
             <span className="status-dot" /> Local scan · 0 names in transit
           </span>
-          <button className="button button-primary compact-button" onClick={onClose}>
+          <button type="button" className="button button-primary compact-button" onClick={onClose}>
             Close audit view
           </button>
         </div>

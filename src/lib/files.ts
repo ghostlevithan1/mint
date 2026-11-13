@@ -72,7 +72,7 @@ const IMAGE_MAX_EDGE = 1600
 const IMAGE_DECODE_EDGE = 2400
 const IMAGE_MAX_CHARS = 1_200_000
 /**
- * Images that fit this cap are kept inline in localStorage so follow-ups
+ * Images that fit this cap are kept inline in the persisted chat so follow-ups
  * survive reloads. Anything larger is sent but dropped for storage.
  */
 export const PERSIST_IMAGE_MAX_CHARS = 350_000
