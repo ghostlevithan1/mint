@@ -13,7 +13,7 @@ const MAX_PARTS_PER_MESSAGE = MAX_IMAGES + 2
 const IMAGE_DATA_URL = /^data:image\/(?:png|jpe?g|webp);base64,/i
 
 // Output budget bounds; keep in sync with src/lib/context.ts.
-const MIN_OUTPUT_TOKENS = 4096
+const MIN_OUTPUT_TOKENS = 8192
 const MAX_OUTPUT_TOKENS = 16384
 
 type Role = 'user' | 'assistant' | 'system'
@@ -65,7 +65,7 @@ How to teach
 - After explaining a new concept, end with one short question that checks understanding. Skip it for quick factual answers.
 - To quiz them, ask one question at a time, wait for the answer, say whether it is right and why, then move on.
 - Reply in the language the student writes in. Keep the tone warm and direct, never condescending, no filler.
-- Your reply has a limited budget, shared by your private reasoning and the answer. Think efficiently, put the key idea first, and aim to finish comfortably inside the budget instead of starting sections you cannot complete.
+- Your reply has a limited budget, shared by your private reasoning and the answer. Spend at most about a third of it on private reasoning, then start writing: put the key idea first and finish cleanly instead of starting sections you cannot complete.
 
 Teach visually
 Reach for a picture whenever it explains faster than words: a graph for any function or data, a diagram for any process, cycle or structure, a table for comparisons.
@@ -367,7 +367,7 @@ export function withSystemPrompt(
   const rest = messages.filter((message) => message.role !== 'system')
   const budget =
     typeof outputBudget === 'number' && Number.isFinite(outputBudget) && outputBudget > 0
-      ? `Reply budget: your private reasoning and the answer together should fit in about ${Math.round(outputBudget)} tokens. Keep working brief, put the key idea first, and finish cleanly before the cap.`
+      ? `Reply budget: your private reasoning and the answer together must fit in about ${Math.round(outputBudget)} tokens. Reserve roughly the last third for the answer: stop reasoning and start writing before you run out, and finish cleanly before the cap.`
       : ''
   return [
     { role: 'system', content: [SYSTEM_PROMPT, budget, ...extra].filter(Boolean).join('\n\n') },

@@ -18,6 +18,13 @@ test('the budget note is left out when no budget is supplied', () => {
   assert.doesNotMatch(out[0].content as string, /Reply budget/)
 })
 
+test('the prompt and note reserve part of the budget for the answer', () => {
+  assert.match(SYSTEM_PROMPT, /at most about a third of it on private reasoning/i)
+  const out = withSystemPrompt([{ role: 'user', content: 'Explain vectors.' }], 8192)
+  assert.match(out[0].content as string, /reserve roughly the last third for the answer/i)
+  assert.match(out[0].content as string, /stop reasoning and start writing/i)
+})
+
 test('a client system message stays after the prompt and budget note', () => {
   const out = withSystemPrompt(
     [

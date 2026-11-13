@@ -14,6 +14,9 @@ import {
   formatTokens,
   growContextWindow,
   initialContextWindow,
+  outputBudgetTokens,
+  retryOutputBudget,
+  spentReasoningOnly,
 } from '../src/lib/context'
 import { extractImageLinks, isImageLine, isImageUrl } from '../src/lib/imageLinks'
 import { describeFence } from '../src/lib/generatedFiles'
@@ -136,6 +139,24 @@ test('context windows grow by powers of two up to the model maximum', () => {
   assert.equal(growContextWindow(3000, max), 4096)
   assert.equal(growContextWindow(16_384, 16_384), 16_384)
   assert.equal(growContextWindow(2048, 3000), 3000)
+})
+
+test('the output budget keeps room for the answer even on a small window', () => {
+  assert.equal(outputBudgetTokens(2048), 8192)
+  assert.equal(outputBudgetTokens(16_384), 8192)
+  assert.equal(outputBudgetTokens(65_536), 16_384)
+  // A retry gets more room, but never exceeds the proxy ceiling.
+  assert.equal(retryOutputBudget(8192), 12_288)
+  assert.equal(retryOutputBudget(12_288), 16_384)
+  assert.equal(retryOutputBudget(16_384), 16_384)
+})
+
+test('a reasoning-only failure is retried once', () => {
+  assert.equal(spentReasoningOnly('length', '', 'thinking'), true)
+  assert.equal(spentReasoningOnly('length', '   ', 'thinking'), true)
+  assert.equal(spentReasoningOnly('length', 'answer', 'thinking'), false)
+  assert.equal(spentReasoningOnly('stop', '', 'thinking'), false)
+  assert.equal(spentReasoningOnly('length', '', ''), false)
 })
 
 test('token counts format compactly', () => {
