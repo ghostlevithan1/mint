@@ -65,6 +65,7 @@ How to teach
 - After explaining a new concept, end with one short question that checks understanding. Skip it for quick factual answers.
 - To quiz them, ask one question at a time, wait for the answer, say whether it is right and why, then move on.
 - Reply in the language the student writes in. Keep the tone warm and direct, never condescending, no filler.
+- Your reply has a limited budget, shared by your private reasoning and the answer. Think efficiently, put the key idea first, and aim to finish comfortably inside the budget instead of starting sections you cannot complete.
 
 Teach visually
 Reach for a picture whenever it explains faster than words: a graph for any function or data, a diagram for any process, cycle or structure, a table for comparisons.
@@ -341,12 +342,22 @@ function sanitizeError(text: string, key: string) {
  * into the one leading system prompt; several upstream models reject a second
  * system message or one after the first user turn.
  */
-export function withSystemPrompt(messages: UpstreamMessage[]): UpstreamMessage[] {
+export function withSystemPrompt(
+  messages: UpstreamMessage[],
+  outputBudget?: number,
+): UpstreamMessage[] {
   const extra = messages
     .filter((message) => message.role === 'system' && typeof message.content === 'string')
     .map((message) => message.content as string)
   const rest = messages.filter((message) => message.role !== 'system')
-  return [{ role: 'system', content: [SYSTEM_PROMPT, ...extra].join('\n\n') }, ...rest]
+  const budget =
+    typeof outputBudget === 'number' && Number.isFinite(outputBudget) && outputBudget > 0
+      ? `Reply budget: your private reasoning and the answer together should fit in about ${Math.round(outputBudget)} tokens. Keep working brief, put the key idea first, and finish cleanly before the cap.`
+      : ''
+  return [
+    { role: 'system', content: [SYSTEM_PROMPT, budget, ...extra].filter(Boolean).join('\n\n') },
+    ...rest,
+  ]
 }
 
 export async function createChatResponse(
@@ -385,12 +396,15 @@ export async function createChatResponse(
       )
     }
 
+    const outputBudget = Math.round(
+      numberIn(record.max_tokens, 128, MAX_OUTPUT_TOKENS, MIN_OUTPUT_TOKENS),
+    )
     const payload = {
       model,
-      messages: withSystemPrompt(messages),
+      messages: withSystemPrompt(messages, outputBudget),
       temperature: numberIn(record.temperature, 0, 1.5, 0.6),
       top_p: 0.95,
-      max_tokens: Math.round(numberIn(record.max_tokens, 128, MAX_OUTPUT_TOKENS, MIN_OUTPUT_TOKENS)),
+      max_tokens: outputBudget,
       stream: true,
     }
 
