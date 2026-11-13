@@ -2236,11 +2236,149 @@
   white-space: pre;
 }
 
+/* Remote images referenced by link in messages */
+
+.remote-image {
+  margin: 12px 0;
+}
+
+.user-bubble .remote-image {
+  margin-top: 10px;
+}
+
+.remote-image > a {
+  display: block;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel-soft);
+}
+
+.remote-image img {
+  display: block;
+  width: 100%;
+  max-height: 440px;
+  object-fit: contain;
+}
+
+.remote-image figcaption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 6px;
+  color: var(--dim);
+  font-size: 10px;
+}
+
+.remote-image-alt {
+  overflow: hidden;
+  max-width: 240px;
+  font-family: var(--mono);
+  font-size: 9px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.remote-image figcaption a {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 10px;
+  transition: color 140ms ease;
+}
+
+.remote-image figcaption a:hover {
+  color: var(--text);
+}
+
+.remote-image-fallback {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 12px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-soft);
+  color: var(--muted);
+  font-size: 11px;
+  transition: border-color 140ms ease, color 140ms ease;
+}
+
+.remote-image-fallback:hover {
+  border-color: var(--line-strong);
+  color: var(--text);
+}
+
+.remote-image-fallback small {
+  color: var(--dim);
+  font-size: 9.5px;
+}
+
+.markdown-inline-image {
+  display: inline-block;
+  overflow: hidden;
+  max-height: 160px;
+  max-width: 100%;
+  vertical-align: middle;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+}
+
+.markdown-inline-image img {
+  display: block;
+  width: auto;
+  max-height: 160px;
+}
+
 .markdown-table-wrap {
   margin: 12px 0;
   overflow-x: auto;
   border: 1px solid var(--line);
   border-radius: 8px;
+}
+
+/* Plot blocks: pending, error, and the rendered figure */
+
+.plot-pending {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 12px 0;
+  padding: 18px 14px;
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  background: var(--panel-soft);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.plot-pending svg {
+  color: var(--green);
+}
+
+.plot-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 12px 0;
+  padding: 11px 13px;
+  border: 1px solid rgba(var(--amber-rgb), 0.28);
+  border-radius: 10px;
+  background: var(--amber-soft);
+  color: var(--text-soft);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.plot-error svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--amber);
 }
 
 .markdown table {

@@ -8,11 +8,15 @@ import {
   downloadTextFile,
   type FenceInfo,
 } from '../lib/generatedFiles'
+import { isImageLine, isImageUrl } from '../lib/imageLinks'
+import { PlotImage } from './PlotImage'
+import { RemoteImage } from './RemoteImage'
 
 type InlineToken =
   | { type: 'text'; value: string }
   | { type: 'strong'; value: string }
   | { type: 'math'; value: string; display: boolean }
+  | { type: 'image'; url: string; alt: string }
 
 type KatexModule = typeof import('katex').default
 
@@ -106,6 +110,21 @@ function tokenizeInline(text: string): InlineToken[] {
   }
 
   while (index < text.length) {
+    if (text.startsWith('![', index)) {
+      const closeBracket = text.indexOf('](', index + 2)
+      const closeParen = closeBracket > index ? text.indexOf(')', closeBracket + 2) : -1
+      if (closeBracket > index + 2 && closeParen > closeBracket) {
+        const alt = text.slice(index + 2, closeBracket).trim()
+        const url = text.slice(closeBracket + 2, closeParen).trim()
+        if (isImageUrl(url)) {
+          flush()
+          tokens.push({ type: 'image', url, alt: alt || 'Image' })
+          index = closeParen + 1
+          continue
+        }
+      }
+    }
+
     if (text.startsWith('**', index)) {
       const end = text.indexOf('**', index + 2)
       if (end > index + 2) {
@@ -182,6 +201,20 @@ function inline(text: string, keyPrefix: string): ReactNode[] {
     if (token.type === 'math') {
       return <MathNode key={key} tex={token.value} display={token.display} />
     }
+    if (token.type === 'image') {
+      return (
+        <a
+          key={key}
+          className="markdown-inline-image"
+          href={token.url}
+          target="_blank"
+          rel="noreferrer noopener"
+          title={token.alt}
+        >
+          <img src={token.url} alt={token.alt} loading="lazy" decoding="async" referrerPolicy="no-referrer" />
+        </a>
+      )
+    }
     return <span key={key}>{token.value}</span>
   })
 }
@@ -195,6 +228,8 @@ type Block =
   | { type: 'table'; rows: string[][] }
   | { type: 'code'; code: string; info: FenceInfo }
   | { type: 'math'; tex: string }
+  | { type: 'image'; url: string; alt: string }
+  | { type: 'plot'; code: string }
 
 function CodeFileCard({ code, info }: { code: string; info: FenceInfo }) {
   const [copied, setCopied] = useState(false)
@@ -302,6 +337,13 @@ function parseBlocks(text: string): Block[] {
       continue
     }
 
+    const imageRef = isImageLine(trimmed)
+    if (imageRef) {
+      flushParagraph()
+      blocks.push({ type: 'image', ...imageRef })
+      continue
+    }
+
     if (trimmed.startsWith('$$') || trimmed.startsWith('\\[')) {
       flushParagraph()
       const open = trimmed.startsWith('$$') ? '$$' : '\\['
@@ -322,11 +364,16 @@ function parseBlocks(text: string): Block[] {
         codeLines.push(lines[cursor])
         cursor += 1
       }
-      blocks.push({
-        type: 'code',
-        code: codeLines.join('\n'),
-        info: describeFence(info, index),
-      })
+      const language = info.split(/\s+/)[0]?.toLowerCase() ?? ''
+      if (language === 'plot') {
+        blocks.push({ type: 'plot', code: codeLines.join('\n') })
+      } else {
+        blocks.push({
+          type: 'code',
+          code: codeLines.join('\n'),
+          info: describeFence(info, index),
+        })
+      }
       index = cursor
       continue
     }
@@ -440,6 +487,12 @@ export const Markdown = memo(function Markdown({ text }: { text: string }) {
         }
         if (block.type === 'code') {
           return <CodeFileCard key={index} code={block.code} info={block.info} />
+        }
+        if (block.type === 'image') {
+          return <RemoteImage key={index} url={block.url} alt={block.alt} />
+        }
+        if (block.type === 'plot') {
+          return <PlotImage key={index} spec={block.code} />
         }
         if (block.type === 'table') {
           return (

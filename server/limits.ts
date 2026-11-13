@@ -6,17 +6,18 @@ import { resolve } from 'node:path'
  * Per-client rate limiting for the public deployment.
  *
  * The workspace is open to anyone with the link, so the only spending control
- * is this in-memory budget: 15 model calls and 60 web requests per minute per
- * client IP. Limits reset on restart, which is fine — they exist to stop a
- * single visitor (or script) from draining the NVIDIA key, not to meter usage
- * over time.
+ * is this in-memory budget: 15 model calls, 60 web requests, and 30 plots per
+ * minute per client IP. Limits reset on restart, which is fine — they exist
+ * to stop a single visitor (or script) from draining the NVIDIA key, not to
+ * meter usage over time.
  */
 
 export const CHAT_RATE_LIMIT = 15
 export const WEB_RATE_LIMIT = 60
+export const PLOT_RATE_LIMIT = 30
 const RATE_WINDOW_MS = 60_000
 
-export type ApiKind = 'chat' | 'web'
+export type ApiKind = 'chat' | 'web' | 'plot'
 
 const hits = new Map<string, number[]>()
 
@@ -116,17 +117,19 @@ function rateLimit(key: string, limit: number): RateResult {
  * continue; otherwise the response is already written.
  */
 export function guardApi(req: IncomingMessage, res: ServerResponse, kind: ApiKind): boolean {
-  const limit = kind === 'chat' ? chatLimit() : WEB_RATE_LIMIT
+  const limit =
+    kind === 'chat' ? chatLimit() : kind === 'plot' ? PLOT_RATE_LIMIT : WEB_RATE_LIMIT
   const result = rateLimit(`${kind}:ip:${clientAddress(req)}`, limit)
 
   res.setHeader('X-RateLimit-Limit', String(limit))
   if (!result.ok) {
     res.setHeader('Retry-After', String(result.retryAfter))
     res.setHeader('X-RateLimit-Remaining', '0')
+    const noun = kind === 'chat' ? 'messages' : kind === 'plot' ? 'plots' : 'web requests'
     writeJson(res, 429, {
       error: {
         code: 'CLIENT_RATE_LIMIT',
-        message: `Limit reached: ${limit} ${kind === 'chat' ? 'messages' : 'web requests'} per minute per person. Try again in ${result.retryAfter} second${result.retryAfter === 1 ? '' : 's'}.`,
+        message: `Limit reached: ${limit} ${noun} per minute per person. Try again in ${result.retryAfter} second${result.retryAfter === 1 ? '' : 's'}.`,
       },
     })
     return false

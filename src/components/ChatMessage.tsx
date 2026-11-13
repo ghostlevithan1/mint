@@ -22,8 +22,10 @@ import { typeInfo, type Model } from '../lib/data'
 import type { ChatMessage } from '../lib/chat'
 import type { Attachment } from '../lib/files'
 import { formatBytes } from '../lib/privacy'
+import { extractImageLinks } from '../lib/imageLinks'
 import { Markdown } from './Markdown'
 import { ModelLogo } from './ModelLogo'
+import { RemoteImage } from './RemoteImage'
 
 type ChatMessageProps = {
   message: ChatMessage
@@ -200,6 +202,7 @@ export const ChatMessageView = memo(
 
   if (message.role === 'user') {
     const hasText = message.content.trim().length > 0
+    const imageLinks = extractImageLinks(message.content)
     return (
       <article className="msg msg-user">
         <div className="user-bubble">
@@ -214,6 +217,9 @@ export const ChatMessageView = memo(
               {(message.attachments?.length ?? 0) === 1 ? '' : 's'}
             </p>
           )}
+          {imageLinks.map((image) => (
+            <RemoteImage key={image.url} url={image.url} alt={image.alt} />
+          ))}
         </div>
         {message.shieldOn && (message.redactionCount ?? 0) > 0 && (
           <span className="user-shield-note">

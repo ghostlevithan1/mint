@@ -1,0 +1,4 @@
+# Only needed for /api/plot (server-side matplotlib rendering of plot specs).
+# The app runs fine without these; /api/plot then answers 503.
+matplotlib>=3.9,<4
+numpy>=2,<3

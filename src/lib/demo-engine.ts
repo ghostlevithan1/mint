@@ -220,6 +220,44 @@ function parseLinear(side: string): Side | null {
   return result
 }
 
+/**
+ * Scripted plots: "plot y = x^2", "graph sin(x)", "draw x^2 - 4".
+ * Emits the same ```plot fence the live models use, so the renderer in
+ * Markdown.tsx draws it with matplotlib on the server.
+ */
+function plotAnswer(prompt: string): string | null {
+  const match = /\b(?:plot|graph|chart|draw)\b/i.exec(prompt)
+  if (!match) return null
+  let rest = prompt.slice(match.index + match[0].length).trim()
+  rest = rest
+    .replace(/^(?:me\s+|a\s+|an\s+|the\s+|us\s+)?(?:graph|chart|plot)?\s*(?:of\s+|for\s+)?/i, '')
+    .replace(/^(?:y|f\(x\)|g\(x\))\s*=\s*/i, '')
+    .replace(/[,.!?].*$/s, '') // trailing prose after the expression
+    .trim()
+  rest = normalizeMath(rest)
+  if (!rest || rest.length > 120) return null
+  if (!/^[0-9a-zA-Z+\-*/().\s^]+$/.test(rest)) return null
+  if (!/[0-9]|\bx\b|sin|cos|tan|exp|log|sqrt/i.test(rest)) return null
+
+  const spec = {
+    chart: 'line',
+    title: `y = ${rest}`,
+    xLabel: 'x',
+    yLabel: 'y',
+    xRange: [-10, 10],
+    equations: [{ expr: rest, label: `y = ${rest}` }],
+  }
+  return [
+    `Here is a graph of y = ${rest}, drawn from x = -10 to x = 10.`,
+    '',
+    '```plot',
+    JSON.stringify(spec),
+    '```',
+    '',
+    'Ask for a different range or a second curve and it will add it.',
+  ].join('\n')
+}
+
 function extractEquation(prompt: string): string | null {
   const text = normalizeMath(prompt)
   const match = text.match(/[0-9x][0-9x+\-*/=.\s()]*=[0-9x+\-*/=.\s()]*/i)
@@ -445,6 +483,9 @@ function withImageNote(answer: string, images: string[] | undefined) {
 }
 
 export function buildDemoAnswer(input: AnswerInput): string {
+  const plot = plotAnswer(input.prompt)
+  if (plot) return withImageNote(plot, input.images)
+
   const math = mathAnswer(input.prompt)
   if (math) return withImageNote(math, input.images)
 

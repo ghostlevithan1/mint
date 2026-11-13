@@ -6,6 +6,7 @@ import { brotliCompress, constants, gzip } from 'node:zlib'
 import { promisify } from 'node:util'
 import { handleChatHttp, handleStatusHttp, sendJson } from './node-http'
 import { guardApi } from './limits'
+import { handlePlotHttp } from './plot-http'
 import { handleSearchHttp, handleWebHttp } from './web'
 
 const compressBrotli = promisify(brotliCompress)
@@ -59,6 +60,9 @@ const host = process.env.HOST ?? '0.0.0.0'
 
 // Locked down because the app handles private text. Everything it needs is
 // same-origin: bundled fonts, Vite JS/CSS, and data: URLs for local previews.
+// img-src allows any https: image so image links pasted into a chat render
+// inline; remote hosts see the viewer's IP but nothing else (no cookies, no
+// referrer — see RemoteImage / referrerPolicy="no-referrer").
 const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
   "base-uri 'none'",
@@ -67,7 +71,7 @@ const CONTENT_SECURITY_POLICY = [
   "form-action 'self'",
   "script-src 'self'",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
+  "img-src 'self' data: blob: https:",
   "font-src 'self' data:",
   "connect-src 'self'",
   "worker-src 'self' blob:",
@@ -234,6 +238,12 @@ const server = createServer((req, res) => {
   if (pathname === '/api/chat') {
     if (!guardApi(req, res, 'chat')) return
     void handleChatHttp(req, res, root)
+    return
+  }
+
+  if (pathname === '/api/plot') {
+    if (!guardApi(req, res, 'plot')) return
+    void handlePlotHttp(req, res)
     return
   }
 
