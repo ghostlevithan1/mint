@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { Loader2, TriangleAlert } from 'lucide-react'
 import { compileExpression, niceTicks, parsePlotSpec, PlotError, sharedTicks, type PlotData } from '../lib/plotSpec'
-import { nearestOnSegment, panView, squareView, zoomView, type View } from '../lib/plotGeometry'
+import { nearestOnSegment, panView, placeReadout, squareView, zoomView, type View } from '../lib/plotGeometry'
 
 const W = 640
 const H = 360
@@ -32,6 +32,17 @@ function coordinate(value: number): string {
   const abs = Math.abs(value)
   if (abs >= 1e6 || abs < 1e-4) return value.toExponential(2)
   return String(Number(value.toPrecision(5)))
+}
+
+/** Estimated width of a 12px monospace line, in viewBox units. */
+function readoutTextWidth(lines: string[]): number {
+  let widest = 0
+  for (const line of lines) {
+    let width = 0
+    for (const char of line) width += (char.codePointAt(0) ?? 0) > 0x2e80 ? 12 : 7.4
+    if (width > widest) widest = width
+  }
+  return widest + 4
 }
 
 function Chart({ data }: { data: PlotData }) {
@@ -248,11 +259,27 @@ function Chart({ data }: { data: PlotData }) {
 
   const dotX = selection ? sx(selection.x) : 0
   const dotY = selection ? sy(selection.y) : 0
-  const flipX = dotX > M.left + IW * 0.6
-  const flipY = dotY < M.top + 58
-  const labelX = flipX ? dotX - 12 : dotX + 12
-  const baseY = flipY ? dotY + 24 : dotY - 22
   const showSeries = lines.length > 1
+  const readoutLabel =
+    selection && selection.label.length > 26 ? `${selection.label.slice(0, 25)}…` : (selection?.label ?? '')
+  const readoutLines = selection
+    ? [
+        ...(showSeries ? [readoutLabel] : []),
+        `x = ${coordinate(selection.x)}`,
+        `y = ${coordinate(selection.y)}`,
+      ]
+    : []
+  // Rough width of the 12px monospace readout, in viewBox units, so it can be
+  // kept inside the plot frame instead of spilling over the axes.
+  const readoutWidth = readoutTextWidth(readoutLines)
+  const readout = selection
+    ? placeReadout({ x: dotX, y: dotY }, readoutLines.length, readoutWidth, {
+        left: M.left,
+        right: W - M.right,
+        top: M.top,
+        bottom: H - M.bottom,
+      })
+    : null
 
   return (
     <div className="plot-canvas">
@@ -376,19 +403,19 @@ function Chart({ data }: { data: PlotData }) {
           </g>
         )}
 
-        {selection && (
+        {selection && readout && (
           <g pointerEvents="none">
             <line className="plot-readout-guide" x1={dotX} x2={dotX} y1={M.top} y2={H - M.bottom} />
             <line className="plot-readout-guide" x1={M.left} x2={W - M.right} y1={dotY} y2={dotY} />
             <circle className="plot-readout-dot" cx={dotX} cy={dotY} r={4.5} fill={selection.color} />
-            <text className="plot-readout-text" x={labelX} y={baseY} textAnchor={flipX ? 'end' : 'start'}>
+            <text className="plot-readout-text" x={readout.x} y={readout.y} textAnchor={readout.anchor}>
               {showSeries && (
-                <tspan x={labelX} y={baseY}>
-                  {selection.label.length > 26 ? `${selection.label.slice(0, 25)}…` : selection.label}
+                <tspan x={readout.x} y={readout.y}>
+                  {readoutLabel}
                 </tspan>
               )}
-              <tspan x={labelX} y={showSeries ? baseY + 15 : baseY}>{`x = ${coordinate(selection.x)}`}</tspan>
-              <tspan x={labelX} y={(showSeries ? baseY + 15 : baseY) + 15}>{`y = ${coordinate(selection.y)}`}</tspan>
+              <tspan x={readout.x} y={readout.y + (showSeries ? 15 : 0)}>{`x = ${coordinate(selection.x)}`}</tspan>
+              <tspan x={readout.x} y={readout.y + (showSeries ? 30 : 15)}>{`y = ${coordinate(selection.y)}`}</tspan>
             </text>
           </g>
         )}

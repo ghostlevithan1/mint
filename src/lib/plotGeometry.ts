@@ -90,3 +90,54 @@ export function nearestOnSegment(target: Point, a: Point, b: Point): PointHit {
   const y = a.y + dy * t
   return { x, y, distance: Math.hypot(target.x - x, target.y - y), t }
 }
+
+export type ReadoutPlacement = { x: number; y: number; anchor: 'start' | 'end' }
+
+/**
+ * Places a multi-line readout beside a selected point. It prefers the space
+ * above and to the right of the point, flips when that would leave `area`, and
+ * clamps as a last resort so the whole block stays inside the plot.
+ */
+export function placeReadout(
+  point: Point,
+  lineCount: number,
+  textWidth: number,
+  area: { left: number; right: number; top: number; bottom: number },
+  gap = 12,
+  lineHeight = 15,
+  ascent = 13,
+  descent = 5,
+  inset = 4,
+): ReadoutPlacement {
+  const count = Math.max(1, lineCount)
+  const width = Math.max(0, textWidth)
+  const left = area.left + inset
+  const right = area.right - inset
+  const top = area.top + inset
+  const bottom = area.bottom - inset
+
+  let anchor: 'start' | 'end'
+  let x: number
+  if (point.x + gap + width <= right) {
+    anchor = 'start'
+    x = point.x + gap
+  } else if (point.x - gap - width >= left) {
+    anchor = 'end'
+    x = point.x - gap
+  } else if (right - point.x >= point.x - left) {
+    // Neither side fits a wide block, so sit as close to the point as it allows.
+    anchor = 'start'
+    x = clamp(point.x + gap, left, Math.max(left, right - width))
+  } else {
+    anchor = 'end'
+    x = clamp(point.x - gap, Math.min(right, left + width), right)
+  }
+
+  const blockBottom = (count - 1) * lineHeight + descent
+  const above = point.y - gap - (count - 1) * lineHeight
+  const below = point.y + gap + ascent
+  let y = above - ascent < top ? below : above
+  if (y + blockBottom > bottom) y = bottom - blockBottom
+  y = clamp(y, top + ascent, bottom - blockBottom)
+  return { x, y, anchor }
+}

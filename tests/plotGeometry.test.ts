@@ -4,6 +4,7 @@ import {
   MAX_ZOOM,
   nearestOnSegment,
   panView,
+  placeReadout,
   squareView,
   zoomView,
   type View,
@@ -122,4 +123,37 @@ test('zooming and panning keep the units square', () => {
   closeRatio(zoomed, 1.868)
   const panned = panView(zoomed, 3, -4, square)
   closeRatio(panned, 1.868)
+})
+
+const area = { left: 52, right: 620, top: 16, bottom: 320 }
+
+test('the readout sits above and right of the point when there is room', () => {
+  const place = placeReadout({ x: 100, y: 150 }, 2, 120, area)
+  assert.equal(place.anchor, 'start')
+  close(place.x, 112)
+  close(place.y, 123)
+})
+
+test('the readout flips to the left near the right edge', () => {
+  const place = placeReadout({ x: 580, y: 150 }, 2, 120, area)
+  assert.equal(place.anchor, 'end')
+  close(place.x, 568)
+  assert.ok(place.x - 120 >= area.left)
+})
+
+test('a wide readout is pushed inside the plot frame', () => {
+  const place = placeReadout({ x: 300, y: 150 }, 3, 500, area)
+  assert.equal(place.anchor, 'start')
+  assert.ok(place.x >= area.left)
+  assert.ok(place.x + 500 <= area.right)
+})
+
+test('the readout drops below a point near the top and stays inside the bottom', () => {
+  const nearTop = placeReadout({ x: 300, y: 20 }, 3, 80, area)
+  assert.ok(nearTop.y - 13 >= area.top)
+  assert.ok(nearTop.y + 30 + 5 <= area.bottom)
+
+  const nearBottom = placeReadout({ x: 300, y: 318 }, 3, 80, area)
+  assert.ok(nearBottom.y - 13 >= area.top)
+  assert.ok(nearBottom.y + 30 + 5 <= area.bottom)
 })
