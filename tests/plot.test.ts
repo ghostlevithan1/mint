@@ -53,7 +53,7 @@ test('bar and histogram specs become bars', () => {
 })
 
 test('broken specs explain what is wrong', () => {
-  assert.throws(() => parsePlotSpec('{"xRange":[0,1]'), /valid JSON/)
+  assert.throws(() => parsePlotSpec('plot: [0,1'), /valid JSON/)
   assert.throws(() => parsePlotSpec('{"chart":"pie"}'), /chart/)
   assert.throws(() => parsePlotSpec('{}'), /Nothing to plot/)
 })
@@ -148,6 +148,33 @@ test('tick labels shorten to fit the y-axis margin instead of escaping it', () =
   assert.equal(formatTick(-0.00001, 46), '-1e-5')
   // Labels that already fit are never reformatted.
   assert.equal(formatTick(2.5, 46), '2.5')
+})
+
+test('plot specs with common model JSON slips are repaired', () => {
+  // The exact message a model sent: the label string never closes, so the
+  // object's own closing braces end up inside it.
+  const swallowed = '{"chart":"line","title":"y = x^2","xRange":[-1000,1000],"equations":[{"expr":"x^2","label":"y = x^2"}],"points":[{"x":0,"y":0,"label":"vertex (0,0)}]}'
+  const fixed = parsePlotSpec(swallowed)
+  assert.equal(fixed.chart, 'line')
+  assert.equal(fixed.markers.length, 1)
+  assert.equal(fixed.markers[0].label, 'vertex (0,0)')
+  assert.deepEqual(fixed.xRange, [-1000, 1000])
+
+  // A trailing comma before a closing brace.
+  const trailing = parsePlotSpec('{"chart":"line","xRange":[-10,10],"equations":[{"expr":"x"}],}')
+  assert.equal(trailing.lines.length, 1)
+
+  // Prose after the object inside the fence.
+  const prose = parsePlotSpec('{"chart":"line","xRange":[-10,10],"equations":[{"expr":"x"}]} Here is the graph.')
+  assert.equal(prose.lines.length, 1)
+
+  // A stream that stopped before the last braces closed.
+  const cut = parsePlotSpec('{"chart":"line","xRange":[-10,10],"equations":[{"expr":"x"}')
+  assert.equal(cut.lines.length, 1)
+
+  // Empty or hopeless input still reports a clear error.
+  assert.throws(() => parsePlotSpec(''), PlotError)
+  assert.throws(() => parsePlotSpec('not json at all'), PlotError)
 })
 
 test('diagram specs validate their type and node count', () => {

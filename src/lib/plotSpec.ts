@@ -231,12 +231,94 @@ function curveExtent(values: number[]): [number, number] {
   return full > (hi - lo) * 4 ? extent([lo, hi]) : extent(sorted)
 }
 
+/**
+ * Best-effort repair of the JSON slips models make in plot specs: a string
+ * left open (with the object's closing braces swallowed into it), missing
+ * closing braces, trailing commas, or prose after the object. Returns the
+ * repaired text, or null when the input cannot be salvaged.
+ */
+export function repairPlotJson(raw: string): string | null {
+  const start = raw.indexOf('{')
+  if (start < 0) return null
+  const stack: string[] = []
+  let out = ''
+  let inString = false
+  let escaped = false
+
+  for (let i = start; i < raw.length; i += 1) {
+    const char = raw[i]
+    if (inString) {
+      if (escaped) {
+        out += char
+        escaped = false
+      } else if (char === '\\') {
+        out += char
+        escaped = true
+      } else if (char === '"') {
+        inString = false
+        out += char
+      } else if (char === '\n' || char === '\r') {
+        out += '\\n'
+      } else if (char === '\t') {
+        out += '\\t'
+      } else {
+        out += char
+      }
+      continue
+    }
+    if (char === '"') {
+      inString = true
+      out += char
+    } else if (char === '{' || char === '[') {
+      stack.push(char === '{' ? '}' : ']')
+      out += char
+    } else if (char === '}' || char === ']') {
+      if (stack[stack.length - 1] !== char) return null
+      stack.pop()
+      out += char
+      // The object is complete; anything after it is commentary.
+      if (!stack.length) return out
+    } else if (char === ',') {
+      let next = i + 1
+      while (next < raw.length && /\s/.test(raw[next])) next += 1
+      if (raw[next] !== '}' && raw[next] !== ']') out += char
+    } else {
+      out += char
+    }
+  }
+
+  if (inString) {
+    // The model often forgets the closing quote and the object's own braces
+    // end up inside the string, e.g. "vertex (0,0)}]. Pull them back out.
+    const tail = /[}\]]*$/.exec(out)?.[0] ?? ''
+    if (tail) out = out.slice(0, out.length - tail.length)
+    out += '"'
+    for (const char of tail) {
+      if (stack[stack.length - 1] !== char) return null
+      stack.pop()
+      out += char
+      if (!stack.length) return out
+    }
+  }
+  while (stack.length) out += stack.pop() ?? ''
+  return out
+}
+
 export function parsePlotSpec(raw: string): PlotData {
   let spec: unknown
   try {
     spec = JSON.parse(raw)
   } catch {
-    throw new PlotError('The plot spec must be valid JSON.')
+    // Models occasionally slip: an unfinished string, a trailing comma, the
+    // tail of the object inside a string, or prose after the JSON. Repair what
+    // can be repaired instead of dropping the whole graph.
+    const repaired = repairPlotJson(raw)
+    if (repaired === null) throw new PlotError('The plot spec must be valid JSON.')
+    try {
+      spec = JSON.parse(repaired)
+    } catch {
+      throw new PlotError('The plot spec must be valid JSON.')
+    }
   }
   if (!spec || typeof spec !== 'object' || Array.isArray(spec)) {
     throw new PlotError('The plot spec must be a JSON object.')
