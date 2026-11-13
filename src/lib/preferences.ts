@@ -39,3 +39,24 @@ export function saveWebSearch(enabled: boolean): void {
     // ignore
   }
 }
+
+const PROFILE_KEY = 'mint.profile'
+export const PROFILE_MAX_CHARS = 1000
+
+/** What the student told Mint about themselves; sent as context with each question. */
+export function getStoredProfile(): string {
+  if (typeof localStorage === 'undefined') return ''
+  try {
+    return (localStorage.getItem(PROFILE_KEY) ?? '').slice(0, PROFILE_MAX_CHARS)
+  } catch {
+    return ''
+  }
+}
+
+export function saveProfile(text: string): void {
+  try {
+    localStorage.setItem(PROFILE_KEY, text.slice(0, PROFILE_MAX_CHARS))
+  } catch {
+    // ignore
+  }
+}

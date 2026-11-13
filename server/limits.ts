@@ -14,10 +14,9 @@ import { resolve } from 'node:path'
 
 export const CHAT_RATE_LIMIT = 15
 export const WEB_RATE_LIMIT = 60
-export const PLOT_RATE_LIMIT = 30
 const RATE_WINDOW_MS = 60_000
 
-export type ApiKind = 'chat' | 'web' | 'plot'
+export type ApiKind = 'chat' | 'web'
 
 const hits = new Map<string, number[]>()
 
@@ -118,14 +117,14 @@ function rateLimit(key: string, limit: number): RateResult {
  */
 export function guardApi(req: IncomingMessage, res: ServerResponse, kind: ApiKind): boolean {
   const limit =
-    kind === 'chat' ? chatLimit() : kind === 'plot' ? PLOT_RATE_LIMIT : WEB_RATE_LIMIT
+    kind === 'chat' ? chatLimit() : WEB_RATE_LIMIT
   const result = rateLimit(`${kind}:ip:${clientAddress(req)}`, limit)
 
   res.setHeader('X-RateLimit-Limit', String(limit))
   if (!result.ok) {
     res.setHeader('Retry-After', String(result.retryAfter))
     res.setHeader('X-RateLimit-Remaining', '0')
-    const noun = kind === 'chat' ? 'messages' : kind === 'plot' ? 'plots' : 'web requests'
+    const noun = kind === 'chat' ? 'messages' : 'web requests'
     writeJson(res, 429, {
       error: {
         code: 'CLIENT_RATE_LIMIT',

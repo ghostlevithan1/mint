@@ -21,6 +21,7 @@ import { LeafMark } from './Logo'
 import { MODEL_TYPES, MODELS, modelsByType, typeInfo } from '../lib/data'
 import type { ProviderStatus } from '../lib/provider'
 import { formatBytes } from '../lib/privacy'
+import { getStoredProfile, PROFILE_MAX_CHARS, saveProfile } from '../lib/preferences'
 import { storageUsage } from '../lib/storage'
 import { ModelCapabilityBadges, ModelLogo } from './ModelLogo'
 
@@ -99,6 +100,7 @@ export function SettingsModal({
   onRefreshProvider,
 }: SettingsModalProps) {
   const [tab, setTab] = useState<SettingsTab>(initialTab)
+  const [profile, setProfile] = useState(getStoredProfile)
   const [usage, setUsage] = useState<{ usage: number; quota: number } | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
 
@@ -150,7 +152,6 @@ export function SettingsModal({
       >
         <aside className="settings-nav">
           <div className="settings-nav-head">
-            <span className="eyebrow">Workspace</span>
             <h2 id="settings-title">Settings</h2>
           </div>
           <div className="settings-tabs" role="tablist" aria-orientation="vertical">
@@ -186,10 +187,32 @@ export function SettingsModal({
               </div>
 
               <section className="settings-section">
+                <h4>
+                  <label htmlFor="mint-profile">About you</label>
+                </h4>
+                <p className="settings-help">
+                  Mint uses this to pitch every explanation at your level. Your year, subjects,
+                  exams coming up and how you like things explained. No need for your name.
+                </p>
+                <textarea
+                  id="mint-profile"
+                  className="profile-input"
+                  value={profile}
+                  maxLength={PROFILE_MAX_CHARS}
+                  rows={4}
+                  placeholder="Year 10. Doing GCSE maths, biology and history. I get lost in long paragraphs, so diagrams and worked examples help."
+                  onChange={(event) => {
+                    setProfile(event.target.value)
+                    saveProfile(event.target.value)
+                  }}
+                />
+              </section>
+
+              <section className="settings-section">
                 <h4>Model type</h4>
                 <p className="settings-help">
-                  Choose the intelligence tier for the task. It selects a matching model — you can
-                  still switch models below.
+                  Quick answers fast, Intelligent thinks harder on tough problems. You can still
+                  pick a specific model below.
                 </p>
                 <div className="model-type-grid" role="radiogroup" aria-label="Model type">
                   {MODEL_TYPES.map((type) => {

@@ -34,6 +34,7 @@ import {
   messageContextText,
 } from '../lib/context'
 import type { Attachment } from '../lib/files'
+import { getStoredProfile } from '../lib/preferences'
 import { loadConversations, persistConversations, purgeLegacyChatStorageOnce, wipePersistedStore } from '../lib/storage'
 
 type SendInput = {
@@ -467,12 +468,18 @@ export function useConversations() {
     const imageTokens = input.attachments
       .filter((file) => file.kind === 'image' && file.dataUrl)
       .reduce((sum, file) => sum + attachmentTokens(file), 0)
+    // Read at request time so send and regenerate both use the latest profile.
+    const profile = getStoredProfile().trim()
+    const profileMessage: StreamMessage[] = profile
+      ? [{ role: 'system', content: `About this student, in their own words:\n${profile}` }]
+      : []
     const historyBudget = Math.max(
       128,
-      windowTokens - reserve - estimateTextTokens(userText) - imageTokens,
+      windowTokens - reserve - estimateTextTokens(userText) - imageTokens - estimateTextTokens(profile),
     )
     const currentImageChars = images.reduce((sum, url) => sum + url.length, 0)
     const requestMessages: StreamMessage[] = [
+      ...profileMessage,
       ...buildContextMessages(input.history, historyBudget, {
         enabled: supportsImages,
         used: images.length,

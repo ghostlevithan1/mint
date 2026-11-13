@@ -10,6 +10,7 @@ import {
 } from '../lib/generatedFiles'
 import { isImageLine, isImageUrl } from '../lib/imageLinks'
 import { PlotImage } from './PlotImage'
+import { DiagramView } from './DiagramView'
 import { RemoteImage } from './RemoteImage'
 
 type InlineToken =
@@ -229,7 +230,7 @@ type Block =
   | { type: 'code'; code: string; info: FenceInfo }
   | { type: 'math'; tex: string }
   | { type: 'image'; url: string; alt: string }
-  | { type: 'plot'; code: string }
+  | { type: 'plot' | 'diagram'; code: string; open: boolean }
 
 function CodeFileCard({ code, info }: { code: string; info: FenceInfo }) {
   const [copied, setCopied] = useState(false)
@@ -365,8 +366,9 @@ function parseBlocks(text: string): Block[] {
         cursor += 1
       }
       const language = info.split(/\s+/)[0]?.toLowerCase() ?? ''
-      if (language === 'plot') {
-        blocks.push({ type: 'plot', code: codeLines.join('\n') })
+      if (language === 'plot' || language === 'diagram') {
+        // An unclosed fence is still streaming, so its JSON is not complete yet.
+        blocks.push({ type: language, code: codeLines.join('\n'), open: cursor >= lines.length })
       } else {
         blocks.push({
           type: 'code',
@@ -492,7 +494,10 @@ export const Markdown = memo(function Markdown({ text }: { text: string }) {
           return <RemoteImage key={index} url={block.url} alt={block.alt} />
         }
         if (block.type === 'plot') {
-          return <PlotImage key={index} spec={block.code} />
+          return <PlotImage key={index} spec={block.code} streaming={block.open} />
+        }
+        if (block.type === 'diagram') {
+          return <DiagramView key={index} spec={block.code} streaming={block.open} />
         }
         if (block.type === 'table') {
           return (
