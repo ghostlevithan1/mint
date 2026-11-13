@@ -93,6 +93,20 @@ export function nearestOnSegment(target: Point, a: Point, b: Point): PointHit {
 
 export type ReadoutPlacement = { x: number; y: number; anchor: 'start' | 'end' }
 
+/** True when a point sits inside `area`, optionally with `inset` clearance. */
+export function insideArea(
+  point: Point,
+  area: { left: number; right: number; top: number; bottom: number },
+  inset = 0,
+): boolean {
+  return (
+    point.x >= area.left + inset &&
+    point.x <= area.right - inset &&
+    point.y >= area.top + inset &&
+    point.y <= area.bottom - inset
+  )
+}
+
 /**
  * Places a multi-line readout beside a selected point. It prefers the space
  * above and to the right of the point, flips when that would leave `area`, and

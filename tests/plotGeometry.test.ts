@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  insideArea,
   MAX_ZOOM,
   nearestOnSegment,
   panView,
@@ -156,4 +157,13 @@ test('the readout drops below a point near the top and stays inside the bottom',
   const nearBottom = placeReadout({ x: 300, y: 318 }, 3, 80, area)
   assert.ok(nearBottom.y - 13 >= area.top)
   assert.ok(nearBottom.y + 30 + 5 <= area.bottom)
+})
+
+test('a point outside the plot area is hidden, with clearance for its dot', () => {
+  assert.equal(insideArea({ x: 300, y: 150 }, area), true)
+  assert.equal(insideArea({ x: 40, y: 150 }, area), false)
+  assert.equal(insideArea({ x: 300, y: 330 }, area), false)
+  assert.equal(insideArea({ x: 52, y: 150 }, area), true)
+  assert.equal(insideArea({ x: 52, y: 150 }, area, 5), false)
+  assert.equal(insideArea({ x: 620, y: 320 }, area, 5), false)
 })

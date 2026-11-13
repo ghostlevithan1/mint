@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { Loader2, TriangleAlert } from 'lucide-react'
 import { compileExpression, niceTicks, parsePlotSpec, PlotError, sharedTicks, type PlotData } from '../lib/plotSpec'
-import { nearestOnSegment, panView, placeReadout, squareView, zoomView, type View } from '../lib/plotGeometry'
+import { insideArea, nearestOnSegment, panView, placeReadout, squareView, zoomView, type View } from '../lib/plotGeometry'
 
 const W = 640
 const H = 360
@@ -15,6 +15,8 @@ const HIT_RADIUS = 18
 const ZOOM_SPEED = 0.0015
 /** Pointer movement below this many units is a click, not a drag. */
 const DRAG_THRESHOLD = 3
+/** Radius of the dot shown on a clicked point. */
+const DOT_RADIUS = 4.5
 
 type Selection = { x: number; y: number; label: string; color: string }
 type Drag = { id: number; px: number; py: number; view: View; moved: boolean }
@@ -280,6 +282,15 @@ function Chart({ data }: { data: PlotData }) {
         bottom: H - M.bottom,
       })
     : null
+  // Panning or zooming can carry a selected point out of the frame. The dot and
+  // guide lines must not be drawn outside the graph, so hide them there.
+  const pointInside =
+    selection !== null &&
+    insideArea(
+      { x: dotX, y: dotY },
+      { left: M.left, right: W - M.right, top: M.top, bottom: H - M.bottom },
+      DOT_RADIUS,
+    )
 
   return (
     <div className="plot-canvas">
@@ -405,9 +416,13 @@ function Chart({ data }: { data: PlotData }) {
 
         {selection && readout && (
           <g pointerEvents="none">
-            <line className="plot-readout-guide" x1={dotX} x2={dotX} y1={M.top} y2={H - M.bottom} />
-            <line className="plot-readout-guide" x1={M.left} x2={W - M.right} y1={dotY} y2={dotY} />
-            <circle className="plot-readout-dot" cx={dotX} cy={dotY} r={4.5} fill={selection.color} />
+            {pointInside && (
+              <>
+                <line className="plot-readout-guide" x1={dotX} x2={dotX} y1={M.top} y2={H - M.bottom} />
+                <line className="plot-readout-guide" x1={M.left} x2={W - M.right} y1={dotY} y2={dotY} />
+                <circle className="plot-readout-dot" cx={dotX} cy={dotY} r={DOT_RADIUS} fill={selection.color} />
+              </>
+            )}
             <text className="plot-readout-text" x={readout.x} y={readout.y} textAnchor={readout.anchor}>
               {showSeries && (
                 <tspan x={readout.x} y={readout.y}>
