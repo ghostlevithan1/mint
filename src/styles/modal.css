@@ -147,7 +147,7 @@
   gap: 6px;
   margin-top: 12px;
   color: var(--dim);
-  font-size: 10.5px;
+  font-size: 12px;
   line-height: 1.6;
 }
 
@@ -169,7 +169,7 @@
   border-radius: 8px;
   background: rgba(var(--red-rgb), 0.07);
   color: var(--red);
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.5;
 }
 
@@ -182,9 +182,8 @@
   padding-top: 16px;
   border-top: 1px solid var(--line-soft);
   color: var(--dim);
-  font-size: 10px;
-  letter-spacing: 0.02em;
-    flex-wrap: wrap;
+  font-size: 12px;
+      flex-wrap: wrap;
 }
 
 .auth-trust span {
@@ -202,7 +201,7 @@
   margin-top: 13px;
   text-align: center;
   color: var(--dim);
-  font-size: 10.5px;
+  font-size: 12px;
   line-height: 1.55;
 }
 
@@ -229,8 +228,8 @@
   display: block;
   margin-bottom: 6px;
   color: var(--muted);
-  font-size: 10.5px;
-  }
+  font-size: 12px;
+}
 
 .input-wrapper {
   position: relative;
@@ -394,9 +393,8 @@
   padding: 16px 10px 2px;
   color: var(--dim);
   font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.02em;
-  }
+  font-size: 12px;
+    }
 
 .settings-content {
   position: relative;
@@ -448,7 +446,7 @@
 .settings-help {
   margin-bottom: 10px;
   color: var(--dim);
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .model-type-grid {
@@ -478,8 +476,8 @@
 }
 
 .model-type-card.is-selected {
-  border-color: rgba(var(--accent-rgb), 0.34);
-  background: var(--green-soft);
+  border-color: var(--line-strong);
+  background: var(--panel-raised);
 }
 
 .model-type-card-head {
@@ -496,12 +494,12 @@
 
 .model-type-card-head small {
   color: var(--dim);
-  font-size: 10px;
-  }
+  font-size: 12px;
+}
 
 .model-type-card > span:last-child {
   color: var(--dim);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.5;
 }
 
@@ -528,12 +526,12 @@
   gap: 6px;
   padding: 1px 2px 0;
   color: var(--dim);
-  font-size: 10px;
-  }
+  font-size: 12px;
+}
 
 .settings-model-group-head > span:last-child {
   margin-left: auto;
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .settings-model {
@@ -558,8 +556,8 @@
 }
 
 .settings-model.is-selected {
-  border-color: rgba(var(--accent-rgb), 0.26);
-  background: var(--green-soft);
+  border-color: var(--line-strong);
+  background: var(--panel-raised);
 }
 
 .settings-model-copy {
@@ -578,7 +576,7 @@
 .settings-model-copy small {
   overflow: hidden;
   color: var(--dim);
-  font-size: 10px;
+  font-size: 12px;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
@@ -596,7 +594,7 @@
   flex: 0 0 auto;
   color: var(--dim);
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: 12px;
 }
 
 .settings-radio {
@@ -643,7 +641,7 @@
 
 .setting-row span {
   color: var(--dim);
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.5;
 }
 
@@ -666,7 +664,7 @@
 
 .settings-callout p {
   color: var(--dim);
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.55;
 }
 
@@ -689,7 +687,7 @@
 
 .settings-warning p {
   color: var(--muted);
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.55;
 }
 
@@ -699,9 +697,9 @@
   gap: 13px;
   margin-top: 20px;
   padding: 14px;
-  border: 1px solid rgba(var(--accent-rgb), 0.2);
+  border: 1px solid var(--line);
   border-radius: 12px;
-  background: rgba(var(--accent-rgb), 0.045);
+  background: var(--panel);
 }
 
 .privacy-hero.is-off {
@@ -716,9 +714,9 @@
   width: 44px;
   height: 44px;
   flex: 0 0 auto;
-  border: 1px solid var(--green-line);
+  border: 1px solid var(--line);
   border-radius: 10px;
-  background: rgba(var(--accent-rgb), 0.08);
+  background: var(--panel-raised);
   color: var(--green);
 }
 
@@ -741,17 +739,17 @@
 .privacy-hero p {
   margin-top: 3px;
   color: var(--muted);
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.55;
 }
 
 .privacy-state {
   flex: 0 0 auto;
   padding: 3px 7px;
-  border: 1px solid var(--green-line);
+  border: 1px solid var(--line);
   border-radius: 5px;
   color: var(--green);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .privacy-hero.is-off .privacy-state {
@@ -785,7 +783,7 @@
 
 .settings-facts span {
   color: var(--dim);
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .settings-facts strong {
@@ -819,8 +817,8 @@
 }
 
 .settings-action:hover:not(:disabled) {
-  border-color: var(--green-line);
-  background: var(--green-soft);
+  border-color: var(--line-strong);
+  background: rgba(var(--wash-rgb), 0.05);
   color: var(--text);
 }
 
@@ -844,7 +842,7 @@
   padding-top: 14px;
   border-top: 1px solid var(--line-soft);
   color: var(--dim);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.6;
 }
 
@@ -873,9 +871,8 @@
   justify-content: center;
   width: 46px;
   height: 46px;
-  border-radius: 13px;
-  background: linear-gradient(160deg, var(--green-bright), var(--green-deep));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 8px 24px -8px rgba(var(--accent-rgb), 0.45);
+  border-radius: 12px;
+  background: var(--green);
   color: var(--on-accent);
   font-size: 21px;
   font-weight: 600;
@@ -890,12 +887,11 @@
 
 .about-lockup strong {
   font-size: 15px;
-  letter-spacing: 0.02em;
 }
 
 .about-lockup span {
   color: var(--dim);
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .about-copy {
@@ -933,13 +929,13 @@
 
 .settings-provider span:not(.provider-dot) {
   color: var(--dim);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.5;
 }
 
 .settings-provider.is-live {
-  border-color: var(--green-line);
-  background: var(--green-soft);
+  border-color: var(--line);
+  background: var(--panel);
 }
 
 .settings-provider.is-live strong {
@@ -950,7 +946,7 @@
   flex: 0 0 auto;
   min-height: 30px;
   padding: 0 10px;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .shortcut-list {
@@ -984,7 +980,7 @@
   background: rgba(0, 0, 0, 0.25);
   color: var(--text-soft);
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: 12px;
 }
 
 /* Payload audit modal */
@@ -1022,9 +1018,9 @@
   gap: 12px;
   margin: 18px 26px;
   padding: 12px 14px;
-  border: 1px solid rgba(var(--accent-rgb), 0.18);
+  border: 1px solid var(--line);
   border-radius: 10px;
-  background: rgba(var(--accent-rgb), 0.045);
+  background: var(--panel);
 }
 
 .payload-status-icon {
@@ -1034,7 +1030,7 @@
   width: 36px;
   height: 36px;
   flex: 0 0 auto;
-  border: 1px solid var(--green-line);
+  border: 1px solid var(--line);
   border-radius: 8px;
   color: var(--green);
 }
@@ -1053,19 +1049,18 @@
 
 .payload-status span {
   color: var(--muted);
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.5;
 }
 
 .payload-status-code {
   flex: 0 0 auto;
   padding: 4px 7px;
-  border: 1px solid var(--green-line);
+  border: 1px solid var(--line);
   border-radius: 4px;
   color: var(--green);
   font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.04em;
+  font-size: 12px;
 }
 
 .payload-grid {
@@ -1092,7 +1087,7 @@
   min-height: 40px;
   padding: 0 12px;
   border-bottom: 1px solid var(--line);
-  font-size: 10px;
+  font-size: 12px;
   color: var(--muted);
 }
 
@@ -1106,9 +1101,8 @@
   background: transparent;
   color: var(--dim);
   font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.04em;
-  transition:
+  font-size: 12px;
+    transition:
     color 140ms ease,
     background 140ms ease,
     border-color 140ms ease;
@@ -1130,7 +1124,7 @@
   display: block;
   margin-bottom: 11px;
   color: var(--dim);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .payload-code pre {
@@ -1150,7 +1144,7 @@
   padding: 10px 15px;
   border-top: 1px solid var(--line-soft);
   color: var(--dim);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.5;
 }
 
@@ -1210,29 +1204,29 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .substitution-original small {
   color: var(--dim);
   font-family: var(--mono);
-  font-size: 10px;
-  }
+  font-size: 12px;
+}
 
 .substitution-arrow {
   color: var(--dim);
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: 12px;
 }
 
 .substitution-row code {
-  padding: 3px 5px;
-  border: 1px solid rgba(var(--accent-rgb), 0.16);
-  border-radius: 4px;
-  background: var(--green-soft);
-  color: var(--green);
+  padding: 2px 6px;
+  border-radius: 2px;
+  background: var(--censor);
+  box-shadow: inset 0 0 0 1px rgba(var(--ink-rgb), 0.14);
+  color: #e9e4da;
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 12px;
   white-space: nowrap;
 }
 
@@ -1258,7 +1252,7 @@
   max-width: 220px;
   margin-top: 5px;
   color: var(--dim);
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.55;
 }
 
@@ -1283,8 +1277,7 @@
 
 .substitution-summary span {
   color: var(--dim);
-  font-size: 10px;
-  letter-spacing: 0.02em;
+  font-size: 12px;
 }
 
 .substitution-summary strong {
@@ -1300,7 +1293,7 @@
   border-top: 1px solid var(--line-soft);
   color: var(--dim);
   font-family: inherit;
-  font-size: 10.5px;
+  font-size: 12px;
   line-height: 1.55;
 }
 
@@ -1320,13 +1313,13 @@
   align-items: center;
   gap: 8px;
   color: var(--dim);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .compact-button {
   min-height: 36px;
   padding: 0 15px;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 /* Model switch modal */
@@ -1367,8 +1360,8 @@
 
 .switch-kicker {
   color: var(--amber);
-  font-size: 10px;
-  }
+  font-size: 12px;
+}
 
 .switch-head h2 {
   margin-top: 5px;
@@ -1414,13 +1407,13 @@
 }
 
 .switch-group-head strong {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
-  }
+}
 
 .switch-group-head em {
   color: var(--dim);
-  font-size: 10.5px;
+  font-size: 12px;
   font-style: normal;
 }
 
@@ -1441,8 +1434,8 @@
 }
 
 .switch-option:hover {
-  border-color: rgba(var(--accent-rgb), 0.3);
-  background: var(--green-soft);
+  border-color: var(--line-strong);
+  background: var(--panel-raised);
 }
 
 .switch-option-copy {
@@ -1468,7 +1461,7 @@
 .switch-option-copy em {
   overflow: hidden;
   color: var(--dim);
-  font-size: 11px;
+  font-size: 12px;
   font-style: normal;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -1480,8 +1473,8 @@
   gap: 4px;
   flex: 0 0 auto;
   color: var(--green);
-  font-size: 10px;
-  }
+  font-size: 12px;
+}
 
 .switch-foot {
   display: flex;
@@ -1491,7 +1484,7 @@
   padding-top: 13px;
   border-top: 1px solid var(--line-soft);
   color: var(--dim);
-  font-size: 10.5px;
+  font-size: 12px;
   line-height: 1.55;
 }
 
@@ -1626,7 +1619,7 @@
 
   .auth-trust {
     gap: 9px;
-    font-size: 10px;
+    font-size: 12px;
   }
 
   .auth-trust span + span {
@@ -1681,6 +1674,6 @@
 .settings-storage span {
   display: block;
   margin-top: 2px;
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.5;
 }

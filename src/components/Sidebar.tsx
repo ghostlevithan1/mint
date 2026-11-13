@@ -100,7 +100,7 @@ export function Sidebar({
 
         <button className="new-chat" onClick={onNewChat} type="button">
           <span className="new-chat-icon">
-            <Plus size={16} />
+            <Plus size={16} strokeWidth={1.75} />
           </span>
           New chat
         </button>
@@ -127,14 +127,17 @@ export function Sidebar({
               <X size={12} />
             </button>
           ) : (
-            <kbd>{MOD_KEY} K</kbd>
+            <span className="kbd-group" aria-hidden="true">
+              <kbd>{MOD_KEY}</kbd>
+              <kbd>K</kbd>
+            </span>
           )}
         </label>
 
         <div className="chat-history">
           <div className="history-head">
             <span>Chats</span>
-            {visibleChats.length > 0 && <span>{visibleChats.length}</span>}
+            {visibleChats.length > 0 && <span className="history-count">{visibleChats.length}</span>}
           </div>
           {visibleChats.length === 0 ? (
             <p className="history-empty">

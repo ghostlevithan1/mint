@@ -1,62 +1,69 @@
 :root {
-  font-family: 'Instrument Sans Variable', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-feature-settings: 'ss01', 'cv11';
-  color: #f1f1ef;
-  background: #111111;
+  font-family: 'Geist Variable', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color: #ededed;
+  background: #141415;
   color-scheme: dark;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 
-  /* Neutral charcoal ramp with a muted sage accent. Dark only. */
-  --bg: #111111;
-  --bg-alt: #151515;
-  --panel: #181818;
-  --panel-raised: #1f1f1f;
-  --panel-soft: #141414;
-  --sidebar: #0c0c0c;
-  --line: rgba(var(--ink-rgb), 0.09);
-  --line-strong: rgba(var(--ink-rgb), 0.16);
-  --line-soft: rgba(var(--ink-rgb), 0.055);
-  --text: #f1f1ef;
-  --text-soft: #c8c8c3;
-  --muted: #9b9b95;
-  --dim: #85857f;
-  --green: #9db49b;
-  --green-bright: #b3c8b1;
-  --green-deep: #7f977d;
-  --green-dark: #536651;
+  /* Graphite ramp, dark only. Colour lives in the accent and the content, not the surfaces. */
+  --bg: #141415;
+  --bg-alt: #171718;
+  --panel: #19191b;
+  --panel-raised: #232325;
+  --panel-soft: #161617;
+  --sidebar: #0f0f10;
+  --line: rgba(var(--ink-rgb), 0.08);
+  --line-strong: rgba(var(--ink-rgb), 0.14);
+  --line-soft: rgba(var(--ink-rgb), 0.06);
+  --text: #ededed;
+  --text-soft: #c9c9cd;
+  --muted: #a1a1a6;
+  --dim: #85858b;
+
+  /* Mint's brand green, used rarely: the shield state, selection, focus and one key figure. */
+  --green: #86d95f;
+  --green-bright: #9be27a;
+  --green-deep: #63b443;
+  --green-dark: #42702c;
   --green-soft: rgba(var(--accent-rgb), 0.1);
-  --green-line: rgba(var(--accent-rgb), 0.28);
-  --amber: #d8b277;
-  --amber-soft: rgba(216, 178, 119, 0.1);
-  --red: #e2776b;
-  --mono: 'DM Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --green-line: rgba(var(--accent-rgb), 0.3);
+  --amber: #e0b26a;
+  --amber-soft: rgba(224, 178, 106, 0.1);
+  --red: #e5484d;
+  --mono: 'Geist Mono Variable', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --radius: 12px;
-  --radius-lg: 18px;
-  --sidebar-width: 272px;
+  --radius-lg: 16px;
+  --sidebar-width: 264px;
 
-  --danger: #e2776b;
-  --amber-rgb: 216, 178, 119;
-  --red-rgb: 226, 119, 107;
+  --danger: #e5484d;
+  --amber-rgb: 224, 178, 106;
+  --red-rgb: 229, 72, 77;
 
-  --accent-rgb: 157, 180, 155;
+  --accent-rgb: 134, 217, 95;
   --wash-rgb: 255, 255, 255;
-  --ink-rgb: 241, 241, 239;
+  --ink-rgb: 237, 237, 237;
   --clay: #d6a28c;
   --clay-rgb: 214, 162, 140;
-  --sky: #93b6d6;
-  --sky-rgb: 147, 182, 214;
-  --on-accent: #0e140e;
-  --topbar-bg: rgba(17, 17, 17, 0.72);
-  --nav-bg: #0f0f0f;
-  --code-bg: #0d0d0d;
+  --sky: #8fb4d9;
+  --sky-rgb: 143, 180, 217;
+  --on-accent: #0f1a08;
+  --topbar-bg: rgba(20, 20, 21, 0.8);
+  --nav-bg: #0f0f10;
+  --code-bg: #0f0f10;
 
-  /* Elevation: a hairline top highlight plus a soft drop, so surfaces read as lit, not outlined. */
-  --lift: inset 0 1px 0 rgba(255, 255, 255, 0.045), 0 1px 2px rgba(0, 0, 0, 0.4);
-  --lift-lg: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 24px 64px -16px rgba(0, 0, 0, 0.7), 0 2px 6px rgba(0, 0, 0, 0.35);
-  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  /* Paper and ink for the redaction moment. */
+  --paper: #f2eee6;
+  --paper-ink: #1f1b16;
+  --paper-muted: #7b7266;
+  --censor: #0f0f10;
+
+  /* Depth on dark is surface steps and hairlines. Only floating things get a shadow. */
+  --lift: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --lift-lg: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 16px 48px -12px rgba(0, 0, 0, 0.65);
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 * {
@@ -177,26 +184,31 @@ svg {
   align-items: center;
   justify-content: center;
   gap: 10px;
-  min-height: 44px;
-  padding: 0 20px;
+  min-height: 40px;
+  padding: 0 16px;
   border: 1px solid transparent;
   border-radius: 8px;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
-  letter-spacing: 0.02em;
   transition:
-    background 180ms ease,
-    border-color 180ms ease,
-    color 180ms ease;
+    background-color 150ms var(--ease),
+    border-color 150ms var(--ease),
+    color 150ms var(--ease),
+    transform 120ms var(--ease);
 }
 
 .button-primary {
-  background: var(--green);
-  color: var(--on-accent);
+  background: var(--text);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  color: #141415;
 }
 
 .button-primary:hover {
-  background: var(--green-bright);
+  background: #ffffff;
+}
+
+.button-primary:active:not(:disabled) {
+  transform: scale(0.98);
 }
 
 .button-primary:disabled {
@@ -220,23 +232,21 @@ svg {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   padding: 0;
-  border: 1px solid var(--line);
-  border-radius: 9px;
+  border: none;
+  border-radius: 8px;
   background: transparent;
-  color: var(--text-soft);
+  color: var(--muted);
   transition:
-    border-color 160ms ease,
-    color 160ms ease,
-    background 160ms ease;
+    color 150ms var(--ease),
+    background-color 150ms var(--ease);
 }
 
 .icon-button:hover {
-  border-color: var(--line-strong);
   color: var(--text);
-  background: rgba(var(--wash-rgb), 0.05);
+  background: rgba(var(--wash-rgb), 0.06);
 }
 
 .toggle {

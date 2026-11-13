@@ -3,9 +3,8 @@ import { createRoot } from 'react-dom/client'
 import App from './App'
 import 'katex/dist/katex.min.css'
 // Self-hosted so the UI never reaches a third-party origin.
-import '@fontsource-variable/instrument-sans/wght.css'
-import '@fontsource/dm-mono/latin-400.css'
-import '@fontsource/dm-mono/latin-500.css'
+import '@fontsource-variable/geist/wght.css'
+import '@fontsource-variable/geist-mono/wght.css'
 import './styles.css'
 
 createRoot(document.getElementById('root')!).render(

@@ -44,11 +44,7 @@ export function ModelMenu({ model, onSelect }: ModelMenuProps) {
         <span className="model-trigger-name">{model.name}</span>
         <span
           className="model-type-chip"
-          style={{
-            color: currentType.color,
-            borderColor: `${currentType.color}55`,
-            background: `${currentType.color}14`,
-          }}
+          style={{ color: currentType.color }}
         >
           {currentType.label}
         </span>

@@ -168,7 +168,7 @@ export function PayloadModal({
 
         <div className="payload-footer">
           <span>
-            <span className="status-dot" /> LOCAL SCAN · 0 NAMES IN TRANSIT
+            <span className="status-dot" /> Local scan · 0 names in transit
           </span>
           <button className="button button-primary compact-button" onClick={onClose}>
             Close audit view
