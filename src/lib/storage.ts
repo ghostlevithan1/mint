@@ -120,11 +120,15 @@ export async function loadConversations(): Promise<{
   }
 }
 
-/** Upserts changed conversations, deletes removed ones, remembers activeId. */
+/**
+ * Upserts changed conversations, deletes removed ones, remembers activeId.
+ * Returns null on success, or a short human-readable reason on failure so the
+ * UI can warn that this browser is not saving chats.
+ */
 export async function persistConversations(
   conversations: Conversation[],
   activeId: string,
-): Promise<void> {
+): Promise<string | null> {
   try {
     const current = new Set(conversations.map((conversation) => conversation.id))
     const writes: { row: StoredRow; hash: string }[] = []
@@ -159,12 +163,18 @@ export async function persistConversations(
     })
 
     for (const { row, hash } of writes) persistedHash.set(row.id, hash)
-  } catch {
-    // Storage failures are non-fatal; chats stay in memory.
+    return null
+  } catch (error) {
+    // Storage failures are non-fatal; chats stay in memory, but the user is
+    // told so they don't assume this browser has a copy.
+    if (error instanceof DOMException && error.name === 'QuotaExceededError') {
+      return 'This browser is out of storage space for chats.'
+    }
+    return 'This browser could not save chats to local storage.'
   }
 }
 
-export async function wipePersistedStore(): Promise<void> {
+export async function wipePersistedStore(): Promise<boolean> {
   persistedHash.clear()
   try {
     const db = await openDb()
@@ -175,8 +185,21 @@ export async function wipePersistedStore(): Promise<void> {
       transaction.oncomplete = () => resolve()
       transaction.onerror = () => reject(transaction.error ?? new Error('indexedDB clear failed'))
     })
+    return true
   } catch {
     // Best effort; never block the app on storage housekeeping.
+    return false
+  }
+}
+
+/** Local storage footprint, used by Settings to show what this device holds. */
+export async function storageUsage(): Promise<{ usage: number; quota: number } | null> {
+  try {
+    if (!navigator.storage?.estimate) return null
+    const { usage = 0, quota = 0 } = await navigator.storage.estimate()
+    return { usage, quota }
+  } catch {
+    return null
   }
 }
 

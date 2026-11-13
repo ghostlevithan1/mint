@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+
+  smoke:
+    # Boots the production server and checks the open API, limits, and headers.
+    runs-on: ubuntu-latest
+    needs: build
+    env:
+      MINT_RATE_LIMIT: "2"
+      PORT: "4173"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Start server
+        run: |
+          npm start &
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:4173/healthz && break
+            sleep 1
+          done
+      - name: Chat is reachable without a session
+        run: |
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:4173/api/chat -H 'Content-Type: application/json' -d '{}')" = "503"
+      - name: The old gate endpoint is gone
+        run: |
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:4173/api/auth)" = "404"
+      - name: Status does not expose auth state
+        run: |
+          curl -fsS http://127.0.0.1:4173/api/status | grep -v '"auth"'
+      - name: Rate limit answers 429 after the budget
+        run: |
+          for i in 1 2; do curl -s -o /dev/null -X POST http://127.0.0.1:4173/api/chat -H 'Content-Type: application/json' -d '{}'; done
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:4173/api/chat -H 'Content-Type: application/json' -d '{}')" = "429"
+      - name: Security headers are present
+        run: |
+          headers=$(curl -sI http://127.0.0.1:4173/)
+          echo "$headers" | grep -qi "content-security-policy"
+          echo "$headers" | grep -qi "x-frame-options: DENY"
+          echo "$headers" | grep -qi "x-robots-tag: noindex"

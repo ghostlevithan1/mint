@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   Check,
+  Download,
   FileUp,
   Gauge,
+  HardDrive,
   Image as ImageIcon,
   Info,
   LockKeyhole,
@@ -18,6 +20,8 @@ import {
 import { MODEL_TYPES, MODELS, modelsByType, typeInfo } from '../lib/data'
 import type { ProviderStatus } from '../lib/provider'
 import { THEMES, type Theme } from '../lib/theme'
+import { formatBytes } from '../lib/privacy'
+import { storageUsage } from '../lib/storage'
 import { ModelCapabilityBadges, ModelLogo } from './ModelLogo'
 
 export type SettingsTab = 'general' | 'privacy' | 'about'
@@ -32,12 +36,15 @@ type SettingsModalProps = {
   showMetrics: boolean
   convertImagesToJpeg: boolean
   hasPayload: boolean
+  chatCount: number
+  messageCount: number
   onClose: () => void
   onShieldChange: (value: boolean) => void
   onModelChange: (id: string) => void
   onThemeChange: (theme: Theme) => void
   onShowMetricsChange: (value: boolean) => void
   onConvertImagesChange: (value: boolean) => void
+  onExportChats: () => void
   onOpenPayload: () => void
   onClearChats: () => void
   onRefreshProvider: () => void
@@ -82,18 +89,33 @@ export function SettingsModal({
   showMetrics,
   convertImagesToJpeg,
   hasPayload,
+  chatCount,
+  messageCount,
   onClose,
   onShieldChange,
   onModelChange,
   onThemeChange,
   onShowMetricsChange,
   onConvertImagesChange,
+  onExportChats,
   onOpenPayload,
   onClearChats,
   onRefreshProvider,
 }: SettingsModalProps) {
   const [tab, setTab] = useState<SettingsTab>(initialTab)
+  const [usage, setUsage] = useState<{ usage: number; quota: number } | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open || tab !== 'privacy') return
+    let cancelled = false
+    void storageUsage().then((value) => {
+      if (!cancelled) setUsage(value)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [open, tab])
 
   useEffect(() => {
     if (!open) return
@@ -112,6 +134,8 @@ export function SettingsModal({
 
   const selectedModel = MODELS.find((model) => model.id === modelId) ?? MODELS[0]
   const selectedType = typeInfo(selectedModel.type)
+  const buildSha = typeof __BUILD_SHA__ === 'string' ? __BUILD_SHA__ : 'dev'
+  const totalMessages = messageCount.toLocaleString()
 
   if (!open) return null
 
@@ -149,7 +173,7 @@ export function SettingsModal({
           </div>
           <div className="settings-nav-foot">
             <span>Mint v1.0</span>
-            <span>Preview build</span>
+            <span>build {buildSha}</span>
           </div>
         </aside>
 
@@ -360,7 +384,9 @@ export function SettingsModal({
               <div className="settings-callout">
                 <LockKeyhole size={15} />
                 <p>
-                  Chats and preferences are saved on this device. Nothing is tied to an account.
+                  {chatCount === 1 ? '1 chat' : `${chatCount} chats`} with {totalMessages}{' '}
+                  {messageCount === 1 ? 'message' : 'messages'} are saved in this browser using
+                  IndexedDB. They never go to the server, and there is no account to sign in to.
                 </p>
               </div>
             </div>
@@ -419,7 +445,21 @@ export function SettingsModal({
                 <div>
                   <LockKeyhole size={15} />
                   <span>Retention</span>
-                  <strong>None</strong>
+                  <strong>This browser</strong>
+                </div>
+              </div>
+
+              <div className="settings-storage">
+                <HardDrive size={15} />
+                <div>
+                  <strong>Local storage</strong>
+                  <span>
+                    {usage
+                      ? `${formatBytes(usage.usage)} used${usage.quota ? ` of ${formatBytes(usage.quota)} available` : ''}.`
+                      : chatCount === 0
+                        ? 'No chats stored yet.'
+                        : `${chatCount} chat${chatCount === 1 ? '' : 's'} on this device.`}
+                  </span>
                 </div>
               </div>
 
@@ -433,9 +473,16 @@ export function SettingsModal({
                   <ShieldCheck size={15} /> Inspect last request
                 </button>
                 <button
+                  className="settings-action"
+                  onClick={onExportChats}
+                  disabled={chatCount === 0}
+                >
+                  <Download size={15} /> Export all chats
+                </button>
+                <button
                   className="settings-action danger"
                   onClick={() => {
-                    if (window.confirm('Clear every chat on this device? This cannot be undone.')) {
+                    if (window.confirm('Clear every chat in this browser? This cannot be undone.')) {
                       onClearChats()
                     }
                   }}
@@ -467,9 +514,10 @@ export function SettingsModal({
               </div>
 
               <p className="about-copy">
-                Mint keeps prompts, files, redaction, and chat history on this device. When live
-                inference is available, answers stream from NVIDIA NIM through the server proxy.
-                Without it, answers come from the local demo engine.
+                Chat history, attachments, and redaction stay in this browser. When live inference
+                is available, prompts are relayed by the workspace server to NVIDIA NIM for the
+                length of the request and never stored there. Without a key, answers come from the
+                local demo engine.
               </p>
 
               <div className={`settings-provider ${provider.mode === 'nvidia' ? 'is-live' : ''}`}>
@@ -501,7 +549,7 @@ export function SettingsModal({
                 <div>
                   <ScanSearch size={15} />
                   <span>Retention</span>
-                  <strong>None</strong>
+                  <strong>This browser</strong>
                 </div>
                 <div>
                   <Gauge size={15} />
@@ -525,11 +573,24 @@ export function SettingsModal({
                     <span>Search chats</span>
                     <kbd>Ctrl + K</kbd>
                   </div>
+                  <div>
+                    <span>Find in this chat</span>
+                    <kbd>Ctrl + F</kbd>
+                  </div>
+                  <div>
+                    <span>Stop generating</span>
+                    <kbd>Esc</kbd>
+                  </div>
+                  <div>
+                    <span>Rename a chat</span>
+                    <kbd>Double-click</kbd>
+                  </div>
                 </div>
               </section>
 
               <p className="settings-fineprint">
-                © 2026 Mint Intelligence. Preview build · NVIDIA NIM when live inference is available.
+                © 2026 Mint Intelligence · build {buildSha} · NVIDIA NIM when live inference is
+                available.
               </p>
             </div>
           )}

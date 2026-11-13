@@ -5,6 +5,7 @@ import { extname, resolve, sep } from 'node:path'
 import { brotliCompress, constants, gzip } from 'node:zlib'
 import { promisify } from 'node:util'
 import { handleChatHttp, handleStatusHttp, sendJson } from './node-http'
+import { guardApi } from './limits'
 import { handleSearchHttp, handleWebHttp } from './web'
 
 const compressBrotli = promisify(brotliCompress)
@@ -55,6 +56,32 @@ const root = process.cwd()
 const distDir = resolve(root, 'dist')
 const port = Number(process.env.PORT ?? 3000)
 const host = process.env.HOST ?? '0.0.0.0'
+
+// Locked down because the app handles private text. Everything it needs is
+// same-origin: bundled fonts, Vite JS/CSS, and data: URLs for local previews.
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "base-uri 'none'",
+  "object-src 'none'",
+  "frame-ancestors 'none'",
+  "form-action 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "font-src 'self' data:",
+  "connect-src 'self'",
+  "worker-src 'self' blob:",
+].join('; ')
+
+function setSecurityHeaders(res: ServerResponse) {
+  res.setHeader('Content-Security-Policy', CONTENT_SECURITY_POLICY)
+  res.setHeader('X-Frame-Options', 'DENY')
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive')
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=()')
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin')
+  res.setHeader('Strict-Transport-Security', 'max-age=63072000; includeSubDomains')
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin')
+}
 
 const MIME_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -179,6 +206,7 @@ async function serveStatic(req: IncomingMessage, res: ServerResponse) {
 }
 
 const server = createServer((req, res) => {
+  setSecurityHeaders(res)
   const pathname = new URL(req.url ?? '/', 'http://localhost').pathname
 
   if (pathname === '/healthz') {
@@ -192,16 +220,19 @@ const server = createServer((req, res) => {
   }
 
   if (pathname === '/api/web') {
+    if (!guardApi(req, res, 'web')) return
     void handleWebHttp(req, res)
     return
   }
 
   if (pathname === '/api/search') {
+    if (!guardApi(req, res, 'web')) return
     void handleSearchHttp(req, res)
     return
   }
 
   if (pathname === '/api/chat') {
+    if (!guardApi(req, res, 'chat')) return
     void handleChatHttp(req, res, root)
     return
   }

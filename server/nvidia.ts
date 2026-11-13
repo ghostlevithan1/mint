@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Connect, Plugin } from 'vite'
 import { handleChatHttp, handleStatusHttp } from './node-http'
+import { guardApi } from './limits'
 import { handleSearchHttp, handleWebHttp } from './web'
 
 export function mintNvidiaProxy(): Plugin {
@@ -10,14 +11,17 @@ export function mintNvidiaProxy(): Plugin {
     })
 
     middlewares.use('/api/web', (req: IncomingMessage, res: ServerResponse) => {
+      if (!guardApi(req, res, 'web')) return
       void handleWebHttp(req, res)
     })
 
     middlewares.use('/api/search', (req: IncomingMessage, res: ServerResponse) => {
+      if (!guardApi(req, res, 'web')) return
       void handleSearchHttp(req, res)
     })
 
     middlewares.use('/api/chat', (req: IncomingMessage, res: ServerResponse) => {
+      if (!guardApi(req, res, 'chat')) return
       void handleChatHttp(req, res, root)
     })
   }

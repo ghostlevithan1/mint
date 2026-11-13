@@ -4,6 +4,7 @@ import {
   LockKeyhole,
   MessageSquare,
   PanelLeftClose,
+  Pencil,
   Plus,
   Search,
   ShieldCheck,
@@ -23,6 +24,7 @@ type SidebarProps = {
   onNewChat: () => void
   onSelectChat: (id: string) => void
   onDeleteChat: (id: string) => void
+  onRenameChat: (id: string, title: string) => void
   onOpenSettings: (tab: 'general' | 'privacy' | 'about') => void
 }
 
@@ -40,10 +42,32 @@ export function Sidebar({
   onNewChat,
   onSelectChat,
   onDeleteChat,
+  onRenameChat,
   onOpenSettings,
 }: SidebarProps) {
   const [search, setSearch] = useState('')
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [draft, setDraft] = useState('')
   const searchRef = useRef<HTMLInputElement>(null)
+  const renameRef = useRef<HTMLInputElement>(null)
+
+  const startRename = (chat: Conversation) => {
+    setRenamingId(chat.id)
+    setDraft(chat.title)
+  }
+
+  const commitRename = () => {
+    if (!renamingId) return
+    onRenameChat(renamingId, draft)
+    setRenamingId(null)
+    setDraft('')
+  }
+
+  useEffect(() => {
+    if (!renamingId) return
+    renameRef.current?.focus()
+    renameRef.current?.select()
+  }, [renamingId])
 
   const visibleChats = chats
     .filter((chat) => chat.messages.length > 0)
@@ -124,14 +148,47 @@ export function Sidebar({
                   className={`chat-item ${chat.id === activeId ? 'is-active' : ''}`}
                   key={chat.id}
                 >
+                  {renamingId === chat.id ? (
+                    <div className="chat-rename">
+                      <MessageSquare size={14} className="chat-glyph" aria-hidden="true" />
+                      <input
+                        ref={renameRef}
+                        value={draft}
+                        maxLength={80}
+                        aria-label="Chat name"
+                        onChange={(event) => setDraft(event.target.value)}
+                        onBlur={commitRename}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault()
+                            commitRename()
+                          } else if (event.key === 'Escape') {
+                            event.preventDefault()
+                            setRenamingId(null)
+                            setDraft('')
+                          }
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <button
+                      className="chat-select"
+                      onClick={() => onSelectChat(chat.id)}
+                      onDoubleClick={() => startRename(chat)}
+                      aria-current={chat.id === activeId ? 'page' : undefined}
+                    >
+                      <MessageSquare size={14} className="chat-glyph" aria-hidden="true" />
+                      <span className="chat-name">{chat.title}</span>
+                      <time>{timeLabel(chat.updatedAt)}</time>
+                    </button>
+                  )}
                   <button
-                    className="chat-select"
-                    onClick={() => onSelectChat(chat.id)}
-                    aria-current={chat.id === activeId ? 'page' : undefined}
+                    className="chat-rename-button"
+                    onClick={() => startRename(chat)}
+                    aria-label={`Rename chat: ${chat.title}`}
+                    title="Rename chat"
                   >
-                    <MessageSquare size={14} className="chat-glyph" aria-hidden="true" />
-                    <span className="chat-name">{chat.title}</span>
-                    <time>{timeLabel(chat.updatedAt)}</time>
+                    <Pencil size={13} />
                   </button>
                   <button
                     className="chat-delete"
@@ -159,7 +216,7 @@ export function Sidebar({
           </button>
 
           <p className="sidebar-note">
-            <LockKeyhole size={11} /> Chats are saved on this device
+            <LockKeyhole size={11} /> Chats are saved in this browser only
           </p>
         </div>
       </aside>

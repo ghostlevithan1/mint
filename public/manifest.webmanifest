@@ -1,0 +1,17 @@
+{
+  "name": "Mint — Private AI Workspace",
+  "short_name": "Mint",
+  "description": "A private, chat-first AI workspace that shields personal identifiers on your device.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#080b08",
+  "theme_color": "#080b08",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any"
+    }
+  ]
+}

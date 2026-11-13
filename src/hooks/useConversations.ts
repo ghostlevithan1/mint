@@ -34,12 +34,7 @@ import {
   messageContextText,
 } from '../lib/context'
 import type { Attachment } from '../lib/files'
-import {
-  loadConversations,
-  persistConversations,
-  purgeLegacyChatStorageOnce,
-  wipePersistedStore,
-} from '../lib/storage'
+import { loadConversations, persistConversations, purgeLegacyChatStorageOnce, wipePersistedStore } from '../lib/storage'
 
 type SendInput = {
   text: string
@@ -170,6 +165,8 @@ export function useConversations() {
   const [generatingChatId, setGeneratingChatId] = useState<string | null>(null)
   /** Chat id whose manual /compact is currently running a model summary. */
   const [compactingChatId, setCompactingChatId] = useState<string | null>(null)
+  /** Non-empty when IndexedDB writes are failing for this browser. */
+  const [storageError, setStorageError] = useState('')
   const compactingRef = useRef(false)
   const loadedRef = useRef(false)
 
@@ -234,7 +231,9 @@ export function useConversations() {
     if (!loadedRef.current) return
     const interval = isGenerating ? 2000 : 800
     const handle = window.setTimeout(() => {
-      void persistConversations(chats, activeId)
+      void persistConversations(chats, activeId).then((error) => {
+        setStorageError(error ?? '')
+      })
     }, interval)
     return () => window.clearTimeout(handle)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -395,6 +394,8 @@ export function useConversations() {
       stats: undefined,
       stopped: false,
       error: undefined,
+      webSearch: Boolean(input.webSearch),
+      fallbackFrom: undefined,
     })
 
     await wait(180)
@@ -570,6 +571,14 @@ export function useConversations() {
             onUsage: (usage) => {
               if (typeof usage.completion_tokens === 'number') {
                 usageTokens += usage.completion_tokens
+              }
+            },
+            onModel: (info) => {
+              if (runIdRef.current !== runId) return
+              if (info.fallbackFrom) {
+                patchMessage(input.chatId, input.assistantId, {
+                  fallbackFrom: info.fallbackFrom,
+                })
               }
             },
           },
@@ -854,21 +863,55 @@ export function useConversations() {
 
   const deleteChat = (id: string) => {
     if (generatingChatId === id) stopGenerating()
+    const index = chats.findIndex((item) => item.id === id)
+    if (index < 0) return null
+    const removed = chats[index]
     const remaining = chats.filter((item) => item.id !== id)
     if (!remaining.length) {
       const blank = createBlankChat()
       setChats([blank])
       setActiveId(blank.id)
-      return
+      return { chat: removed, index }
     }
     setChats(remaining)
-    if (activeId === id) setActiveId(remaining[0].id)
+    if (activeId === id) {
+      const next = remaining[Math.min(index, remaining.length - 1)]
+      setActiveId(next.id)
+    }
+    return { chat: removed, index }
+  }
+
+  /** Puts a deleted chat back where it was; used by the undo toast. */
+  const restoreChat = (chat: Conversation, index: number) => {
+    setChats((current) => {
+      if (current.some((item) => item.id === chat.id)) return current
+      const rest = current.filter(
+        (item) => item.messages.length > 0 || item.id === chat.id,
+      )
+      const at = Math.max(0, Math.min(index, rest.length))
+      return [...rest.slice(0, at), chat, ...rest.slice(at)]
+    })
+    setActiveId(chat.id)
+  }
+
+  const renameChat = (id: string, title: string) => {
+    const next = title.replace(/\s+/g, ' ').trim().slice(0, 80)
+    if (!next) return
+    setChats((current) =>
+      current.map((item) =>
+        item.id === id && item.title !== next
+          ? { ...item, title: next, updatedAt: Date.now() }
+          : item,
+      ),
+    )
   }
 
   const clearChats = () => {
     cleanupRun()
     runRef.current = null
-    void wipePersistedStore()
+    void wipePersistedStore().then((ok) => {
+      if (!ok) setStorageError('This browser could not clear saved chats.')
+    })
     const blank = createBlankChat()
     setChats([blank])
     setActiveId(blank.id)
@@ -1009,12 +1052,15 @@ export function useConversations() {
     isGenerating,
     generatingChatId,
     compactingChatId,
+    storageError,
     sendMessage,
     stopGenerating,
     regenerate,
     newChat,
     selectChat,
     deleteChat,
+    restoreChat,
+    renameChat,
     clearChats,
     compactChat,
     growContext,

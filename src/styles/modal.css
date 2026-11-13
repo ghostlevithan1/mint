@@ -995,58 +995,6 @@
   line-height: 1.6;
 }
 
-.account-card {
-  display: flex;
-  align-items: center;
-  gap: 13px;
-  margin-top: 20px;
-  padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: rgba(var(--wash-rgb), 0.02);
-}
-
-.account-card.guest {
-  border-style: dashed;
-}
-
-.account-card-avatar {
-  width: 44px;
-  height: 44px;
-  border-radius: 11px;
-  font-size: 13px;
-}
-
-.account-card-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.account-card-copy strong {
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.account-card-copy span {
-  overflow: hidden;
-  color: var(--muted);
-  font-size: 11px;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.account-card-copy small {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-top: 3px;
-  color: var(--green);
-  font-family: var(--mono);
-  font-size: 8px;
-}
-
 .settings-list {
   margin-top: 8px;
   padding-left: 17px;
@@ -1057,10 +1005,6 @@
 
 .settings-list li::marker {
   color: var(--green);
-}
-
-.settings-google {
-  margin-top: 22px;
 }
 
 .about-lockup {
@@ -1884,4 +1828,37 @@
   .payload-footer .compact-button {
     justify-content: center;
   }
+}
+
+/* Local storage summary in Settings ? Privacy */
+.settings-storage {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 11px 13px;
+  border: 1px solid var(--line-soft);
+  border-radius: 9px;
+  background: rgba(var(--wash-rgb), 0.02);
+  color: var(--dim);
+}
+
+.settings-storage > svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--green);
+}
+
+.settings-storage strong {
+  display: block;
+  color: var(--text-soft);
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.settings-storage span {
+  display: block;
+  margin-top: 2px;
+  font-size: 10.5px;
+  line-height: 1.5;
 }

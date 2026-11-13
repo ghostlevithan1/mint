@@ -1,16 +1,19 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { DragEvent } from 'react'
 import {
   ChevronDown,
+  ChevronUp,
   Code2,
   FileText,
   Mail,
   Minimize2,
   PanelLeft,
   Scale,
+  Search,
   Settings,
   ShieldCheck,
   UploadCloud,
+  X,
 } from 'lucide-react'
 import { MODELS, MAX_FILES, SAMPLE_PROMPTS, typeInfo, type Model } from '../lib/data'
 import { modelById, type Conversation } from '../lib/chat'
@@ -119,8 +122,78 @@ export function ChatView({
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const stickRef = useRef(true)
+  const findInputRef = useRef<HTMLInputElement | null>(null)
+  const [findOpen, setFindOpen] = useState(false)
+  const [findQuery, setFindQuery] = useState('')
+  const [hitIndex, setHitIndex] = useState(0)
   const { attachments, error, reading, addFiles, removeFile, clear } =
     useAttachments(convertImagesToJpeg)
+
+  // In-thread search matches whole messages, which keeps it cheap and works
+  // with rendered Markdown. Enter / Shift+Enter (or the arrows) jump between
+  // hits and the target message is outlined in the thread.
+  const hits = useMemo(() => {
+    const query = findQuery.trim().toLowerCase()
+    if (!query) return []
+    const found: number[] = []
+    chat.messages.forEach((message, index) => {
+      const haystack = [
+        message.content,
+        message.reasoning ?? '',
+        message.attachments?.map((file) => file.name).join(' ') ?? '',
+      ]
+        .join(' ')
+        .toLowerCase()
+      if (haystack.includes(query)) found.push(index)
+    })
+    return found
+  }, [chat.messages, findQuery])
+
+  useEffect(() => {
+    setHitIndex(0)
+  }, [findQuery])
+
+  useEffect(() => {
+    if (!findOpen) return
+    const nodes = scrollRef.current?.querySelectorAll<HTMLElement>('.thread .msg')
+    nodes?.forEach((node) => node.classList.remove('is-search-hit'))
+    if (!hits.length) return
+    const target = nodes?.[hits[Math.min(hitIndex, hits.length - 1)]]
+    if (!target) return
+    target.classList.add('is-search-hit')
+    target.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }, [findOpen, hits, hitIndex])
+
+  useEffect(() => {
+    if (findOpen) return
+    const nodes = scrollRef.current?.querySelectorAll<HTMLElement>('.is-search-hit')
+    nodes?.forEach((node) => node.classList.remove('is-search-hit'))
+  }, [findOpen])
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f') {
+        event.preventDefault()
+        setFindOpen(true)
+        window.setTimeout(() => {
+          findInputRef.current?.focus()
+          findInputRef.current?.select()
+        }, 30)
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [])
+
+  const stepHit = (direction: 1 | -1) => {
+    if (!hits.length) return
+    setHitIndex((current) => (current + direction + hits.length) % hits.length)
+  }
+
+  const closeFind = () => {
+    setFindOpen(false)
+    setFindQuery('')
+  }
 
   const attachmentNeed = needForAttachments(attachments)
   const attachmentBlocked =
@@ -294,6 +367,52 @@ export function ChatView({
           </button>
         </div>
       </header>
+
+      {findOpen && (
+        <div className="find-bar" role="search">
+          <Search size={13} aria-hidden="true" />
+          <input
+            ref={findInputRef}
+            value={findQuery}
+            onChange={(event) => setFindQuery(event.target.value)}
+            onKeyDown={(event) => {
+              event.stopPropagation()
+              if (event.key === 'Escape') {
+                event.preventDefault()
+                closeFind()
+              } else if (event.key === 'Enter') {
+                event.preventDefault()
+                stepHit(event.shiftKey ? -1 : 1)
+              }
+            }}
+            placeholder="Find in this chat"
+            aria-label="Find in this chat"
+            autoFocus
+          />
+          <span className="find-count" aria-live="polite">
+            {hits.length ? `${Math.min(hitIndex + 1, hits.length)}/${hits.length}` : '0/0'}
+          </span>
+          <button
+            type="button"
+            onClick={() => stepHit(-1)}
+            disabled={!hits.length}
+            aria-label="Previous match"
+          >
+            <ChevronUp size={14} />
+          </button>
+          <button
+            type="button"
+            onClick={() => stepHit(1)}
+            disabled={!hits.length}
+            aria-label="Next match"
+          >
+            <ChevronDown size={14} />
+          </button>
+          <button type="button" onClick={closeFind} aria-label="Close find bar">
+            <X size={14} />
+          </button>
+        </div>
+      )}
 
       {isEmpty ? (
         <div className="chat-empty">

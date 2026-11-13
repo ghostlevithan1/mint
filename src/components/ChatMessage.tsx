@@ -1,4 +1,4 @@
-import { memo, useState } from 'react'
+import { memo, useEffect, useState } from 'react'
 import {
   AlertTriangle,
   Brain,
@@ -65,6 +65,65 @@ const PHASE_COPY = {
     title: 'Routing the request',
     detail: 'Opening a private path to the selected model.',
   },
+}
+
+/**
+ * Live progress for the wait before the first token. NVIDIA Build models can
+ * take tens of seconds to warm up, so the copy changes with the elapsed time
+ * and always tells the user that Esc stops the wait.
+ */
+function WaitingProgress({
+  routing,
+  startedAt,
+  detail,
+}: {
+  routing: boolean
+  startedAt: number
+  detail: string
+}) {
+  const [now, setNow] = useState(() => Date.now())
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 500)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  const seconds = Math.max(0, Math.floor((now - startedAt) / 1000))
+  const title = routing
+    ? seconds >= 20
+      ? 'Waiting on the model'
+      : 'Routing the request'
+    : 'Shielding the request'
+  const hint =
+    !routing && seconds < 4
+      ? detail
+      : seconds >= 30
+        ? 'This model is very slow to start. Press Esc to stop, or keep waiting.'
+        : seconds >= 10
+          ? 'Some models take 20–30 seconds to warm up. Still working — Esc stops it.'
+          : routing
+            ? 'Opening a private path to the selected model.'
+            : detail
+
+  return (
+    <div className="thinking" role="status" aria-live="polite">
+      <span className="thinking-orb">
+        {routing ? <Zap size={15} /> : <ShieldCheck size={15} />}
+      </span>
+      <span className="thinking-copy">
+        <strong>
+          {title}
+          <span className="thinking-elapsed"> · {seconds}s</span>
+        </strong>
+        <small>{hint}</small>
+      </span>
+      <span className="thinking-dots" aria-hidden="true">
+        <i />
+        <i />
+        <i />
+      </span>
+    </div>
+  )
 }
 
 function ReasoningPanel({ text, live }: { text: string; live: boolean }) {
@@ -194,16 +253,6 @@ export const ChatMessageView = memo(
 
   const redactions = message.redactions ?? []
   const stats = message.stats
-  const phaseCopy =
-    message.phase === 'routing'
-      ? {
-          title: PHASE_COPY.routing.title,
-          detail:
-            message.provider === 'nvidia'
-              ? 'Opening a secure path to the selected model.'
-              : 'Opening a private path to the local demo engine.',
-        }
-      : PHASE_COPY.shielding
   const waiting = message.phase === 'shielding' || message.phase === 'routing'
   const streaming = message.phase === 'generating'
 
@@ -227,6 +276,14 @@ export const ChatMessageView = memo(
             </>
           )}
           {message.provider === 'nvidia' && <span className="live-tag">LIVE</span>}
+          {message.fallbackFrom && (
+            <span
+              className="fallback-tag"
+              title="The selected model was unavailable upstream, so the default model answered."
+            >
+              FALLBACK MODEL
+            </span>
+          )}
           {message.stopped && <span className="stopped-tag">STOPPED</span>}
         </header>
 
@@ -273,20 +330,17 @@ export const ChatMessageView = memo(
         )}
 
         {waiting && (
-          <div className="thinking" role="status" aria-live="polite">
-            <span className="thinking-orb">
-              {message.phase === 'routing' ? <Zap size={15} /> : <ShieldCheck size={15} />}
-            </span>
-            <span className="thinking-copy">
-              <strong>{phaseCopy.title}</strong>
-              <small>{phaseCopy.detail}</small>
-            </span>
-            <span className="thinking-dots" aria-hidden="true">
-              <i />
-              <i />
-              <i />
-            </span>
-          </div>
+          <WaitingProgress
+            routing={message.phase === 'routing'}
+            startedAt={message.createdAt}
+            detail={
+              message.phase === 'routing'
+                ? message.provider === 'nvidia'
+                  ? 'Opening a secure path to the selected model.'
+                  : 'Opening a private path to the local demo engine.'
+                : PHASE_COPY.shielding.detail
+            }
+          />
         )}
 
         {message.reasoning && (

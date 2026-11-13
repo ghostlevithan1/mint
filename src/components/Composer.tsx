@@ -202,6 +202,15 @@ export function Composer({
               submit()
             }
           }}
+          onPaste={(event) => {
+            if (isGenerating || reading) return
+            const files = Array.from(event.clipboardData?.files ?? [])
+            if (!files.length) return
+            // Pasted screenshots and copied files attach instead of turning
+            // into unusable text.
+            event.preventDefault()
+            onAttachFiles(files)
+          }}
           placeholder="Message Mint…"
           aria-label="Message"
           rows={1}

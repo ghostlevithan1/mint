@@ -33,6 +33,10 @@ export type ChatMessage = {
   webQuery?: string
   /** Web-search failure note; the answer still streams from model knowledge. */
   webError?: string
+  /** True when this turn ran with the composer's web search toggle on. */
+  webSearch?: boolean
+  /** Requested model that answered from the default model instead. */
+  fallbackFrom?: string
 }
 
 export type WebSource = {

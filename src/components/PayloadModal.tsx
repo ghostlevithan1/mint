@@ -106,7 +106,8 @@ export function PayloadModal({
             </div>
             <div className="payload-footnote">
               <LockKeyhole size={13} />
-              File contents are read on this device. Only the placeholder text above is routed.
+              File contents are read on this device. Only the placeholder text above is routed to
+              the model.
             </div>
           </div>
 
@@ -160,7 +161,7 @@ export function PayloadModal({
             </div>
             <p className="rehydrate-note">
               When the answer comes back, placeholders are restored to the original names inside
-              this tab. Nothing is written to disk.
+              this browser. Chat history is saved in this browser only — never on the server.
             </p>
           </div>
         </div>

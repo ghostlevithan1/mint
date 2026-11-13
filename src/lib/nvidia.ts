@@ -27,6 +27,8 @@ type StreamHandlers = {
   onReasoning?: (delta: string) => void
   onFinish?: (reason: string) => void
   onUsage?: (usage: StreamUsage) => void
+  /** Upstream model actually used, plus the request model it fell back from. */
+  onModel?: (info: { model?: string; fallbackFrom?: string }) => void
 }
 
 type StreamChunk = {
@@ -84,6 +86,12 @@ export async function streamNvidiaChat(request: StreamRequest, handlers: StreamH
 
   if (!response.body) {
     throw new ChatApiError('The inference response had no body.', 'EMPTY_BODY', 502)
+  }
+
+  const usedModel = response.headers.get('x-mint-model') ?? undefined
+  const fallbackFrom = response.headers.get('x-mint-fallback') ?? undefined
+  if (usedModel || fallbackFrom) {
+    handlers.onModel?.({ model: usedModel, fallbackFrom })
   }
 
   const reader = response.body.getReader()

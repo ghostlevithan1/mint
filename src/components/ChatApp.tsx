@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { DEFAULT_MODEL_ID, MODELS } from '../lib/data'
-import { modelById } from '../lib/chat'
+import { modelById, type Conversation } from '../lib/chat'
 import { clampContextWindow, contextMaxTokens, conversationTokens } from '../lib/context'
 import { redactText } from '../lib/privacy'
 import { applyTheme, getStoredTheme, saveTheme, type Theme } from '../lib/theme'
@@ -13,6 +13,9 @@ import { ChatView } from './ChatView'
 import { SettingsModal, type SettingsTab } from './SettingsModal'
 import { PayloadModal } from './PayloadModal'
 
+/** How long the delete toast stays before the removal becomes final. */
+const UNDO_MS = 8000
+
 export function ChatApp() {
   const {
     chats,
@@ -20,12 +23,15 @@ export function ChatApp() {
     activeId,
     isGenerating,
     compactingChatId,
+    storageError,
     sendMessage,
     stopGenerating,
     regenerate,
     newChat,
     selectChat,
     deleteChat,
+    restoreChat,
+    renameChat,
     clearChats,
     compactChat,
     growContext,
@@ -43,6 +49,8 @@ export function ChatApp() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('general')
   const [payloadMessageId, setPayloadMessageId] = useState<string | null>(null)
+  const [deleted, setDeleted] = useState<{ chat: Conversation; index: number } | null>(null)
+  const undoTimer = useRef<number | null>(null)
 
   const selectedModel = modelById(MODELS, activeChat.modelId ?? defaultModelId)
   const contextMax = contextMaxTokens(selectedModel)
@@ -51,6 +59,35 @@ export function ChatApp() {
     () => conversationTokens(activeChat.messages),
     [activeChat.messages],
   )
+
+  useEffect(() => {
+    if (!sidebarOpen) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setSidebarOpen(false)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [sidebarOpen])
+
+  // Esc stops a generation from anywhere in the workspace. Dialogs handle
+  // their own Escape first, so only stop when nothing modal is open.
+  useEffect(() => {
+    if (!isGenerating) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      if (settingsOpen || payloadMessageId) return
+      event.preventDefault()
+      stopGenerating()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [isGenerating, settingsOpen, payloadMessageId, stopGenerating])
+
+  useEffect(() => {
+    return () => {
+      if (undoTimer.current !== null) window.clearTimeout(undoTimer.current)
+    }
+  }, [])
 
   const handleSelectModel = (id: string) => {
     setDefaultModelId(id)
@@ -108,15 +145,6 @@ export function ChatApp() {
     saveWebSearch(webSearchOn)
   }, [webSearchOn])
 
-  useEffect(() => {
-    if (!sidebarOpen) return
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setSidebarOpen(false)
-    }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [sidebarOpen])
-
   const handleSend = (text: string, attachments: Attachment[], webSearch?: boolean) => {
     sendMessage({
       text,
@@ -130,6 +158,49 @@ export function ChatApp() {
 
   const handleRegenerate = (assistantId: string) => {
     regenerate(assistantId, provider.mode)
+  }
+
+  const handleDeleteChat = (id: string) => {
+    const result = deleteChat(id)
+    if (!result) return
+    setDeleted(result)
+    if (undoTimer.current !== null) window.clearTimeout(undoTimer.current)
+    undoTimer.current = window.setTimeout(() => {
+      setDeleted(null)
+      undoTimer.current = null
+    }, UNDO_MS)
+  }
+
+  const handleUndoDelete = () => {
+    if (!deleted) return
+    if (undoTimer.current !== null) {
+      window.clearTimeout(undoTimer.current)
+      undoTimer.current = null
+    }
+    restoreChat(deleted.chat, deleted.index)
+    setDeleted(null)
+  }
+
+  /** Downloads every conversation as one JSON file for the user to keep. */
+  const handleExportChats = () => {
+    const payload = {
+      app: 'Mint',
+      format: 'mint-chats',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      chats,
+    }
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: 'application/json;charset=utf-8',
+    })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `mint-chats-${new Date().toISOString().slice(0, 10)}.json`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 4000)
   }
 
   return (
@@ -149,7 +220,8 @@ export function ChatApp() {
           selectChat(id)
           setSidebarOpen(false)
         }}
-        onDeleteChat={deleteChat}
+        onDeleteChat={handleDeleteChat}
+        onRenameChat={renameChat}
         onOpenSettings={openSettings}
       />
 
@@ -179,6 +251,25 @@ export function ChatApp() {
         onOpenSidebar={() => setSidebarOpen(true)}
       />
 
+      {storageError && (
+        <div className="storage-banner" role="status">
+          <span>
+            <strong>Chats are not being saved.</strong> {storageError} They stay in this tab only.
+          </span>
+        </div>
+      )}
+
+      {deleted && (
+        <div className="undo-toast" role="status">
+          <span>
+            Deleted <strong>{deleted.chat.title}</strong>
+          </span>
+          <button type="button" onClick={handleUndoDelete}>
+            Undo
+          </button>
+        </div>
+      )}
+
       <SettingsModal
         open={settingsOpen}
         initialTab={settingsTab}
@@ -189,6 +280,8 @@ export function ChatApp() {
         showMetrics={showMetrics}
         convertImagesToJpeg={convertImagesToJpeg}
         hasPayload={Boolean(lastPayloadId)}
+        chatCount={chats.length}
+        messageCount={chats.reduce((sum, chat) => sum + chat.messages.length, 0)}
         onClose={() => setSettingsOpen(false)}
         onRefreshProvider={() => void refreshProvider()}
         onShieldChange={setShieldOn}
@@ -196,6 +289,7 @@ export function ChatApp() {
         onThemeChange={setThemeId}
         onShowMetricsChange={setShowMetrics}
         onConvertImagesChange={setConvertImagesToJpeg}
+        onExportChats={handleExportChats}
         onOpenPayload={() => {
           if (!lastPayloadId) return
           setSettingsOpen(false)

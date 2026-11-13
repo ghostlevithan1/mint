@@ -5,10 +5,6 @@ Ask anything or attach files, pick a model, and watch a streamed answer arrive w
 live generation metrics — while personal identifiers are replaced on-device before
 anything leaves the tab.
 
-The conversation is the product: history, search, and the composer fill the screen.
-Account, privacy, and preferences live in the sidebar and Settings modal, out of the
-way until you need them.
-
 Answers stream from **NVIDIA NIM** when a server-side key is configured. Without a
 key, the workspace falls back to a local demo engine and clearly labels those answers
 as simulated. The API key is read only by the server; it is never bundled into the
@@ -18,9 +14,11 @@ browser.
 
 - Vite + React 18 + TypeScript
 - NVIDIA NIM via the OpenAI-compatible `chat/completions` endpoint
-- A small Vite server plugin that proxies SSE without exposing the key
+- A small Node server (`server/index.ts`) that serves the build and proxies SSE;
+  the same middleware is installed as a Vite plugin for local development
 - Hand-written CSS design system (no UI framework)
-- Google Identity Services for optional sign-in
+- IndexedDB for chat history (gzip-compressed, local to the browser)
+- Open access: no accounts, no sign-in, no invite code
 
 ## Run locally
 
@@ -29,14 +27,41 @@ npm install
 npm run dev
 ```
 
-Open the printed URL (default `http://127.0.0.1:5173`).
+Open the printed URL (default `http://127.0.0.1:5173`). There is no gate to
+configure: the workspace is open to anyone who can reach the server.
 
 Production build:
 
 ```bash
 npm run build
-npm run preview
+npm start
 ```
+
+`npm start` runs the production server on `PORT` (default `3000`; Render injects
+`10000`). `npm run preview` still works for a quick static check.
+
+## Access
+
+There is no sign-in and no invite code. Anyone with the link can open the
+workspace and start a chat.
+
+That means the public endpoints are only as private as the URL. If you need to
+lock the site down later, the smallest change is a shared code checked by
+`guardApi` in `server/limits.ts`; the rate limit below is the current spending
+guard.
+
+## Rate limits
+
+- `/api/chat`: **15 requests per minute per client IP**. This is the budget that
+  keeps one visitor or script from draining the NVIDIA key.
+- `/api/web` and `/api/search`: 60 requests per minute per client IP.
+- `MINT_RATE_LIMIT=0` disables chat limiting for local testing.
+
+Visitors behind the same router share one budget, so a busy household or office
+may hit the limit together. Raise `MINT_RATE_LIMIT` if that becomes a problem.
+
+Responses include `X-RateLimit-Limit` and `X-RateLimit-Remaining`; a limited
+request answers `429` with `Retry-After` and a readable message.
 
 ## NVIDIA NIM setup
 
@@ -57,14 +82,12 @@ The server reads the key at request time. Choose one of these options:
 3. Or set `NVIDIA_API_KEY` in the shell before starting the server.
 
 The `key` file and `.env` are git-ignored. The key is never sent to the browser,
-never written to logs, and never included in an error message. For a static
-deployment, run the same proxy separately or use a server that injects
-`NVIDIA_API_KEY`.
+never written to logs, and never included in an error message.
 
 Every model belongs to a **model type**: Quick, Normal, or Intelligent. The type
 sets the reasoning depth and pace; the model menu and Settings both group models by
 it. Override any mapping with the generated `NVIDIA_MODEL_*` variable shown in
-`.env.example` (for example `NVIDIA_MODEL_NEMOTRON_LIGHTNING`).
+`.env.example`.
 
 | Model type | App model | NVIDIA NIM model |
 | --- | --- | --- |
@@ -78,103 +101,134 @@ it. Override any mapping with the generated `NVIDIA_MODEL_*` variable shown in
 | Intelligent | Nemotron 3 Ultra | `nvidia/nemotron-3-ultra-550b-a55b` |
 | Intelligent | DeepSeek V4.1 Flash | `deepseek-ai/deepseek-v4.1-flash` |
 
+If an upstream model disappears (HTTP 404/410), the server retries once on the
+default model and marks the answer with `X-Mint-Fallback`; the UI shows a
+`FALLBACK MODEL` tag instead of failing the turn.
+
 The composer footer shows whether the workspace is on **NVIDIA NIM · live** or
 **Local demo**. Settings → About has a **Recheck** button after you add a key.
 The server reads the file at runtime, so no restart is required.
 
+Some NVIDIA Build models have very long time-to-first-token. The waiting card
+counts elapsed seconds, explains that 20–30 s warm-ups happen, and reminds you
+that `Esc` stops the request.
+
 ## Using the workspace
 
-- **New chat** starts a fresh conversation; the sidebar keeps in-memory history.
+- **New chat** starts a fresh conversation; the sidebar keeps history across reloads.
 - **Search chats** filters history, or press `Ctrl/Cmd + K` from anywhere.
-- **Model type** groups every model into Quick, Normal, or Intelligent. Pick a tier
-  in Settings or choose a specific model from the top-bar menu; both apply to the
-  next message.
-- **Composer** accepts text and up to **5 files**, each capped at **25 MB**. Drop
-  files anywhere on the conversation or use the paperclip.
-- **Enter** sends; **Shift + Enter** adds a line.
+- **Find in this chat** opens with `Ctrl/Cmd + F`, counts matches, and jumps
+  between them inside the thread.
+- **Rename** a chat with the pencil or by double-clicking it.
+- **Delete** removes a chat immediately with an undo toast.
+- **Model type** groups every model into Quick, Normal, or Intelligent.
+- **Composer** accepts text and up to **10 files**, each capped at **25 MB**. Drop
+  files anywhere on the conversation, use the paperclip, or paste a file or
+  screenshot.
+- **Enter** sends; **Shift + Enter** adds a line; **Esc** stops generation.
+- **Export all chats** (Settings → Privacy) downloads one JSON file.
 - **Stop** ends a streamed answer; **Regenerate** re-runs the last response.
-- **Settings** holds the default model, metric visibility, privacy controls, account,
-  and shortcuts.
 - **Metrics** under each answer are measured from the live SSE stream. Demo answers
   are labelled `SIMULATED`; live answers are labelled `NVIDIA NIM`.
 - **Demo engine** covers a small scripted set: simple linear equations and
   arithmetic, contract/legal reviews, research summaries, email drafts, and code
-  reviews. Anything else returns an explicit limitation notice with live-setup
-  steps instead of inventing an answer.
+  reviews.
 
-## Google sign-in
+## Privacy and storage model
 
-1. Copy `.env.example` to `.env`.
-2. Create an OAuth **Web application** client in Google Cloud Console.
-3. Add `http://localhost:5173` (and your deployed origin) to **Authorized
-   JavaScript origins**.
-4. Set `VITE_GOOGLE_CLIENT_ID=...` and restart the dev server.
-
-Without a client ID, "Continue with Google" creates an in-memory demo identity so
-the flow can be reviewed offline. Account details are never persisted to storage.
-
-## Privacy model
-
+- Chat history, attachments, preferences, and theme are stored **in this browser**
+  (IndexedDB, gzip-compressed). They are never uploaded as history and there is no
+  account or sign-in.
+- If IndexedDB is unavailable or full, the workspace keeps working in memory and
+  shows a banner saying chats are not being saved.
 - Files are validated client-side; each file is capped at **25 MB** and the
-  workspace accepts up to **5 files**.
+  workspace accepts up to **10 files**.
 - Names, email addresses and phone numbers are detected locally and replaced with
   placeholders such as `[PERSON_01]`, `[EMAIL_01]` and `[PHONE_01]`.
 - **Inspect payload** shows the exact redacted request before it leaves the tab.
 - Returned answers are rehydrated locally, so placeholders become the original
   values only inside the browser.
-- Each live request contains the current message and the text of its attachments
-  only. Earlier turns stay in the tab and are not replayed to the model.
-- Chats, preferences, and account identity live in React memory for the session
-  only. Reloading clears everything.
+- A live request replays as much prior conversation as fits the selected model's
+  context window, oldest turns first. The server relays it to NVIDIA NIM for the
+  length of the request; it does not write prompts or answers to disk.
 - The PII shield can be toggled per message from the composer or in Settings.
 - The NVIDIA key lives on the server. The browser only calls `/api/chat`, and the
   server attaches the key upstream.
 
 Redaction is heuristic (pattern + stopword based). Review the audit view before
-relying on it for sensitive material. Redaction protects names, emails, and phone
-numbers; it is not a substitute for reviewing the payload.
+relying on it for sensitive material.
+
+## Security headers
+
+The production server sets, on every response:
+
+- `Content-Security-Policy` (default-src self, no inline scripts, data:/blob:
+  images, inline styles for React/KaTeX)
+- `Strict-Transport-Security`, `X-Frame-Options: DENY`, `X-Content-Type-Options`
+- `Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Opener-Policy`
+- `X-Robots-Tag: noindex, nofollow, noarchive`
+
+`public/robots.txt` disallows everything, and `index.html` carries a `noindex`
+meta tag, so a deployed instance stays out of search engines.
+
+## Deploy on Render
+
+`render.yaml` describes the service. Set these environment variables in the
+dashboard (they are `sync: false`, so they are never committed):
+
+- `NVIDIA_API_KEY` — enables live inference
+- `MINT_RATE_LIMIT` — defaults to `15`; keep it set, it is the only spending guard
+
+Build with `npm ci --include=dev && npm run build`, start with `npm start`. The
+health check is `/healthz`. Every endpoint is public: `/api/status` only reports
+configuration, while `/api/chat`, `/api/web` and `/api/search` are limited per IP.
 
 ## Project layout
 
 ```
 server/
-  nvidia.ts                  key loading, model mapping, SSE proxy, status API
+  index.ts                   production HTTP server, static files, security headers
+  limits.ts                  per-IP rate limiting for chat, web, and search
+  core.ts                    model mapping, upstream SSE, fallback on 404/410
+  node-http.ts               /api/chat and /api/status handlers
+  web.ts                     /api/web page reader and /api/search
+  nvidia.ts                  Vite dev/preview proxy with the same limits
 src/
-  App.tsx                    auth host and app composition
   components/
-    ChatApp.tsx              chat, settings, audit, and auth orchestration
-    Sidebar.tsx              new chat, history/search, shield, account menu
-    ChatView.tsx             top bar, empty state, thread, drag-and-drop
-    Composer.tsx             text input, attachments, shield, send/stop
-    ChatMessage.tsx          message bubbles, markdown, metrics, errors, actions
-    ModelMenu.tsx            top-bar model switcher
-    SettingsModal.tsx        general, privacy, account, about, provider status
-    AuthModal.tsx            Google OAuth + demo fallback
+    ChatApp.tsx              chat orchestration, undo, export
+    Sidebar.tsx              new chat, history, rename, search, shield
+    ChatView.tsx             top bar, empty state, thread, find bar, drag/drop
+    Composer.tsx             text input, attachments, paste, shield, send/stop
+    ChatMessage.tsx          message bubbles, markdown, metrics, waiting timer
+    SettingsModal.tsx        general, privacy, storage, export, about
     PayloadModal.tsx         redacted payload audit
   hooks/
-    useConversations.ts      in-memory chats, live SSE streaming, demo fallback
+    useConversations.ts      chats, streaming, compacting, undo, storage errors
     useProviderStatus.ts     checks /api/status for live vs demo mode
-    useAttachments.ts        25 MB / 5-file validation and local reading
+    useAttachments.ts        25 MB / 10-file validation and local reading
   lib/
     chat.ts                  conversation and message types
+    storage.ts               IndexedDB persistence and usage estimate
     nvidia.ts                browser-side SSE parser for /api/chat
-    provider.ts              provider mode and status types
+    web.ts                   link reading and web search client
     files.ts                 attachment kinds, reading, validation
     privacy.ts               PII detection, redaction, rehydration
     demo-engine.ts           simulated answers and intent routing
   styles/
     base.css                 tokens and shared primitives
     chat.css                 sidebar, thread, composer, responsive layout
-    modal.css                settings, auth, and payload modals
-public/robots.txt
+    modal.css                settings and payload modals
+public/
+  robots.txt                 disallow all
+  manifest.webmanifest       installable app metadata
 ```
 
 ## Request flow
 
 ```
-Browser (redact PII) ──POST /api/chat──▶ Vite server ──Bearer key──▶ NVIDIA NIM
-        ▲                                    │
-        └────────── SSE chunks ◀─────────────┘
+Browser (redact PII) ──POST /api/chat──▶ Node server ──Bearer key──▶ NVIDIA NIM
+        ▲                                (rate limit)                    │
+        └────────── SSE chunks ◀─────────────────────────────────────────┘
 ```
 
 `/api/status` reports whether a key is configured and which NVIDIA model IDs are

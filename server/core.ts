@@ -350,18 +350,32 @@ export async function createChatResponse(
     // Only the wait for response headers is bounded; a long stream may run on.
     const headerTimer = setTimeout(() => controller.abort(), 60_000)
 
-    let upstream: Response
-    try {
-      upstream = await fetch(NVIDIA_URL, {
+    const requestUpstream = (modelId: string) =>
+      fetch(NVIDIA_URL, {
         method: 'POST',
         headers: {
           Accept: 'text/event-stream',
           'Content-Type': 'application/json',
           Authorization: `Bearer ${key}`,
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ ...payload, model: modelId }),
         signal: controller.signal,
       })
+
+    let upstream: Response
+    let usedModel = model
+    try {
+      upstream = await requestUpstream(model)
+      // A retired or renamed upstream model answers 404/410. Retry once on the
+      // default model so a stale catalog entry never breaks a conversation.
+      if (
+        (upstream.status === 404 || upstream.status === 410) &&
+        model !== ids[DEFAULT_APP_MODEL]
+      ) {
+        await upstream.body?.cancel().catch(() => undefined)
+        usedModel = ids[DEFAULT_APP_MODEL]
+        upstream = await requestUpstream(usedModel)
+      }
     } catch (error) {
       if (controller.signal.aborted && !options.signal?.aborted) {
         throw new HttpError(
@@ -417,7 +431,8 @@ export async function createChatResponse(
         Connection: 'keep-alive',
         'X-Accel-Buffering': 'no',
         'X-Mint-Provider': 'nvidia',
-        'X-Mint-Model': model,
+        'X-Mint-Model': usedModel,
+        ...(usedModel === model ? {} : { 'X-Mint-Fallback': model }),
       },
     })
   } catch (error) {
