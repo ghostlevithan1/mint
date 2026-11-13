@@ -9,15 +9,12 @@ import {
   Image as ImageIcon,
   Loader2,
   Paperclip,
-  ShieldCheck,
   ArrowLeftRight,
   Square,
   TriangleAlert,
   X,
 } from 'lucide-react'
 import type { Attachment } from '../lib/files'
-import type { ProviderStatus } from '../lib/provider'
-import { MAX_FILES } from '../lib/data'
 import { attachmentTokens, estimateTextTokens } from '../lib/context'
 import { formatBytes } from '../lib/privacy'
 
@@ -28,12 +25,9 @@ type ComposerProps = {
   uploadError: string
   reading: boolean
   isGenerating: boolean
-  provider: ProviderStatus
-  shieldOn: boolean
   routingWarning: string
   routeNotice: string
   textareaRef: MutableRefObject<HTMLTextAreaElement | null>
-  onToggleShield: () => void
   webSearchOn: boolean
   onToggleWebSearch: () => void
   onFixRouting: () => void
@@ -58,12 +52,9 @@ export function Composer({
   uploadError,
   reading,
   isGenerating,
-  provider,
-  shieldOn,
   routingWarning,
   routeNotice,
   textareaRef,
-  onToggleShield,
   webSearchOn,
   onToggleWebSearch,
   onFixRouting,
@@ -232,16 +223,6 @@ export function Composer({
             </button>
             <button
               type="button"
-              className={`composer-shield ${shieldOn ? 'is-on' : 'is-off'}`}
-              onClick={onToggleShield}
-              aria-pressed={shieldOn}
-              title="Toggle the on-device PII shield"
-            >
-              <ShieldCheck size={14} />
-              Shield {shieldOn ? 'on' : 'off'}
-            </button>
-            <button
-              type="button"
               className={`composer-web ${webSearchOn ? 'is-on' : 'is-off'}`}
               onClick={onToggleWebSearch}
               aria-pressed={webSearchOn}
@@ -250,9 +231,6 @@ export function Composer({
               <Globe size={14} />
               Web {webSearchOn ? 'on' : 'off'}
             </button>
-            <span className="composer-limit">
-              {attachments.length}/{MAX_FILES} files · 25 MB max
-            </span>
           </div>
 
           <div className="composer-submit-group">
@@ -279,21 +257,6 @@ export function Composer({
         </div>
       </div>
 
-      <div className="composer-note">
-        <span className="ai-disclaimer">Mint can make mistakes. Check important info.</span>
-        <span className="composer-note-sep" />
-        <span
-          className={`composer-provider ${provider.mode === 'nvidia' ? 'is-live' : ''}`}
-          title={provider.detail}
-        >
-          <span className="provider-dot" aria-hidden="true" />
-          {!provider.checked
-            ? 'Checking inference…'
-            : provider.mode === 'nvidia'
-              ? 'NVIDIA NIM · live'
-              : 'Local demo'}
-        </span>
-      </div>
     </div>
   )
 }

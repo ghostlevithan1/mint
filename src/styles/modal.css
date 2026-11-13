@@ -871,12 +871,10 @@
   justify-content: center;
   width: 46px;
   height: 46px;
+  border: 1px solid var(--line);
   border-radius: 12px;
-  background: var(--green);
-  color: var(--on-accent);
-  font-size: 21px;
-  font-weight: 600;
-  letter-spacing: 0;
+  background: var(--panel-raised);
+  color: var(--green);
 }
 
 .about-lockup > div {

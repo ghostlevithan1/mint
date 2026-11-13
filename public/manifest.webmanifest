@@ -1,7 +1,7 @@
 {
-  "name": "Mint — Private AI Workspace",
+  "name": "Mint",
   "short_name": "Mint",
-  "description": "A private, chat-first AI workspace that shields personal identifiers on your device.",
+  "description": "A school AI tutor that explains things your way, with diagrams, graphs and pictures.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#141415",

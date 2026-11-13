@@ -17,6 +17,7 @@ import {
   X,
 } from 'lucide-react'
 import { MOD_KEY } from '../lib/platform'
+import { LeafMark } from './Logo'
 import { MODEL_TYPES, MODELS, modelsByType, typeInfo } from '../lib/data'
 import type { ProviderStatus } from '../lib/provider'
 import { formatBytes } from '../lib/privacy'
@@ -181,7 +182,7 @@ export function SettingsModal({
             <div className="settings-pane">
               <div className="settings-pane-head">
                 <h3>General</h3>
-                <p>Choose how new messages run and what the workspace shows you.</p>
+                <p>How Mint answers and what it shows you</p>
               </div>
 
               <section className="settings-section">
@@ -431,22 +432,24 @@ export function SettingsModal({
             <div className="settings-pane">
               <div className="settings-pane-head">
                 <h3>About Mint</h3>
-                <p>A private AI workspace built around the conversation.</p>
+                <p>A tutor that explains things your way</p>
               </div>
 
               <div className="about-lockup">
-                <span className="about-mark">M</span>
+                <span className="about-mark">
+                  <LeafMark size={26} />
+                </span>
                 <div>
                   <strong>Mint</strong>
-                  <span>Private AI workspace · v1.0</span>
+                  <span>School AI · v1.0</span>
                 </div>
               </div>
 
               <p className="about-copy">
-                Chat history, attachments, and redaction stay in this browser. When live inference
-                is available, prompts are relayed by the workspace server to NVIDIA NIM for the
-                length of the request and never stored there. Without a key, answers come from the
-                local demo engine.
+                Your chats and files stay in this browser, and names are swapped for placeholders
+                before a question is sent. When live models are available, questions go through
+                the Mint server to NVIDIA NIM and are not stored there. Without a key, answers come
+                from the local demo engine.
               </p>
 
               <div className={`settings-provider ${provider.mode === 'nvidia' ? 'is-live' : ''}`}>
