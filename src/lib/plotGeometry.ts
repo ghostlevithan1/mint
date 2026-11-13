@@ -41,6 +41,31 @@ export function zoomView(view: View, focus: Point, factor: number, bounds: View)
   return { x0, x1, y0, y1 }
 }
 
+/**
+ * Expands one axis so a single data unit takes the same pixel length on both
+ * axes, the way a Desmos window is made of squares. `aspect` is the plot
+ * area's width divided by its height. The smaller axis grows around the
+ * existing midpoint and the requested content is never shrunk or clipped.
+ */
+export function squareView(view: View, aspect: number): View {
+  const spanX = view.x1 - view.x0
+  const spanY = view.y1 - view.y0
+  if (!(spanX > 0) || !(spanY > 0) || !(aspect > 0)) return view
+  if (!Number.isFinite(spanX) || !Number.isFinite(spanY) || !Number.isFinite(aspect)) return view
+
+  if (spanX < spanY * aspect) {
+    const center = (view.x0 + view.x1) / 2
+    const half = (spanY * aspect) / 2
+    return { x0: center - half, x1: center + half, y0: view.y0, y1: view.y1 }
+  }
+  if (spanX > spanY * aspect) {
+    const center = (view.y0 + view.y1) / 2
+    const half = spanX / aspect / 2
+    return { x0: view.x0, x1: view.x1, y0: center - half, y1: center + half }
+  }
+  return view
+}
+
 /** Pans by a data-space delta, stopping at the edges of `bounds`. */
 export function panView(view: View, dx: number, dy: number, bounds: View): View {
   const spanX = view.x1 - view.x0

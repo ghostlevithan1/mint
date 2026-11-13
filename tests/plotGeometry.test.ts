@@ -4,6 +4,7 @@ import {
   MAX_ZOOM,
   nearestOnSegment,
   panView,
+  squareView,
   zoomView,
   type View,
 } from '../src/lib/plotGeometry'
@@ -79,4 +80,46 @@ test('segment hit testing projects onto the nearest point', () => {
 
   const point = nearestOnSegment({ x: 2, y: 2 }, { x: 1, y: 1 }, { x: 1, y: 1 })
   assert.deepEqual(point, { x: 1, y: 1, distance: Math.SQRT2, t: 0 })
+})
+
+const closeRatio = (view: View, aspect: number) =>
+  close((view.x1 - view.x0) / (view.y1 - view.y0), aspect, 1e-9)
+
+test('square units widen a tall view without shrinking it', () => {
+  const view = { x0: -3, x1: 5, y0: -6, y1: 12 }
+  const square = squareView(view, 1.868)
+  closeRatio(square, 1.868)
+  close((square.x0 + square.x1) / 2, 1)
+  close(square.y0, -6)
+  close(square.y1, 12)
+  assert.ok(square.x0 < view.x0 && square.x1 > view.x1)
+})
+
+test('square units grow a wide view vertically around its midpoint', () => {
+  const view = { x0: -10, x1: 10, y0: -1, y1: 1 }
+  const square = squareView(view, 2)
+  closeRatio(square, 2)
+  close((square.y0 + square.y1) / 2, 0)
+  close(square.x0, -10)
+  close(square.x1, 10)
+  assert.ok(square.y0 < view.y0 && square.y1 > view.y1)
+})
+
+test('a view that is already square is left alone', () => {
+  const view = { x0: -4, x1: 4, y0: -2, y1: 2 }
+  assert.deepEqual(squareView(view, 2), view)
+})
+
+test('square units do not touch a degenerate view', () => {
+  const flat = { x0: 1, x1: 1, y0: -1, y1: 1 }
+  assert.deepEqual(squareView(flat, 2), flat)
+  assert.deepEqual(squareView(bounds, 0), bounds)
+})
+
+test('zooming and panning keep the units square', () => {
+  const square = squareView({ x0: -3, x1: 5, y0: -6, y1: 12 }, 1.868)
+  const zoomed = zoomView(square, { x: 1, y: 1 }, 0.6, square)
+  closeRatio(zoomed, 1.868)
+  const panned = panView(zoomed, 3, -4, square)
+  closeRatio(panned, 1.868)
 })

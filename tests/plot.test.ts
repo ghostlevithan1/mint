@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { compileExpression, niceTicks, parsePlotSpec, PlotError } from '../src/lib/plotSpec.ts'
+import { compileExpression, niceTicks, parsePlotSpec, PlotError, sharedTicks } from '../src/lib/plotSpec.ts'
 import { parseDiagramSpec, wrapLabel } from '../src/lib/diagramSpec.ts'
 import { SYSTEM_PROMPT, withSystemPrompt } from '../server/core.ts'
 
@@ -34,6 +34,7 @@ test('a line spec samples each equation over its x range and keeps marked points
   )
   assert.equal(data.lines[0].points.length, 61)
   assert.deepEqual(data.lines[0].points[0], [-2, 5])
+  assert.equal(data.lines[0].expr, 'x^2 - 2x - 3')
   assert.equal(data.markers.length, 2)
   assert.ok(data.yRange[0] < -4 && data.yRange[1] > 5)
 })
@@ -117,6 +118,20 @@ test('the bar, histogram and scatter shapes the prompt describes parse', () => {
 test('ticks land on round numbers', () => {
   assert.deepEqual(niceTicks(-5.3, 5.3, 5), [-4, -2, 0, 2, 4])
   assert.deepEqual(niceTicks(0, 1, 5), [0, 0.2, 0.4, 0.6, 0.8, 1])
+})
+
+test('both axes use one tick step so every grid cell is square', () => {
+  const ticks = sharedTicks(-10, 10, -5, 5)
+  assert.equal(ticks.step, 2)
+  assert.deepEqual(ticks.x, [-10, -8, -6, -4, -2, 0, 2, 4, 6, 8, 10])
+  assert.deepEqual(ticks.y, [-4, -2, 0, 2, 4])
+})
+
+test('the shared tick step stays readable for very different spans', () => {
+  const tall = sharedTicks(-3, 5, -6, 106)
+  for (let i = 1; i < tall.x.length; i += 1) assert.equal(tall.x[i] - tall.x[i - 1], tall.step)
+  for (let i = 1; i < tall.y.length; i += 1) assert.equal(tall.y[i] - tall.y[i - 1], tall.step)
+  assert.ok(tall.step > 0)
 })
 
 test('diagram specs validate their type and node count', () => {

@@ -132,7 +132,9 @@ that `Esc` stops the request.
 - **Plots** — ask any model to chart something ("plot y = x^2 - 4", "graph a bar
   chart of quarterly revenue") and it answers with a fenced `plot` spec that the
   browser draws as an SVG graph, with marked points for roots and turning points.
-  Scroll to zoom, drag to pan, and click a curve for exact values. Specs are
+  Line and scatter graphs use square units, like a Desmos window: one data unit is
+  the same length on both axes, so shapes are never stretched. Scroll to zoom, drag
+  to pan, and click a curve for exact values. Specs are
   validated and equations go through a whitelist parser, so the model never runs
   code. No server or Python is involved. Equations use the variable `x`; constants
   `pi`/`π`, `e`, `tau`/`τ`; operators `+ - * / ^` (and `**`), parentheses, and

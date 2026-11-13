@@ -1,8 +1,8 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { Loader2, TriangleAlert } from 'lucide-react'
-import { niceTicks, parsePlotSpec, PlotError, type PlotData } from '../lib/plotSpec'
-import { nearestOnSegment, panView, zoomView, type View } from '../lib/plotGeometry'
+import { compileExpression, niceTicks, parsePlotSpec, PlotError, sharedTicks, type PlotData } from '../lib/plotSpec'
+import { nearestOnSegment, panView, squareView, zoomView, type View } from '../lib/plotGeometry'
 
 const W = 640
 const H = 360
@@ -35,10 +35,34 @@ function coordinate(value: number): string {
 }
 
 function Chart({ data }: { data: PlotData }) {
-  const initial = useMemo<View>(
-    () => ({ x0: data.xRange[0], x1: data.xRange[1], y0: data.yRange[0], y1: data.yRange[1] }),
-    [data],
-  )
+  const interactive = data.chart === 'line' || data.chart === 'scatter'
+  const isBars = !interactive
+  const initial = useMemo<View>(() => {
+    const base = { x0: data.xRange[0], x1: data.xRange[1], y0: data.yRange[0], y1: data.yRange[1] }
+    // Line and scatter graphs use square units, like a Desmos window. The
+    // extra room always goes to the smaller axis, so nothing is cut off.
+    return interactive ? squareView(base, IW / IH) : base
+  }, [data, interactive])
+  // Equation curves are sampled over the starting window, which square units
+  // may widen, so the drawn curve reaches the edges of the plot.
+  const lines = useMemo(() => {
+    if (!interactive) return data.lines
+    const samples = 600
+    return data.lines.map((line) => {
+      if (!line.expr) return line
+      try {
+        const fn = compileExpression(line.expr)
+        const points: [number, number][] = []
+        for (let i = 0; i < samples; i += 1) {
+          const x = initial.x0 + ((initial.x1 - initial.x0) * i) / (samples - 1)
+          points.push([x, fn(x)])
+        }
+        return { ...line, points }
+      } catch {
+        return line
+      }
+    })
+  }, [data.lines, initial, interactive])
   const [view, setView] = useState<View>(initial)
   const [selection, setSelection] = useState<Selection | null>(null)
   const [barPick, setBarPick] = useState<number | null>(null)
@@ -46,8 +70,6 @@ function Chart({ data }: { data: PlotData }) {
   const svgRef = useRef<SVGSVGElement>(null)
   const viewRef = useRef(view)
   const dragRef = useRef<Drag | null>(null)
-  const interactive = data.chart === 'line' || data.chart === 'scatter'
-  const isBars = !interactive
 
   const { x0, x1, y0, y1 } = view
   const sx = (x: number) => M.left + ((x - x0) / (x1 - x0)) * IW
@@ -160,8 +182,8 @@ function Chart({ data }: { data: PlotData }) {
     const current = viewRef.current
     let best: (Selection & { distance: number }) | null = null
 
-    for (let index = 0; index < data.lines.length; index += 1) {
-      const line = data.lines[index]
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index]
       const color = SERIES[index % SERIES.length]
       if (line.mode === 'scatter') {
         for (const [x, y] of line.points) {
@@ -198,8 +220,9 @@ function Chart({ data }: { data: PlotData }) {
     return best
   }
 
-  const yTicks = niceTicks(y0, y1, 5)
-  const xTicks = isBars ? [] : niceTicks(x0, x1, 7)
+  const tickStep = interactive ? sharedTicks(x0, x1, y0, y1) : null
+  const yTicks = tickStep ? tickStep.y : niceTicks(y0, y1, 5)
+  const xTicks = tickStep ? tickStep.x : []
   const inside = (y: number) => y >= y0 - (y1 - y0) && y <= y1 + (y1 - y0)
 
   // Breaks the path at gaps, so asymptotes and undefined regions are not joined.
@@ -229,7 +252,7 @@ function Chart({ data }: { data: PlotData }) {
   const flipY = dotY < M.top + 58
   const labelX = flipX ? dotX - 12 : dotX + 12
   const baseY = flipY ? dotY + 24 : dotY - 22
-  const showSeries = data.lines.length > 1
+  const showSeries = lines.length > 1
 
   return (
     <div className="plot-canvas">
@@ -295,7 +318,7 @@ function Chart({ data }: { data: PlotData }) {
               )
             })}
 
-          {data.lines.map((line, i) =>
+          {lines.map((line, i) =>
             line.mode === 'scatter' ? (
               <g key={i} fill={SERIES[i % SERIES.length]}>
                 {line.points

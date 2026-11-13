@@ -15,7 +15,13 @@ const MAX_CATEGORIES = 24
 const MAX_POINTS = 12
 const MAX_TEXT = 120
 
-export type Line = { label: string; points: [number, number][]; mode: 'line' | 'scatter' }
+export type Line = {
+  label: string
+  points: [number, number][]
+  mode: 'line' | 'scatter'
+  /** Set for equation curves so they can be resampled for a wider view. */
+  expr?: string
+}
 export type Marker = { x: number; y: number; label: string }
 export type Bar = { label: string; value: number }
 
@@ -298,7 +304,7 @@ export function parsePlotSpec(raw: string): PlotData {
       points.push([x, y])
       ys.push(y)
     }
-    data.lines.push({ label: text((item as Record<string, unknown>).label) || expr, points, mode })
+    data.lines.push({ label: text((item as Record<string, unknown>).label) || expr, points, mode, expr })
   }
 
   const series = Array.isArray(s.series) ? s.series : []
@@ -335,17 +341,43 @@ export function parsePlotSpec(raw: string): PlotData {
   return data
 }
 
-/** Evenly spaced "nice" tick values (1, 2, 5 × 10^n) covering [lo, hi]. */
-export function niceTicks(lo: number, hi: number, target = 6): number[] {
-  const raw = (hi - lo) / target
+/** The "nice" step (1, 2, 5 × 10^n) closest to a requested spacing. */
+export function niceStep(raw: number): number {
+  if (!(raw > 0) || !Number.isFinite(raw)) return 1
   const magnitude = 10 ** Math.floor(Math.log10(raw))
   // The candidate nearest to the raw step, so the count stays close to the target.
-  const step = [1, 2, 5, 10]
+  return [1, 2, 5, 10]
     .map((m) => m * magnitude)
     .reduce((best, m) => (Math.abs(Math.log(m / raw)) < Math.abs(Math.log(best / raw)) ? m : best))
+}
+
+/** Tick values at an exact step covering [lo, hi]. */
+export function ticksBetween(lo: number, hi: number, step: number): number[] {
+  if (!(step > 0) || !Number.isFinite(step)) return []
   const ticks: number[] = []
-  for (let v = Math.ceil(lo / step) * step; v <= hi + step * 1e-9; v += step) {
+  for (let v = Math.ceil(lo / step - 1e-9) * step; v <= hi + step * 1e-9; v += step) {
     ticks.push(Math.abs(v) < step * 1e-9 ? 0 : Number(v.toPrecision(12)))
   }
   return ticks
+}
+
+/** Evenly spaced "nice" tick values (1, 2, 5 × 10^n) covering [lo, hi]. */
+export function niceTicks(lo: number, hi: number, target = 6): number[] {
+  return ticksBetween(lo, hi, niceStep((hi - lo) / target))
+}
+
+/**
+ * One step shared by both axes, with a target per axis so neither gets too
+ * crowded. Equal data units plus equal steps make every grid cell square.
+ */
+export function sharedTicks(
+  x0: number,
+  x1: number,
+  y0: number,
+  y1: number,
+  xTarget = 7,
+  yTarget = 5,
+): { x: number[]; y: number[]; step: number } {
+  const step = Math.max(niceStep((x1 - x0) / xTarget), niceStep((y1 - y0) / yTarget))
+  return { x: ticksBetween(x0, x1, step), y: ticksBetween(y0, y1, step), step }
 }
