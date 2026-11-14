@@ -67,7 +67,12 @@ export function ModelSwitchModal({
         tabIndex={-1}
         ref={panelRef}
       >
-        <button className="icon-button modal-close" onClick={onClose} aria-label="Close">
+        <button
+          type="button"
+          className="icon-button modal-close"
+          onClick={onClose}
+          aria-label="Close"
+        >
           <X size={15} />
         </button>
 
@@ -100,6 +105,7 @@ export function ModelSwitchModal({
               </div>
               {group.items.map((model) => (
                 <button
+                  type="button"
                   className="switch-option"
                   key={model.id}
                   onClick={() => onChoose(model)}

@@ -137,8 +137,15 @@ that `Esc` stops the request.
 - **Plots** — ask any model to chart something ("plot y = x^2 - 4", "graph a bar
   chart of quarterly revenue") and it answers with a fenced `plot` spec that the
   browser draws as an SVG graph, with marked points for roots and turning points.
-  Specs are validated and equations go through a whitelist parser, so the model
-  never runs code. No server or Python is involved.
+  Line and scatter graphs use square units, like a Desmos window: one data unit is
+  the same length on both axes, so shapes are never stretched. Scroll to zoom, drag
+  to pan, and click a curve for exact values. Specs are
+  validated and equations go through a whitelist parser, so the model never runs
+  code. No server or Python is involved. Equations use the variable `x`; constants
+  `pi`/`π`, `e`, `tau`/`τ`; operators `+ - * / ^` (and `**`), parentheses, and
+  implicit multiplication (`2x`, `3sin(x)`, `2π`); and the functions `sin cos tan
+  asin acos atan sinh cosh tanh exp log ln log2 log10 sqrt abs floor ceil min max
+  pow`. Angles are in radians. Charts are `line`, `scatter`, `bar` or `histogram`.
 - **Enter** sends; **Shift + Enter** adds a line; **Esc** stops generation.
 - **Export all chats** (Settings → Privacy) downloads one JSON file.
 - **Stop** ends a streamed answer; **Regenerate** re-runs the last response.

@@ -31,6 +31,8 @@ import {
   growContextWindow,
   initialContextWindow,
   outputBudgetTokens,
+  retryOutputBudget,
+  spentReasoningOnly,
   localSummary,
   messageContextText,
 } from '../lib/context'
@@ -500,6 +502,10 @@ export function useConversations() {
     }
 
     try {
+      // A reasoner can spend the entire output budget on its scratchpad and
+      // never stream an answer. Retry once with a larger cap and a direct
+      // instruction instead of failing the turn.
+      const MAX_ANSWER_RETRIES = 1
       // If the model fills its output budget mid-answer (finish_reason
       // 'length') with a non-empty reply, it hit the cap we gave it, not a
       // provider fault. Give it up to two continuation chunks instead of
@@ -508,12 +514,13 @@ export function useConversations() {
       const MAX_CONTINUATIONS = 2
       let toolSources: WebSource[] | undefined
       for (let step = 0; ; step += 1) {
+        let answerRetry = 0
         let continuation = 0
         while (true) {
+          const retryingAnswer = answerRetry > 0 && continuation === 0
           const messagesForChunk: StreamMessage[] =
-            continuation === 0
-              ? requestMessages
-              : [
+            continuation > 0
+              ? [
                   ...requestMessages,
                   { role: 'assistant', content: raw },
                   {
@@ -522,12 +529,22 @@ export function useConversations() {
                       'Continue exactly from where you stopped. Do not repeat earlier text; finish any open code block.',
                   },
                 ]
+              : retryingAnswer
+                ? [
+                    ...requestMessages,
+                    {
+                      role: 'user',
+                      content:
+                        'Your private reasoning used the whole reply budget before any answer was written. Write the final answer now in this response. Keep it brief and do not restart your reasoning.',
+                    },
+                  ]
+                : requestMessages
           finishReason = ''
           await streamNvidiaChat(
             {
               model: input.model.id,
               messages: messagesForChunk,
-              max_tokens: outputTokens,
+              max_tokens: answerRetry > 0 ? retryOutputBudget(outputTokens) : outputTokens,
             },
             {
               signal: controller.signal,
@@ -561,11 +578,17 @@ export function useConversations() {
               },
             },
           )
-          continuation += 1
           if (runIdRef.current !== runId) return
-          if (finishReason !== 'length' || !raw || continuation > MAX_CONTINUATIONS) {
-            break
+          if (finishReason !== 'length') break
+          if (
+            spentReasoningOnly(finishReason, raw, reasoningRaw) &&
+            answerRetry < MAX_ANSWER_RETRIES
+          ) {
+            answerRetry += 1
+            continue
           }
+          if (!raw || continuation >= MAX_CONTINUATIONS) break
+          continuation += 1
         }
         // Agent step: if the reply ends in a tool call, run it, hand the
         // result back and let the model carry on, up to MAX_TOOL_STEPS times.
@@ -611,6 +634,8 @@ export function useConversations() {
 
       if (runIdRef.current !== runId) return
       flush(true)
+      // The final reply can still end in a tool call once the steps run out.
+      raw = stripToolCalls(raw)
       const reasoning = reasoningRaw
         ? rehydrateText(reasoningRaw, activeRedactions)
         : undefined

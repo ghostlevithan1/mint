@@ -46,6 +46,7 @@ export function ContextMeter({
   return (
     <div className="context-meter-wrap" ref={wrapRef}>
       <button
+        type="button"
         className={`context-meter ${nearLimit ? 'is-near' : ''}`}
         onClick={() => setOpen((value) => !value)}
         aria-haspopup="dialog"
@@ -68,6 +69,7 @@ export function ContextMeter({
               <strong>{modelName}</strong>
             </div>
             <button
+              type="button"
               className="icon-button"
               onClick={() => setOpen(false)}
               aria-label="Close context window"
@@ -101,11 +103,15 @@ export function ContextMeter({
           </div>
 
           <div className="context-actions">
-            <button onClick={onGrow} disabled={!canGrow}>
+            <button type="button" onClick={onGrow} disabled={!canGrow}>
               <ChevronsUp size={13} />
               {canGrow ? `Grow to ${formatTokens(Math.min(window * 2, max))}` : 'At model max'}
             </button>
-            <button onClick={onCompact} disabled={used < 64 || compacting}>
+            <button
+              type="button"
+              onClick={onCompact}
+              disabled={used < 64 || compacting}
+            >
               <Minimize2 size={13} />
               {compacting ? 'Compacting…' : 'Compact now'}
             </button>

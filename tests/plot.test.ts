@@ -1,8 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { compileExpression, niceTicks, parsePlotSpec, PlotError } from '../src/lib/plotSpec.ts'
+import { compileExpression, formatTick, niceTicks, parsePlotSpec, PlotError, sharedTicks } from '../src/lib/plotSpec.ts'
 import { parseDiagramSpec, wrapLabel } from '../src/lib/diagramSpec.ts'
-import { withSystemPrompt } from '../server/core.ts'
+import { SYSTEM_PROMPT, withSystemPrompt } from '../server/core.ts'
 
 const at = (expr: string, x: number) => compileExpression(expr)(x)
 
@@ -34,6 +34,7 @@ test('a line spec samples each equation over its x range and keeps marked points
   )
   assert.equal(data.lines[0].points.length, 61)
   assert.deepEqual(data.lines[0].points[0], [-2, 5])
+  assert.equal(data.lines[0].expr, 'x^2 - 2x - 3')
   assert.equal(data.markers.length, 2)
   assert.ok(data.yRange[0] < -4 && data.yRange[1] > 5)
 })
@@ -52,14 +53,128 @@ test('bar and histogram specs become bars', () => {
 })
 
 test('broken specs explain what is wrong', () => {
-  assert.throws(() => parsePlotSpec('{"xRange":[0,1]'), /valid JSON/)
+  assert.throws(() => parsePlotSpec('plot: [0,1'), /valid JSON/)
   assert.throws(() => parsePlotSpec('{"chart":"pie"}'), /chart/)
   assert.throws(() => parsePlotSpec('{}'), /Nothing to plot/)
+})
+
+test('every plot example in the system prompt is valid', () => {
+  const examples = [...SYSTEM_PROMPT.matchAll(/```plot\n([\s\S]*?)```/g)].map(
+    (match) => match[1],
+  )
+  assert.equal(examples.length, 4, 'the prompt carries one example per chart type')
+  assert.deepEqual(
+    examples.map((code) => parsePlotSpec(code).chart),
+    ['line', 'scatter', 'bar', 'histogram'],
+  )
+
+  const line = parsePlotSpec(examples[0])
+  assert.equal(line.markers.length, 3)
+  assert.ok(line.xRange[0] < -1 && line.xRange[1] > 3)
+  assert.equal(parsePlotSpec(examples[2]).bars.length, 4)
+  assert.equal(parsePlotSpec(examples[3]).bars.length, 5)
+
+  for (const code of examples) {
+    const spec = JSON.parse(code) as { equations?: Array<{ expr: string }> }
+    for (const equation of spec.equations ?? []) {
+      assert.match(equation.expr, /^[\x20-\x7e]+$/, 'equation expressions stay ASCII')
+      assert.doesNotMatch(equation.expr, /\by\s*=/, 'labels hold "y =", not expr')
+    }
+  }
+})
+
+test('every equation name the prompt allows is supported by the parser', () => {
+  const listed = SYSTEM_PROMPT.match(/Allowed names: ([^.]+)\./)?.[1]
+  assert.ok(listed, 'the prompt lists the equation names')
+  const constants = new Set(['x', 'pi', 'π', 'e', 'tau', 'τ'])
+  for (const item of listed.split(',')) {
+    const name = item.replace(/\s*\(.*\)$/, '').trim()
+    const expr = constants.has(name) ? name : `${name}(x)`
+    assert.doesNotThrow(() => compileExpression(expr), `${name} is documented but not supported`)
+  }
+})
+
+test('unicode constants and operators are accepted in equations', () => {
+  assert.equal(at('π', 0), Math.PI)
+  assert.equal(at('2π', 0), 2 * Math.PI)
+  assert.equal(at('πx', 2), 2 * Math.PI)
+  assert.equal(at('sin(π/2)', 0), 1)
+  assert.equal(at('τ', 0), 2 * Math.PI)
+  assert.equal(at('e', 0), Math.E)
+  assert.equal(at('2e', 0), 2 * Math.E)
+  assert.equal(at('2×3 + 4÷2 − 1', 0), 7)
+  assert.equal(at('x^2 − 4', 3), 5)
+})
+
+test('the bar, histogram and scatter shapes the prompt describes parse', () => {
+  const bar = parsePlotSpec(JSON.stringify({ chart: 'bar', series: [{ x: ['A', 'B'], y: [3, 5] }] }))
+  assert.deepEqual(bar.bars.map((b) => b.label), ['A', 'B'])
+  const hist = parsePlotSpec(JSON.stringify({ chart: 'histogram', data: [1, 2, 2, 3, 3, 3], bins: 4 }))
+  assert.equal(hist.bars.length, 4)
+  const scatter = parsePlotSpec(JSON.stringify({ chart: 'scatter', series: [{ x: [1, 2], y: [3, 4] }] }))
+  assert.equal(scatter.lines[0].mode, 'scatter')
 })
 
 test('ticks land on round numbers', () => {
   assert.deepEqual(niceTicks(-5.3, 5.3, 5), [-4, -2, 0, 2, 4])
   assert.deepEqual(niceTicks(0, 1, 5), [0, 0.2, 0.4, 0.6, 0.8, 1])
+})
+
+test('both axes use one tick step so every grid cell is square', () => {
+  const ticks = sharedTicks(-10, 10, -5, 5)
+  assert.equal(ticks.step, 2)
+  assert.deepEqual(ticks.x, [-10, -8, -6, -4, -2, 0, 2, 4, 6, 8, 10])
+  assert.deepEqual(ticks.y, [-4, -2, 0, 2, 4])
+})
+
+test('the shared tick step stays readable for very different spans', () => {
+  const tall = sharedTicks(-3, 5, -6, 106)
+  for (let i = 1; i < tall.x.length; i += 1) assert.equal(tall.x[i] - tall.x[i - 1], tall.step)
+  for (let i = 1; i < tall.y.length; i += 1) assert.equal(tall.y[i] - tall.y[i - 1], tall.step)
+  assert.ok(tall.step > 0)
+})
+
+test('tick labels shorten to fit the y-axis margin instead of escaping it', () => {
+  // The y-axis budget is M.left - 10 = 46 viewBox units.
+  assert.equal(formatTick(0, 46), '0')
+  assert.equal(formatTick(100, 46), '100')
+  assert.equal(formatTick(10000, 46), '10000')
+  assert.equal(formatTick(-10000, 46), '-10000')
+  assert.equal(formatTick(100000, 46), '1.0e+5')
+  assert.equal(formatTick(-100000, 46), '-1e+5')
+  assert.equal(formatTick(150000, 46), '1.5e+5')
+  assert.equal(formatTick(-1234000, 46), '-1e+6')
+  assert.equal(formatTick(1e10, 46), '1e+10')
+  assert.equal(formatTick(-0.00001, 46), '-1e-5')
+  // Labels that already fit are never reformatted.
+  assert.equal(formatTick(2.5, 46), '2.5')
+})
+
+test('plot specs with common model JSON slips are repaired', () => {
+  // The exact message a model sent: the label string never closes, so the
+  // object's own closing braces end up inside it.
+  const swallowed = '{"chart":"line","title":"y = x^2","xRange":[-1000,1000],"equations":[{"expr":"x^2","label":"y = x^2"}],"points":[{"x":0,"y":0,"label":"vertex (0,0)}]}'
+  const fixed = parsePlotSpec(swallowed)
+  assert.equal(fixed.chart, 'line')
+  assert.equal(fixed.markers.length, 1)
+  assert.equal(fixed.markers[0].label, 'vertex (0,0)')
+  assert.deepEqual(fixed.xRange, [-1000, 1000])
+
+  // A trailing comma before a closing brace.
+  const trailing = parsePlotSpec('{"chart":"line","xRange":[-10,10],"equations":[{"expr":"x"}],}')
+  assert.equal(trailing.lines.length, 1)
+
+  // Prose after the object inside the fence.
+  const prose = parsePlotSpec('{"chart":"line","xRange":[-10,10],"equations":[{"expr":"x"}]} Here is the graph.')
+  assert.equal(prose.lines.length, 1)
+
+  // A stream that stopped before the last braces closed.
+  const cut = parsePlotSpec('{"chart":"line","xRange":[-10,10],"equations":[{"expr":"x"}')
+  assert.equal(cut.lines.length, 1)
+
+  // Empty or hopeless input still reports a clear error.
+  assert.throws(() => parsePlotSpec(''), PlotError)
+  assert.throws(() => parsePlotSpec('not json at all'), PlotError)
 })
 
 test('diagram specs validate their type and node count', () => {

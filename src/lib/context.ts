@@ -54,14 +54,36 @@ export function growContextWindow(current: number, maxTokens: number): number {
 /**
  * Answer budget (reasoning + answer combined) sent to the model. Reasoning
  * models burn output tokens on scratchpad, so the budget scales with the
- * current context window rather than using a small fixed cap.
+ * current context window rather than using a small fixed cap. The floor is
+ * high enough that a long private chain still leaves room for the answer.
  */
-export const MIN_OUTPUT_TOKENS = 4096
+export const MIN_OUTPUT_TOKENS = 8192
 export const MAX_OUTPUT_TOKENS = 16384
 
 export function outputBudgetTokens(windowTokens: number): number {
   const scaled = Math.floor(Math.max(1, windowTokens) / 2)
   return Math.min(MAX_OUTPUT_TOKENS, Math.max(MIN_OUTPUT_TOKENS, scaled))
+}
+
+/**
+ * Budget for one more attempt when a reasoner spent the whole cap on its
+ * scratchpad. It grows the ceiling without exceeding what the proxy allows.
+ */
+export function retryOutputBudget(outputTokens: number): number {
+  const raised = Math.max(outputTokens + 4096, Math.round(outputTokens * 1.5))
+  return Math.min(MAX_OUTPUT_TOKENS, Math.max(MIN_OUTPUT_TOKENS, raised))
+}
+
+/**
+ * A reasoning model that exhausts the output budget without streaming any
+ * answer, so a retry with a direct-answer nudge is worth one attempt.
+ */
+export function spentReasoningOnly(
+  finishReason: string,
+  answer: string,
+  reasoning: string,
+): boolean {
+  return finishReason === 'length' && !answer.trim() && Boolean(reasoning.trim())
 }
 
 export function clampContextWindow(window: number | undefined, model: Model): number {
