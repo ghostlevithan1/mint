@@ -45,10 +45,8 @@ type ChatViewProps = {
   onCompact: () => void
   onGrowContext: () => void
   isCompacting: boolean
-  webSearchOn: boolean
-  onToggleWebSearch: () => void
   onSelectModel: (id: string) => void
-  onSend: (text: string, attachments: Attachment[], webSearch?: boolean) => void
+  onSend: (text: string, attachments: Attachment[]) => void
   onStop: () => void
   onRegenerate: (assistantId: string) => void
   onInspectMessage: (assistantId: string) => void
@@ -95,8 +93,6 @@ export function ChatView({
   onCompact,
   onGrowContext,
   isCompacting,
-  webSearchOn,
-  onToggleWebSearch,
   onSelectModel,
   onSend,
   onStop,
@@ -238,7 +234,7 @@ export function ChatView({
       return
     }
     stickRef.current = true
-    onSend(draft, attachments, webSearchOn)
+    onSend(draft, attachments)
     setDraft('')
     setRouteNotice(null)
     clear()
@@ -518,8 +514,6 @@ export function ChatView({
           onFixRouting={() => setSwitchOpen(true)}
           onDismissRouteNotice={() => setRouteNotice(null)}
           textareaRef={textareaRef}
-          webSearchOn={webSearchOn}
-          onToggleWebSearch={onToggleWebSearch}
           onAttachFiles={(files) => void handleFiles(files)}
           onRemoveFile={handleRemoveFile}
           onSend={submit}

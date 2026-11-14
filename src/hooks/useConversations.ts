@@ -3,6 +3,7 @@ import { MODELS, modelCapabilities, type Model, type Redaction } from '../lib/da
 import { buildDemoAnswer, tokenize } from '../lib/demo-engine'
 import { detectRedactionsAsync, redactText, rehydrateText } from '../lib/privacy'
 import { fetchWebContext, extractUrls, fetchWebSearchContext } from '../lib/web'
+import { MAX_TOOL_STEPS, parseToolCall, runCalculator, stripToolCalls, toolStatus } from '../lib/agent'
 import {
   ChatApiError,
   streamNvidiaChat,
@@ -43,8 +44,6 @@ type SendInput = {
   shieldOn: boolean
   model: Model
   provider: ProviderMode
-  /** Web search toggle from the composer. */
-  webSearch?: boolean
 }
 
 type RunInput = {
@@ -58,8 +57,6 @@ type RunInput = {
   provider: ProviderMode
   history: ChatMessage[]
   contextWindow: number
-  /** When on, the turn starts with a real web search of the prompt. */
-  webSearch?: boolean
 }
 
 function createBlankChat(): Conversation {
@@ -70,10 +67,6 @@ function createBlankChat(): Conversation {
 // Chats persist in IndexedDB on the user's device only. Every conversation
 // is gzip-compressed on write and inflated on read; active streaming writes
 // skip unchanged conversations via a per-chat hash.
-function wait(ms: number) {
-  return new Promise<void>((resolve) => window.setTimeout(resolve, ms))
-}
-
 function approximateTokens(text: string) {
   if (!text) return 0
   return Math.max(1, Math.round(text.length / 4))
@@ -315,7 +308,7 @@ export function useConversations() {
       window.setTimeout(() => {
         if (runIdRef.current !== runId) return
         patchMessage(input.chatId, input.assistantId, { phase: 'routing' })
-      }, 240),
+      }, 80),
     )
 
     timerRef.current.push(
@@ -357,7 +350,7 @@ export function useConversations() {
             finishRun(runId)
           }
         }, 60)
-      }, 760),
+      }, 200),
     )
   }
 
@@ -395,52 +388,27 @@ export function useConversations() {
       stats: undefined,
       stopped: false,
       error: undefined,
-      webSearch: Boolean(input.webSearch),
       fallbackFrom: undefined,
     })
 
-    await wait(180)
     if (runIdRef.current !== runId) return
 
     let webContext = ''
     const links = modelCapabilities(input.model).includes('web')
       ? extractUrls(input.text)
       : []
-    if (input.webSearch || links.length) {
+    // Web pages may use up to half the model's context window in chars
+    // (~4 chars/token), bounded so tool results stay quick to read.
+    const webBudget = Math.min(576_000, Math.max(1800, Math.floor(maxTokens * 2)))
+    if (links.length) {
       patchMessage(input.chatId, input.assistantId, { phase: 'routing' })
       const webController = new AbortController()
       abortRef.current = webController
-      // Web pages may use up to half the model's context window in chars
-      // (~4 chars/token). The server starts its per-page cap at 48k and
-      // doubles toward 192k when a page nearly fills it, bounded by this.
-      const webBudget = Math.min(
-        576_000,
-        Math.max(1800, Math.floor(maxTokens * 2)),
-      )
       try {
-        let searchSources: WebSource[] = []
-        if (input.webSearch) {
-          // Web search runs first: results + top pages become the brief.
-          const search = await fetchWebSearchContext(input.text, webController.signal, webBudget)
-          if (runIdRef.current !== runId) return
-          webContext = search.context
-          searchSources = search.sources
-          patchMessage(input.chatId, input.assistantId, {
-            webQuery: search.query,
-            webSources: search.sources,
-            webError: search.error,
-          })
-        }
-        if (links.length) {
-          const web = await fetchWebContext(links, webController.signal, webBudget)
-          if (runIdRef.current !== runId) return
-          webContext = [webContext, web.context].filter(Boolean).join('\n\n---\n\n')
-          if (web.sources.length) {
-            const seen = new Set(searchSources.map((source) => source.url))
-            const merged = [...searchSources, ...web.sources.filter((source) => !seen.has(source.url))]
-            patchMessage(input.chatId, input.assistantId, { webSources: merged })
-          }
-        }
+        const web = await fetchWebContext(links, webController.signal, webBudget)
+        if (runIdRef.current !== runId) return
+        webContext = web.context
+        if (web.sources.length) patchMessage(input.chatId, input.assistantId, { webSources: web.sources })
       } finally {
         abortRef.current = null
       }
@@ -521,11 +489,12 @@ export function useConversations() {
       if (!force && now - lastFlush < 55) return
       lastFlush = now
       patchMessage(input.chatId, input.assistantId, {
-        content: rehydrateText(raw, activeRedactions),
+        content: rehydrateText(stripToolCalls(raw), activeRedactions),
         reasoning: reasoningRaw
           ? rehydrateText(reasoningRaw, activeRedactions)
           : undefined,
         phase: 'generating',
+        activity: undefined,
         stats: currentStats(),
       })
     }
@@ -537,64 +506,107 @@ export function useConversations() {
       // leaving a truncated document behind; tokens are spent only when the
       // cap is genuinely reached.
       const MAX_CONTINUATIONS = 2
-      let continuation = 0
-      while (true) {
-        const messagesForChunk: StreamMessage[] =
-          continuation === 0
-            ? requestMessages
-            : [
-                ...requestMessages,
-                { role: 'assistant', content: raw },
-                {
-                  role: 'user',
-                  content:
-                    'Continue exactly from where you stopped. Do not repeat earlier text; finish any open code block.',
-                },
-              ]
-        finishReason = ''
-        await streamNvidiaChat(
+      let toolSources: WebSource[] | undefined
+      for (let step = 0; ; step += 1) {
+        let continuation = 0
+        while (true) {
+          const messagesForChunk: StreamMessage[] =
+            continuation === 0
+              ? requestMessages
+              : [
+                  ...requestMessages,
+                  { role: 'assistant', content: raw },
+                  {
+                    role: 'user',
+                    content:
+                      'Continue exactly from where you stopped. Do not repeat earlier text; finish any open code block.',
+                  },
+                ]
+          finishReason = ''
+          await streamNvidiaChat(
+            {
+              model: input.model.id,
+              messages: messagesForChunk,
+              max_tokens: outputTokens,
+            },
+            {
+              signal: controller.signal,
+              onDelta: (delta) => {
+                if (runIdRef.current !== runId) return
+                markFirstToken()
+                raw += delta
+                flush()
+              },
+              onReasoning: (delta) => {
+                if (runIdRef.current !== runId) return
+                markFirstToken()
+                reasoningRaw += delta
+                flush()
+              },
+              onFinish: (reason) => {
+                finishReason = reason
+              },
+              onUsage: (usage) => {
+                if (typeof usage.completion_tokens === 'number') {
+                  usageTokens += usage.completion_tokens
+                }
+              },
+              onModel: (info) => {
+                if (runIdRef.current !== runId) return
+                if (info.fallbackFrom) {
+                  patchMessage(input.chatId, input.assistantId, {
+                    fallbackFrom: info.fallbackFrom,
+                  })
+                }
+              },
+            },
+          )
+          continuation += 1
+          if (runIdRef.current !== runId) return
+          if (finishReason !== 'length' || !raw || continuation > MAX_CONTINUATIONS) {
+            break
+          }
+        }
+        // Agent step: if the reply ends in a tool call, run it, hand the
+        // result back and let the model carry on, up to MAX_TOOL_STEPS times.
+        const call = step < MAX_TOOL_STEPS ? parseToolCall(raw) : null
+        if (!call || runIdRef.current !== runId) break
+        patchMessage(input.chatId, input.assistantId, {
+          phase: 'routing',
+          activity: toolStatus(call),
+          content: rehydrateText(stripToolCalls(raw), activeRedactions),
+        })
+        let result = ''
+        if (call.name === 'calculate') {
+          result = runCalculator(call.expression)
+        } else {
+          const toolBudget = Math.min(webBudget, 24_000)
+          const found: { context: string; sources: WebSource[]; error?: string } =
+            call.name === 'search'
+              ? await fetchWebSearchContext(call.query, controller.signal, toolBudget)
+              : await fetchWebContext([call.url], controller.signal, toolBudget)
+          if (runIdRef.current !== runId) return
+          result = found.context || found.error || 'No results.'
+          const sources = [...(toolSources ?? []), ...found.sources]
+          toolSources = sources.filter((source, i) => sources.findIndex((s) => s.url === source.url) === i)
+          patchMessage(input.chatId, input.assistantId, {
+            webQuery: call.name === 'search' ? call.query : undefined,
+            webSources: toolSources,
+          })
+        }
+        const last = step + 1 >= MAX_TOOL_STEPS
+        requestMessages.push(
+          { role: 'assistant', content: raw },
           {
-            model: input.model.id,
-            messages: messagesForChunk,
-            max_tokens: outputTokens,
-          },
-          {
-            signal: controller.signal,
-            onDelta: (delta) => {
-              if (runIdRef.current !== runId) return
-              markFirstToken()
-              raw += delta
-              flush()
-            },
-            onReasoning: (delta) => {
-              if (runIdRef.current !== runId) return
-              markFirstToken()
-              reasoningRaw += delta
-              flush()
-            },
-            onFinish: (reason) => {
-              finishReason = reason
-            },
-            onUsage: (usage) => {
-              if (typeof usage.completion_tokens === 'number') {
-                usageTokens += usage.completion_tokens
-              }
-            },
-            onModel: (info) => {
-              if (runIdRef.current !== runId) return
-              if (info.fallbackFrom) {
-                patchMessage(input.chatId, input.assistantId, {
-                  fallbackFrom: info.fallbackFrom,
-                })
-              }
-            },
+            role: 'user',
+            content: `Tool result:\n${result}\n\n${
+              last
+                ? 'No more tool calls. Answer the student now with what you have.'
+                : 'Continue answering the student. Call another tool only if you still need it.'
+            }`,
           },
         )
-        continuation += 1
-        if (runIdRef.current !== runId) return
-        if (finishReason !== 'length' || !raw || continuation > MAX_CONTINUATIONS) {
-          break
-        }
+        raw = ''
       }
 
       if (runIdRef.current !== runId) return
@@ -658,7 +670,6 @@ export function useConversations() {
     shieldOn,
     model,
     provider,
-    webSearch,
   }: SendInput) => {
     if (isGenerating) return
     const content = text.trim()
@@ -762,7 +773,6 @@ export function useConversations() {
       provider,
       history,
       contextWindow: window,
-      webSearch,
     })
   }
 

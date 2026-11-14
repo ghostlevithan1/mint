@@ -400,12 +400,21 @@ export function detectRedactions(text: string, people: string[] = []): Redaction
  * Adds NLP person detection on top of the pattern-based pass. Compromise is
  * loaded on demand because it is the heaviest dependency in the client.
  */
+type Nlp = typeof import('compromise').default
+let nlpLoad: Promise<Nlp | null> | null = null
+
+/** Starts loading the name detector (~350 KB) early, so the first send never waits on it. */
+export function preloadNameDetector(): Promise<Nlp | null> {
+  nlpLoad ??= import('compromise').then((module) => module.default).catch(() => null)
+  return nlpLoad
+}
+
 export async function detectRedactionsAsync(text: string): Promise<Redaction[]> {
   if (!text.trim()) return []
   let people: string[] = []
   try {
-    const { default: nlp } = await import('compromise')
-    people = nlp(text).people().out('array') as string[]
+    const nlp = await preloadNameDetector()
+    if (nlp) people = nlp(text).people().out('array') as string[]
   } catch {
     // NLP is best-effort; pattern and list matching still run.
   }

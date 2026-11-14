@@ -22,6 +22,8 @@ export type ChatMessage = {
   shieldOn?: boolean
   stats?: GenerationStats
   phase?: Phase
+  /** What a running tool is doing, shown while the agent works. */
+  activity?: string
   stopped?: boolean
   redactionCount?: number
   provider?: ProviderMode
@@ -34,7 +36,6 @@ export type ChatMessage = {
   /** Web-search failure note; the answer still streams from model knowledge. */
   webError?: string
   /** True when this turn ran with the composer's web search toggle on. */
-  webSearch?: boolean
   /** Requested model that answered from the default model instead. */
   fallbackFrom?: string
 }

@@ -3,7 +3,7 @@ import { DEFAULT_MODEL_ID, MODELS } from '../lib/data'
 import { modelById, type Conversation } from '../lib/chat'
 import { clampContextWindow, contextMaxTokens, conversationTokens } from '../lib/context'
 import { redactText } from '../lib/privacy'
-import { getStoredJpegConversion, getStoredWebSearch, saveJpegConversion, saveWebSearch } from '../lib/preferences'
+import { getStoredJpegConversion, saveJpegConversion } from '../lib/preferences'
 import { useConversations } from '../hooks/useConversations'
 import { useProviderStatus } from '../hooks/useProviderStatus'
 import type { Attachment } from '../lib/files'
@@ -40,7 +40,6 @@ export function ChatApp() {
 
   const [defaultModelId, setDefaultModelId] = useState(DEFAULT_MODEL_ID)
   const [convertImagesToJpeg, setConvertImagesToJpeg] = useState(getStoredJpegConversion)
-  const [webSearchOn, setWebSearchOn] = useState(getStoredWebSearch)
   const [shieldOn, setShieldOn] = useState(true)
   const [showMetrics, setShowMetrics] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -134,18 +133,13 @@ export function ChatApp() {
     saveJpegConversion(convertImagesToJpeg)
   }, [convertImagesToJpeg])
 
-  useEffect(() => {
-    saveWebSearch(webSearchOn)
-  }, [webSearchOn])
-
-  const handleSend = (text: string, attachments: Attachment[], webSearch?: boolean) => {
+  const handleSend = (text: string, attachments: Attachment[]) => {
     sendMessage({
       text,
       attachments,
       shieldOn,
       model: selectedModel,
       provider: provider.mode,
-      webSearch,
     })
   }
 
@@ -228,8 +222,6 @@ export function ChatApp() {
         onCompact={() => void compactChat(provider.mode)}
         onGrowContext={() => growContext(selectedModel)}
         isCompacting={compactingChatId === activeId}
-        webSearchOn={webSearchOn}
-        onToggleWebSearch={() => setWebSearchOn((value) => !value)}
         onSelectModel={handleSelectModel}
         onSend={handleSend}
         onStop={stopGenerating}

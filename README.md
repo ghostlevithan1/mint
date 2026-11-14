@@ -129,6 +129,11 @@ that `Esc` stops the request.
   `.avif`, `.bmp`, or `.svg`) render inline for both you and the model, with a
   link to open the original. Remote image hosts see your IP address (not your
   chat) — the browser sends no cookies and no referrer.
+- **Tools** — Mint is agentic: it decides on its own when to search the web, read
+  a page or calculate exactly. It ends a reply with a fenced `tool` JSON block,
+  the browser runs the tool (through `/api/search`, `/api/web` or the local
+  calculator) and sends the result back, up to 4 steps per question. Tool
+  blocks are hidden from the answer and searched sources show above it.
 - **Plots** — ask any model to chart something ("plot y = x^2 - 4", "graph a bar
   chart of quarterly revenue") and it answers with a fenced `plot` spec that the
   browser draws as an SVG graph, with marked points for roots and turning points.
@@ -160,7 +165,7 @@ that `Esc` stops the request.
 - A live request replays as much prior conversation as fits the selected model's
   context window, oldest turns first. The server relays it to NVIDIA NIM for the
   length of the request; it does not write prompts or answers to disk.
-- The PII shield can be toggled per message from the composer or in Settings.
+- The PII shield is on by default and can be turned off in Settings → Privacy.
 - The NVIDIA key lives on the server. The browser only calls `/api/chat`, and the
   server attaches the key upstream.
 
@@ -222,6 +227,7 @@ src/
     nvidia.ts                browser-side SSE parser for /api/chat
     plotSpec.ts              plot spec validation and the safe equation parser
     web.ts                   link reading and web search client
+    agent.ts                 tool call parsing, calculator and tool status
     files.ts                 attachment kinds, reading, validation
     privacy.ts               PII detection, redaction, rehydration
     demo-engine.ts           simulated answers and intent routing

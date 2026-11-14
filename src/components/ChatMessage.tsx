@@ -15,6 +15,8 @@ import {
   Layers,
   RefreshCw,
   BookOpen,
+  Calculator,
+  Globe,
   Timer,
   Zap,
 } from 'lucide-react'
@@ -79,10 +81,12 @@ function WaitingProgress({
   routing,
   startedAt,
   detail,
+  activity,
 }: {
   routing: boolean
   startedAt: number
   detail: string
+  activity?: string
 }) {
   const [now, setNow] = useState(() => Date.now())
 
@@ -92,13 +96,16 @@ function WaitingProgress({
   }, [])
 
   const seconds = Math.max(0, Math.floor((now - startedAt) / 1000))
-  const title = routing
+  const title = activity
+    ? activity
+    : routing
     ? seconds >= 20
       ? 'Still thinking'
       : 'Thinking'
     : 'Reading your question'
-  const hint =
-    !routing && seconds < 4
+  const hint = activity
+    ? 'Esc stops it.'
+    : !routing && seconds < 4
       ? detail
       : seconds >= 30
         ? 'This model is very slow to start. Press Esc to stop, or keep waiting.'
@@ -111,7 +118,7 @@ function WaitingProgress({
   return (
     <div className="thinking" role="status" aria-live="polite">
       <span className="thinking-orb">
-        {routing ? <Zap size={15} /> : <BookOpen size={15} />}
+        {activity ? (activity.startsWith('Calculating') ? <Calculator size={15} /> : <Globe size={15} />) : routing ? <Zap size={15} /> : <BookOpen size={15} />}
       </span>
       <span className="thinking-copy">
         <strong>
@@ -329,6 +336,7 @@ export const ChatMessageView = memo(
           <WaitingProgress
             routing={message.phase === 'routing'}
             startedAt={message.createdAt}
+            activity={message.activity}
             detail={
               message.phase === 'routing' ? PHASE_COPY.routing.detail : PHASE_COPY.shielding.detail
             }

@@ -5,7 +5,6 @@ import {
   FileCode2,
   FileSpreadsheet,
   FileText,
-  Globe,
   Image as ImageIcon,
   Loader2,
   Paperclip,
@@ -28,8 +27,6 @@ type ComposerProps = {
   routingWarning: string
   routeNotice: string
   textareaRef: MutableRefObject<HTMLTextAreaElement | null>
-  webSearchOn: boolean
-  onToggleWebSearch: () => void
   onFixRouting: () => void
   onDismissRouteNotice: () => void
   onAttachFiles: (files: FileList | File[]) => void
@@ -55,8 +52,6 @@ export function Composer({
   routingWarning,
   routeNotice,
   textareaRef,
-  webSearchOn,
-  onToggleWebSearch,
   onFixRouting,
   onDismissRouteNotice,
   onAttachFiles,
@@ -220,16 +215,6 @@ export function Composer({
               title="Attach files"
             >
               {reading ? <Loader2 size={15} className="spin" /> : <Paperclip size={15} />}
-            </button>
-            <button
-              type="button"
-              className={`composer-web ${webSearchOn ? 'is-on' : 'is-off'}`}
-              onClick={onToggleWebSearch}
-              aria-pressed={webSearchOn}
-              title="Search the web for fresh info before answering"
-            >
-              <Globe size={14} />
-              Web {webSearchOn ? 'on' : 'off'}
             </button>
           </div>
 

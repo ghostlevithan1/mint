@@ -2682,39 +2682,6 @@
   opacity: 0.5;
 }
 
-.composer-web {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 32px;
-  padding: 0 10px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--muted);
-  font-size: 13px;
-  white-space: nowrap;
-  transition:
-    border-color 150ms var(--ease),
-    color 150ms var(--ease),
-    background-color 150ms var(--ease);
-}
-
-.composer-web:hover {
-  background: rgba(var(--wash-rgb), 0.05);
-  color: var(--text);
-}
-
-.composer-web.is-on {
-  border-color: var(--line);
-  background: rgba(var(--wash-rgb), 0.04);
-  color: var(--text);
-}
-
-.composer-web.is-on svg {
-  color: var(--sky);
-}
-
 .composer-submit-group {
   display: flex;
   align-items: center;
@@ -3029,10 +2996,6 @@
 
   .model-type-chip {
     display: none;
-  }
-
-  .composer-web {
-    padding: 0 7px;
   }
 
   .composer-tokens {
