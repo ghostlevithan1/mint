@@ -7,6 +7,7 @@ import {
   MAX_ZOOM,
   nearestOnSegment,
   panView,
+  placeMarkerLabels,
   placeReadout,
   squareView,
   zoomView,
@@ -182,4 +183,23 @@ test('text width matches the 12px monospace font, with wide glyphs doubled', () 
   close(estimateTextWidth('1.0e+5'), 6 * 7.4)
   assert.ok(estimateTextWidth('坐标') > estimateTextWidth('ab'))
   close(estimateTextWidth(''), 0)
+})
+
+test('marker labels near each other do not overlap', () => {
+  const area = { left: 0, right: 600, top: 0, bottom: 400 }
+  const width = estimateTextWidth('root x = -1')
+  const [a, b] = placeMarkerLabels(
+    [
+      { x: 300, y: 200 },
+      { x: 330, y: 200 },
+    ],
+    [width, width],
+    area,
+  )
+  const span = (p: { x: number; anchor: 'start' | 'end' }) =>
+    p.anchor === 'start' ? [p.x, p.x + width] : [p.x - width, p.x]
+  const [al, ar] = span(a)
+  const [bl, br] = span(b)
+  const sameRow = a.y === b.y
+  assert.ok(!sameRow || ar <= bl || br <= al, 'labels on one row must not cover each other')
 })

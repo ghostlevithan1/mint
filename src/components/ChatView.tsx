@@ -40,10 +40,8 @@ type ChatViewProps = {
   convertImagesToJpeg: boolean
   isGenerating: boolean
   contextUsed: number
-  contextWindow: number
-  contextMax: number
+  contextLimit: number
   onCompact: () => void
-  onGrowContext: () => void
   isCompacting: boolean
   onSelectModel: (id: string) => void
   onSend: (text: string, attachments: Attachment[]) => void
@@ -88,10 +86,8 @@ export function ChatView({
   convertImagesToJpeg,
   isGenerating,
   contextUsed,
-  contextWindow,
-  contextMax,
+  contextLimit,
   onCompact,
-  onGrowContext,
   isCompacting,
   onSelectModel,
   onSend,
@@ -336,12 +332,10 @@ export function ChatView({
         <div className="topbar-right">
           <ContextMeter
             used={contextUsed}
-            window={contextWindow}
-            max={contextMax}
+            limit={contextLimit}
             modelName={model.name}
             compacting={isCompacting}
             onCompact={onCompact}
-            onGrow={onGrowContext}
           />
           <button
             className="icon-button"

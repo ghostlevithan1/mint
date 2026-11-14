@@ -16,6 +16,9 @@ import { RemoteImage } from './RemoteImage'
 type InlineToken =
   | { type: 'text'; value: string }
   | { type: 'strong'; value: string }
+  | { type: 'em'; value: string }
+  | { type: 'code'; value: string }
+  | { type: 'link'; url: string; label: string }
   | { type: 'math'; value: string; display: boolean }
   | { type: 'image'; url: string; alt: string }
 
@@ -111,6 +114,31 @@ function tokenizeInline(text: string): InlineToken[] {
   }
 
   while (index < text.length) {
+    if (text[index] === '`') {
+      const end = text.indexOf('`', index + 1)
+      if (end > index + 1) {
+        flush()
+        tokens.push({ type: 'code', value: text.slice(index + 1, end) })
+        index = end + 1
+        continue
+      }
+    }
+
+    if (text[index] === '[') {
+      const closeBracket = text.indexOf('](', index + 1)
+      const closeParen = closeBracket > index ? text.indexOf(')', closeBracket + 2) : -1
+      if (closeBracket > index + 1 && closeParen > closeBracket) {
+        const label = text.slice(index + 1, closeBracket).trim()
+        const url = text.slice(closeBracket + 2, closeParen).trim()
+        if (/^https?:\/\/\S+$/i.test(url) && !label.includes('](')) {
+          flush()
+          tokens.push({ type: 'link', url, label: label || url })
+          index = closeParen + 1
+          continue
+        }
+      }
+    }
+
     if (text.startsWith('![', index)) {
       const closeBracket = text.indexOf('](', index + 2)
       const closeParen = closeBracket > index ? text.indexOf(')', closeBracket + 2) : -1
@@ -132,6 +160,23 @@ function tokenizeInline(text: string): InlineToken[] {
         flush()
         tokens.push({ type: 'strong', value: text.slice(index + 2, end) })
         index = end + 2
+        continue
+      }
+    }
+
+    // *emphasis*: the opening star hugs a word and is not inside one, so
+    // arithmetic such as 2 * 3 or 2*3*4 stays plain text.
+    if (
+      text[index] === '*' &&
+      text[index + 1] !== '*' &&
+      /\S/.test(text[index + 1] ?? ' ') &&
+      !/[\p{L}\p{N}]/u.test(text[index - 1] ?? ' ')
+    ) {
+      const end = text.indexOf('*', index + 1)
+      if (end > index + 1 && /\S/.test(text[end - 1]) && text[end + 1] !== '*') {
+        flush()
+        tokens.push({ type: 'em', value: text.slice(index + 1, end) })
+        index = end + 1
         continue
       }
     }
@@ -199,6 +244,19 @@ function inline(text: string, keyPrefix: string): ReactNode[] {
     if (token.type === 'strong') {
       return <strong key={key}>{inline(token.value, key)}</strong>
     }
+    if (token.type === 'em') {
+      return <em key={key}>{inline(token.value, key)}</em>
+    }
+    if (token.type === 'code') {
+      return <code key={key}>{token.value}</code>
+    }
+    if (token.type === 'link') {
+      return (
+        <a key={key} href={token.url} target="_blank" rel="noreferrer noopener">
+          {token.label}
+        </a>
+      )
+    }
     if (token.type === 'math') {
       return <MathNode key={key} tex={token.value} display={token.display} />
     }
@@ -224,7 +282,8 @@ type Block =
   | { type: 'heading'; level: 2 | 3; text: string }
   | { type: 'paragraph'; text: string }
   | { type: 'bullets'; items: string[] }
-  | { type: 'numbers'; items: string[] }
+  | { type: 'numbers'; items: string[]; start: number }
+  | { type: 'rule' }
   | { type: 'quote'; text: string }
   | { type: 'table'; rows: string[][] }
   | { type: 'code'; code: string; info: FenceInfo }
@@ -380,14 +439,15 @@ function parseBlocks(text: string): Block[] {
       continue
     }
 
-    if (trimmed.startsWith('### ')) {
+    const heading = /^(#{1,6})\s+(.*)$/.exec(trimmed)
+    if (heading) {
       flushParagraph()
-      blocks.push({ type: 'heading', level: 3, text: trimmed.slice(4) })
+      blocks.push({ type: 'heading', level: heading[1].length <= 2 ? 2 : 3, text: heading[2] })
       continue
     }
-    if (trimmed.startsWith('## ')) {
+    if (/^(?:-{3,}|\*{3,}|_{3,})$/.test(trimmed)) {
       flushParagraph()
-      blocks.push({ type: 'heading', level: 2, text: trimmed.slice(3) })
+      blocks.push({ type: 'rule' })
       continue
     }
     if (trimmed.startsWith('> ')) {
@@ -395,27 +455,31 @@ function parseBlocks(text: string): Block[] {
       blocks.push({ type: 'quote', text: trimmed.slice(2) })
       continue
     }
-    if (trimmed.startsWith('- ')) {
+    const BULLET = /^[-*+]\s+/
+    if (BULLET.test(trimmed)) {
       flushParagraph()
       const items: string[] = []
       let cursor = index
-      while (cursor < lines.length && lines[cursor].trim().startsWith('- ')) {
-        items.push(lines[cursor].trim().slice(2))
+      while (cursor < lines.length && BULLET.test(lines[cursor].trim())) {
+        items.push(lines[cursor].trim().replace(BULLET, ''))
         cursor += 1
       }
       blocks.push({ type: 'bullets', items })
       index = cursor - 1
       continue
     }
-    if (/^\d+\.\s/.test(trimmed)) {
+    const NUMBERED = /^(\d+)[.)]\s+/
+    const numbered = NUMBERED.exec(trimmed)
+    if (numbered) {
       flushParagraph()
       const items: string[] = []
       let cursor = index
-      while (cursor < lines.length && /^\d+\.\s/.test(lines[cursor].trim())) {
-        items.push(lines[cursor].trim().replace(/^\d+\.\s/, ''))
+      while (cursor < lines.length && NUMBERED.test(lines[cursor].trim())) {
+        items.push(lines[cursor].trim().replace(NUMBERED, ''))
         cursor += 1
       }
-      blocks.push({ type: 'numbers', items })
+      // Keep the author's numbering when display maths or prose splits a list.
+      blocks.push({ type: 'numbers', items, start: Number(numbered[1]) })
       index = cursor - 1
       continue
     }
@@ -470,12 +534,15 @@ export const Markdown = memo(function Markdown({ text }: { text: string }) {
         }
         if (block.type === 'numbers') {
           return (
-            <ol key={index}>
+            <ol key={index} start={block.start === 1 ? undefined : block.start}>
               {block.items.map((item, itemIndex) => (
                 <li key={itemIndex}>{inline(item, `n-${index}-${itemIndex}`)}</li>
               ))}
             </ol>
           )
+        }
+        if (block.type === 'rule') {
+          return <hr key={index} />
         }
         if (block.type === 'quote') {
           return <blockquote key={index}>{inline(block.text, `q-${index}`)}</blockquote>

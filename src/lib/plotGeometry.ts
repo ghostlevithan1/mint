@@ -125,6 +125,54 @@ export function estimateTextWidth(text: string): number {
   return width
 }
 
+type Box = { left: number; right: number; top: number; bottom: number }
+
+function overlaps(a: Box, b: Box): boolean {
+  return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom
+}
+
+/**
+ * Places one-line marker labels so they do not cover each other. Each label
+ * tries above-right, above-left, below-right and below-left of its point and
+ * takes the first spot that stays inside `area` and clear of earlier labels.
+ */
+export function placeMarkerLabels(
+  points: Point[],
+  widths: number[],
+  area: Box,
+  gap = 9,
+  ascent = 10,
+  descent = 3,
+): ReadoutPlacement[] {
+  const taken: Box[] = []
+  return points.map((point, i) => {
+    const width = Math.max(0, widths[i] ?? 0)
+    const candidates: ReadoutPlacement[] = [
+      { x: point.x + gap, y: point.y - gap, anchor: 'start' },
+      { x: point.x - gap, y: point.y - gap, anchor: 'end' },
+      { x: point.x + gap, y: point.y + gap + ascent, anchor: 'start' },
+      { x: point.x - gap, y: point.y + gap + ascent, anchor: 'end' },
+    ]
+    const boxOf = (c: ReadoutPlacement): Box => ({
+      left: c.anchor === 'start' ? c.x : c.x - width,
+      right: c.anchor === 'start' ? c.x + width : c.x,
+      top: c.y - ascent,
+      bottom: c.y + descent,
+    })
+    const fits = (box: Box) =>
+      box.left >= area.left &&
+      box.right <= area.right &&
+      box.top >= area.top &&
+      box.bottom <= area.bottom
+    const pick =
+      candidates.find((c) => fits(boxOf(c)) && !taken.some((t) => overlaps(t, boxOf(c)))) ??
+      candidates.find((c) => !taken.some((t) => overlaps(t, boxOf(c)))) ??
+      candidates[0]
+    taken.push(boxOf(pick))
+    return pick
+  })
+}
+
 /**
  * Places a multi-line readout beside a selected point. It prefers the space
  * above and to the right of the point, flips when that would leave `area`, and

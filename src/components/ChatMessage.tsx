@@ -278,7 +278,6 @@ export const ChatMessageView = memo(
               </span>
             </>
           )}
-          {message.provider === 'nvidia' && <span className="live-tag">Live</span>}
           {message.fallbackFrom && (
             <span
               className="fallback-tag"
@@ -318,7 +317,6 @@ export const ChatMessageView = memo(
                 {source.title}
               </a>
             ))}
-            {message.webError && <small className="web-sources-error">{message.webError}</small>}
           </div>
         )}
 
@@ -391,9 +389,6 @@ export const ChatMessageView = memo(
               </span>
               <strong>{stats.elapsed.toFixed(1)}s</strong>
             </div>
-            <span className={`sim-tag ${message.provider === 'nvidia' ? 'is-live' : ''}`}>
-              {message.provider === 'nvidia' ? 'NVIDIA NIM' : 'Simulated'}
-            </span>
           </div>
         )}
 

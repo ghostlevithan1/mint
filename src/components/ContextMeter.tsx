@@ -1,31 +1,26 @@
 import { useEffect, useRef, useState } from 'react'
-import { ChevronsUp, Gauge, Minimize2, X } from 'lucide-react'
+import { Gauge, Minimize2, X } from 'lucide-react'
 import { formatTokens } from '../lib/context'
 
 type ContextMeterProps = {
   used: number
-  window: number
-  max: number
+  limit: number
   modelName: string
   compacting?: boolean
   onCompact: () => void
-  onGrow: () => void
 }
 
 export function ContextMeter({
   used,
-  window,
-  max,
+  limit,
   modelName,
   compacting,
   onCompact,
-  onGrow,
 }: ContextMeterProps) {
   const [open, setOpen] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
-  const percent = window > 0 ? Math.min(100, (used / window) * 100) : 0
+  const percent = limit > 0 ? Math.min(100, (used / limit) * 100) : 0
   const nearLimit = percent >= 95
-  const canGrow = window < max
 
   useEffect(() => {
     if (!open) return
@@ -57,7 +52,7 @@ export function ContextMeter({
           <span style={{ width: `${percent}%` }} />
         </span>
         <span className="context-meter-label">
-          {formatTokens(used)} / {formatTokens(window)}
+          {formatTokens(used)} / {formatTokens(limit)}
         </span>
       </button>
 
@@ -80,7 +75,7 @@ export function ContextMeter({
 
           <div className="context-big">
             <strong>{formatTokens(used)}</strong>
-            <span>of {formatTokens(window)} tokens</span>
+            <span>of {formatTokens(limit)} tokens</span>
             <em className={nearLimit ? 'is-near' : ''}>{percent.toFixed(0)}%</em>
           </div>
 
@@ -89,13 +84,13 @@ export function ContextMeter({
           </div>
 
           <p className="context-help">
-            Starts at 2K and doubles (4K, 8K, 16K…) up to this model&apos;s{' '}
-            {formatTokens(max)} maximum. Compacts automatically at 95%.
+            How much of this conversation Mint can send with each question. Older turns are
+            summarised automatically at 95%.
           </p>
 
           <div className="context-stats">
             <span>
-              <Gauge size={11} /> {formatTokens(Math.max(0, window - used))} free
+              <Gauge size={11} /> {formatTokens(Math.max(0, limit - used))} free
             </span>
             <span>
               <Minimize2 size={11} /> /compact
@@ -103,10 +98,6 @@ export function ContextMeter({
           </div>
 
           <div className="context-actions">
-            <button type="button" onClick={onGrow} disabled={!canGrow}>
-              <ChevronsUp size={13} />
-              {canGrow ? `Grow to ${formatTokens(Math.min(window * 2, max))}` : 'At model max'}
-            </button>
             <button
               type="button"
               onClick={onCompact}

@@ -1,17 +1,14 @@
-export type ProviderMode = 'nvidia' | 'demo'
-
 export type ProviderStatus = {
   checked: boolean
-  configured: boolean
-  mode: ProviderMode
+  /** True when the server has an NVIDIA key and can stream live answers. */
+  live: boolean
   label: string
   detail: string
 }
 
 export const INITIAL_PROVIDER_STATUS: ProviderStatus = {
   checked: false,
-  configured: false,
-  mode: 'nvidia',
+  live: false,
   label: 'Checking inference provider',
   detail: 'Checking whether live inference is available.',
 }

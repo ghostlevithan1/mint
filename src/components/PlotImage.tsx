@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { Loader2, TriangleAlert } from 'lucide-react'
 import { compileExpression, formatTick, niceTicks, parsePlotSpec, PlotError, sharedTicks, type PlotData } from '../lib/plotSpec'
-import { clampLabel, estimateTextWidth, insideArea, nearestOnSegment, panView, placeReadout, squareView, zoomView, type View } from '../lib/plotGeometry'
+import { clampLabel, estimateTextWidth, insideArea, nearestOnSegment, panView, placeMarkerLabels, placeReadout, squareView, zoomView, type View } from '../lib/plotGeometry'
 
 const W = 640
 const H = 360
@@ -265,6 +265,11 @@ function Chart({ data }: { data: PlotData }) {
         bottom: H - M.bottom,
       })
     : null
+  const markerLabels = placeMarkerLabels(
+    data.markers.map((point) => ({ x: sx(point.x), y: sy(point.y) })),
+    data.markers.map((point) => estimateTextWidth(point.label ?? '')),
+    { left: M.left, right: W - M.right, top: M.top, bottom: H - M.bottom },
+  )
   // Panning or zooming can carry a selected point out of the frame. The dot and
   // guide lines must not be drawn outside the graph, so hide them there.
   const pointInside =
@@ -363,7 +368,7 @@ function Chart({ data }: { data: PlotData }) {
             <g key={`m${i}`} className="plot-marker">
               <circle cx={sx(point.x)} cy={sy(point.y)} r={5} />
               {point.label && (
-                <text x={sx(point.x) + 9} y={sy(point.y) - 9}>
+                <text x={markerLabels[i].x} y={markerLabels[i].y} textAnchor={markerLabels[i].anchor}>
                   {point.label}
                 </text>
               )}

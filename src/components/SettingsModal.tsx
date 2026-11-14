@@ -18,7 +18,7 @@ import {
 } from 'lucide-react'
 import { MOD_KEY } from '../lib/platform'
 import { LeafMark } from './Logo'
-import { MODEL_TYPES, MODELS, modelsByType, typeInfo } from '../lib/data'
+import { MODEL_TYPES, modelsByType } from '../lib/data'
 import type { ProviderStatus } from '../lib/provider'
 import { formatBytes } from '../lib/privacy'
 import { getStoredProfile, PROFILE_MAX_CHARS, saveProfile } from '../lib/preferences'
@@ -130,8 +130,6 @@ export function SettingsModal({
     }
   }, [open, initialTab, onClose])
 
-  const selectedModel = MODELS.find((model) => model.id === modelId) ?? MODELS[0]
-  const selectedType = typeInfo(selectedModel.type)
   const buildSha = typeof __BUILD_SHA__ === 'string' ? __BUILD_SHA__ : 'dev'
   const totalMessages = messageCount.toLocaleString()
 
@@ -209,37 +207,11 @@ export function SettingsModal({
               </section>
 
               <section className="settings-section">
-                <h4>Model type</h4>
-                <p className="settings-help">
-                  Quick answers fast, Intelligent thinks harder on tough problems. You can still
-                  pick a specific model below.
-                </p>
-                <div className="model-type-grid" role="radiogroup" aria-label="Model type">
-                  {MODEL_TYPES.map((type) => {
-                    const selected = selectedType.id === type.id
-                    return (
-                      <button
-                        key={type.id}
-                        role="radio"
-                        aria-checked={selected}
-                        className={`model-type-card ${selected ? 'is-selected' : ''}`}
-                        onClick={() => onModelChange(type.defaultModelId)}
-                      >
-                        <span className="model-type-card-head">
-                          <span className="model-group-dot" style={{ background: type.color }} />
-                          <strong>{type.label}</strong>
-                          <small>{type.tagline}</small>
-                        </span>
-                        <span>{type.detail}</span>
-                      </button>
-                    )
-                  })}
-                </div>
-              </section>
-
-              <section className="settings-section">
                 <h4>Default model</h4>
-                <p className="settings-help">Applies to your next message. You can switch any time.</p>
+                <p className="settings-help">
+                  Quick answers fast, Intelligent thinks harder on tough problems. Applies to your
+                  next message. You can switch any time.
+                </p>
                 <div className="settings-models" role="radiogroup" aria-label="Default model">
                   {MODEL_TYPES.map((type) => {
                     const items = modelsByType(type.id)
@@ -338,7 +310,7 @@ export function SettingsModal({
                 <LockKeyhole size={15} />
                 <p>
                   {chatCount === 1 ? '1 chat' : `${chatCount} chats`} with {totalMessages}{' '}
-                  {messageCount === 1 ? 'message' : 'messages'} are saved in this browser using
+                  {messageCount === 1 ? 'message' : 'messages'} saved in this browser using
                   IndexedDB. They never go to the server, and there is no account to sign in to.
                 </p>
               </div>
@@ -470,12 +442,11 @@ export function SettingsModal({
 
               <p className="about-copy">
                 Your chats and files stay in this browser, and names are swapped for placeholders
-                before a question is sent. When live models are available, questions go through
-                the Mint server to NVIDIA NIM and are not stored there. Without a key, answers come
-                from the local demo engine.
+                before a question is sent. Questions go through the Mint server to NVIDIA NIM and
+                are not stored there.
               </p>
 
-              <div className={`settings-provider ${provider.mode === 'nvidia' ? 'is-live' : ''}`}>
+              <div className={`settings-provider ${provider.live ? 'is-live' : ''}`}>
                 <span className="provider-dot" aria-hidden="true" />
                 <div>
                   <strong>{provider.label}</strong>
@@ -488,29 +459,6 @@ export function SettingsModal({
                 >
                   <RefreshCw size={14} /> Recheck
                 </button>
-              </div>
-
-              <div className="settings-facts">
-                <div>
-                  <ShieldCheck size={15} />
-                  <span>Redaction</span>
-                  <strong>On device</strong>
-                </div>
-                <div>
-                  <FileUp size={15} />
-                  <span>Upload limit</span>
-                  <strong>25 MB</strong>
-                </div>
-                <div>
-                  <ScanSearch size={15} />
-                  <span>Retention</span>
-                  <strong>This browser</strong>
-                </div>
-                <div>
-                  <Gauge size={15} />
-                  <span>Inference</span>
-                  <strong>{provider.mode === 'nvidia' ? 'NVIDIA NIM' : 'Local demo'}</strong>
-                </div>
               </div>
 
               <section className="settings-section">

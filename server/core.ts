@@ -1,7 +1,20 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-const NVIDIA_URL = 'https://integrate.api.nvidia.com/v1/chat/completions'
+type ProviderId = 'nvidia' | 'openrouter'
+
+const PROVIDERS: Record<ProviderId, { url: string; name: string; envPrefix: string }> = {
+  nvidia: {
+    url: 'https://integrate.api.nvidia.com/v1/chat/completions',
+    name: 'NVIDIA',
+    envPrefix: 'NVIDIA_MODEL_',
+  },
+  openrouter: {
+    url: 'https://openrouter.ai/api/v1/chat/completions',
+    name: 'OpenRouter',
+    envPrefix: 'OPENROUTER_MODEL_',
+  },
+}
 export const MAX_BODY_BYTES = 16_000_000
 const MAX_MESSAGE_CHARS = 60_000
 const MAX_TOTAL_CHARS = 400_000
@@ -25,32 +38,50 @@ export type JsonRecord = Record<string, unknown>
 
 export const DEFAULT_APP_MODEL = 'nemotron-nano-omni'
 
+type ModelRoute = {
+  provider: ProviderId
+  upstream: string
+  /** OpenRouter reasoning effort, for models that always reason. */
+  reasoningEffort?: 'low' | 'medium' | 'high'
+}
+
 // App model IDs grouped by intelligence tier: Quick, Normal, Intelligent.
-const DEFAULT_MODEL_IDS: Record<string, string> = {
-  'nemotron-lightning': 'nvidia/nemotron-3.5-lightning-30b-a3b',
-  'nemotron-nano-omni': 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning',
-  'laguna-xs': 'poolside/laguna-xs-2.1',
-  'minimax-flash': 'minimaxai/minimax-m3.1-flash',
-  'muse-glimmer': 'meta/muse-glimmer-30b',
-  'mistral-large-4': 'mistralai/mistral-large-4-1t-a52b',
-  'nemotron-super-vl': 'nvidia/nemotron-3.5-super-vl-120b-a12b',
-  'nemotron-ultra': 'nvidia/nemotron-3-ultra-550b-a55b',
-  'deepseek-flash': 'deepseek-ai/deepseek-v4.1-flash',
+const DEFAULT_MODEL_ROUTES: Record<string, ModelRoute> = {
+  'nemotron-lightning': { provider: 'nvidia', upstream: 'nvidia/nemotron-3.5-lightning-30b-a3b' },
+  'nemotron-nano-omni': { provider: 'nvidia', upstream: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning' },
+  'gemma-4-31b': { provider: 'openrouter', upstream: 'google/gemma-4-31b-it' },
+  'laguna-xs': { provider: 'nvidia', upstream: 'poolside/laguna-xs-2.1' },
+  'inkling-2-small': {
+    provider: 'openrouter',
+    upstream: 'thinkingmachines/inkling-2-small',
+    // Its default is high, which can spend the whole reply budget thinking.
+    reasoningEffort: 'medium',
+  },
+  'muse-glimmer': { provider: 'nvidia', upstream: 'meta/muse-glimmer-30b' },
+  'nemotron-super-vl': { provider: 'nvidia', upstream: 'nvidia/nemotron-3.5-super-vl-120b-a12b' },
+  'nemotron-ultra': { provider: 'nvidia', upstream: 'nvidia/nemotron-3-ultra-550b-a55b' },
+  'deepseek-flash': { provider: 'nvidia', upstream: 'deepseek-ai/deepseek-v4.1-flash' },
 }
 
 // Only these app models accept inline images. Keep in sync with src/lib/data.ts.
-const VISION_MODEL_IDS = new Set(['nemotron-nano-omni', 'nemotron-super-vl'])
+const VISION_MODEL_IDS = new Set([
+  'nemotron-nano-omni',
+  'gemma-4-31b',
+  'inkling-2-small',
+  'nemotron-super-vl',
+])
 
 export type StatusPayload = {
-  provider: 'nvidia' | 'demo'
+  provider: 'nvidia'
   configured: boolean
+  providers: Record<ProviderId, boolean>
   endpoint: string
   models: Record<string, string>
   webReaders?: string[]
 }
 
-function overrideEnvName(id: string) {
-  return `NVIDIA_MODEL_${id.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}`
+function overrideEnvName(id: string, provider: ProviderId) {
+  return `${PROVIDERS[provider].envPrefix}${id.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}`
 }
 
 export const SYSTEM_PROMPT = `You are Mint, a patient tutor for school students. Your job is to help them understand, not just to hand over answers.
@@ -68,7 +99,7 @@ How to teach
 - Your reply has a limited budget, shared by your private reasoning and the answer. Spend at most about a third of it on private reasoning, then start writing: put the key idea first and finish cleanly instead of starting sections you cannot complete.
 
 Teach visually
-Reach for a picture whenever it explains faster than words: a graph for any function or data, a diagram for any process, cycle or structure, a table for comparisons.
+Reach for a picture whenever it explains faster than words: a graph for any function or data, a diagram for any process, cycle or structure, a table for comparisons. When the student asks you to plot, graph, chart or draw something, always include that block in the same reply; never postpone it.
 
 Graphs: emit a fenced code block with the language "plot" containing one valid JSON object and nothing else (no comments, trailing commas, or prose inside the fence).
 
@@ -218,34 +249,63 @@ export function loadServerKey(root = process.cwd()): string {
   }
 }
 
+/** OpenRouter key, set as OPEN_CODE_KEY on the server (OPENROUTER_API_KEY also works). */
+export function loadOpenRouterKey(root = process.cwd()): string {
+  const names = ['OPEN_CODE_KEY', 'OPENROUTER_API_KEY']
+  for (const name of names) {
+    const fromProcess = cleanKey(process.env[name] ?? '')
+    if (fromProcess) return fromProcess
+  }
+  for (const file of ['.env.local', '.env']) {
+    const values = readEnvFile(resolve(root, file))
+    for (const name of names) {
+      const fromEnv = cleanKey(values[name] ?? '')
+      if (fromEnv) return fromEnv
+    }
+  }
+  return ''
+}
+
+function providerKey(provider: ProviderId, root: string): string {
+  return provider === 'openrouter' ? loadOpenRouterKey(root) : loadServerKey(root)
+}
+
 function cleanModelId(value: string): string {
   const id = value.trim()
   if (!id || id.length > 160 || /[\s"'\\]/.test(id)) return ''
   return id
 }
 
-export function getModelIds(root = process.cwd()): Record<string, string> {
+export function getModelRoutes(root = process.cwd()): Record<string, ModelRoute> {
   const env: Record<string, string> = {
     ...readEnvFile(resolve(root, '.env')),
     ...readEnvFile(resolve(root, '.env.local')),
   }
-  const ids: Record<string, string> = {}
+  const routes: Record<string, ModelRoute> = {}
 
-  for (const [id, fallback] of Object.entries(DEFAULT_MODEL_IDS)) {
-    const name = overrideEnvName(id)
-    ids[id] = cleanModelId(process.env[name] ?? env[name] ?? '') || fallback
+  for (const [id, route] of Object.entries(DEFAULT_MODEL_ROUTES)) {
+    const name = overrideEnvName(id, route.provider)
+    routes[id] = {
+      ...route,
+      upstream: cleanModelId(process.env[name] ?? env[name] ?? '') || route.upstream,
+    }
   }
 
-  return ids
+  return routes
 }
 
 export function getStatusPayload(root = process.cwd()): StatusPayload {
-  const configured = Boolean(loadServerKey(root))
+  const providers = {
+    nvidia: Boolean(loadServerKey(root)),
+    openrouter: Boolean(loadOpenRouterKey(root)),
+  }
+  const routes = getModelRoutes(root)
   return {
-    provider: configured ? 'nvidia' : 'demo',
-    configured,
+    provider: 'nvidia',
+    configured: providers.nvidia || providers.openrouter,
+    providers,
     endpoint: 'integrate.api.nvidia.com',
-    models: getModelIds(root),
+    models: Object.fromEntries(Object.entries(routes).map(([id, route]) => [id, route.upstream])),
   }
 }
 
@@ -397,23 +457,29 @@ export async function createChatResponse(
   options: { root?: string; signal?: AbortSignal } = {},
 ): Promise<Response> {
   const root = options.root ?? process.cwd()
-  const key = loadServerKey(root)
+  const record = body && typeof body === 'object' ? (body as JsonRecord) : {}
+  const routes = getModelRoutes(root)
+  const requestedId = typeof record.model === 'string' ? record.model : ''
+  const requested = routes[requestedId] ? requestedId : DEFAULT_APP_MODEL
+  const route = routes[requested]
+  const provider = PROVIDERS[route.provider]
+  const key = providerKey(route.provider, root)
 
   if (!key) {
     return jsonResponse(503, {
       error: {
         code: 'NO_KEY',
-        message: 'Live inference is not configured on the server.',
+        message:
+          route.provider === 'openrouter'
+            ? 'This model needs an OpenRouter key (OPEN_CODE_KEY) on the server. Pick another model for now.'
+            : 'Live answers are not set up on this server yet. Ask whoever runs Mint to add an NVIDIA API key.',
       },
     })
   }
 
   try {
-    const record = body && typeof body === 'object' ? (body as JsonRecord) : {}
     const messages = normalizeMessages(record.messages)
-    const ids = getModelIds(root)
-    const requested = typeof record.model === 'string' ? record.model : ''
-    const model = ids[requested] ?? ids[DEFAULT_APP_MODEL]
+    const model = route.upstream
     const hasImages = messages.some(
       (message) =>
         Array.isArray(message.content) &&
@@ -424,7 +490,7 @@ export async function createChatResponse(
       throw new HttpError(
         400,
         'MODEL_NO_VISION',
-        'That model cannot read images. Choose a vision model in Quick or Intelligent.',
+        'That model cannot read images. Choose a model marked Vision.',
       )
     }
 
@@ -432,7 +498,6 @@ export async function createChatResponse(
       numberIn(record.max_tokens, 128, MAX_OUTPUT_TOKENS, MIN_OUTPUT_TOKENS),
     )
     const payload = {
-      model,
       messages: withSystemPrompt(messages, outputBudget),
       temperature: numberIn(record.temperature, 0, 1.5, 0.6),
       top_p: 0.95,
@@ -447,31 +512,39 @@ export async function createChatResponse(
     // Only the wait for response headers is bounded; a long stream may run on.
     const headerTimer = setTimeout(() => controller.abort(), 60_000)
 
-    const requestUpstream = (modelId: string) =>
-      fetch(NVIDIA_URL, {
+    const requestUpstream = (target: ModelRoute, targetKey: string) =>
+      fetch(PROVIDERS[target.provider].url, {
         method: 'POST',
         headers: {
           Accept: 'text/event-stream',
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${key}`,
+          Authorization: `Bearer ${targetKey}`,
+          ...(target.provider === 'openrouter' ? { 'X-Title': 'Mint' } : {}),
         },
-        body: JSON.stringify({ ...payload, model: modelId }),
+        body: JSON.stringify({
+          ...payload,
+          model: target.upstream,
+          ...(target.reasoningEffort ? { reasoning: { effort: target.reasoningEffort } } : {}),
+        }),
         signal: controller.signal,
       })
 
     let upstream: Response
     let usedModel = model
     try {
-      upstream = await requestUpstream(model)
+      upstream = await requestUpstream(route, key)
       // A retired or renamed upstream model answers 404/410. Retry once on the
       // default model so a stale catalog entry never breaks a conversation.
+      const fallback = routes[DEFAULT_APP_MODEL]
+      const fallbackKey = providerKey(fallback.provider, root)
       if (
         (upstream.status === 404 || upstream.status === 410) &&
-        model !== ids[DEFAULT_APP_MODEL]
+        requested !== DEFAULT_APP_MODEL &&
+        fallbackKey
       ) {
         await upstream.body?.cancel().catch(() => undefined)
-        usedModel = ids[DEFAULT_APP_MODEL]
-        upstream = await requestUpstream(usedModel)
+        usedModel = fallback.upstream
+        upstream = await requestUpstream(fallback, fallbackKey)
       }
     } catch (error) {
       if (controller.signal.aborted && !options.signal?.aborted) {
@@ -493,20 +566,29 @@ export async function createChatResponse(
         throw new HttpError(
           401,
           'INVALID_KEY',
-          'NVIDIA rejected the server API key. Replace the key and reload.',
+          `${provider.name} rejected the server API key. Replace the key and reload.`,
+        )
+      }
+      if (upstream.status === 402) {
+        throw new HttpError(
+          402,
+          'OUT_OF_CREDITS',
+          `${provider.name} has no credit left for this model. Top up the account or pick another model.`,
         )
       }
       if (upstream.status === 429) {
         throw new HttpError(
           429,
           'RATE_LIMITED',
-          'The free NVIDIA tier allows about 40 requests per minute, shared across everyone on this site. Wait ~60 seconds and try again, or switch to a lighter model (Quick or Normal).',
+          route.provider === 'nvidia'
+            ? 'The free NVIDIA tier allows about 40 requests per minute, shared across everyone on this site. Wait ~60 seconds and try again, or switch to a lighter model (Quick or Normal).'
+            : `${provider.name} is rate limiting this model right now. Wait a minute and try again, or switch models.`,
         )
       }
       throw new HttpError(
         502,
         'UPSTREAM_ERROR',
-        `NVIDIA returned ${upstream.status}${detail ? `: ${detail}` : '.'}`,
+        `${provider.name} returned ${upstream.status}${detail ? `: ${detail}` : '.'}`,
       )
     }
 
@@ -516,7 +598,7 @@ export async function createChatResponse(
       throw new HttpError(
         502,
         'UPSTREAM_FORMAT',
-        `NVIDIA returned an unexpected response${detail ? `: ${detail}` : '.'}`,
+        `${provider.name} returned an unexpected response${detail ? `: ${detail}` : '.'}`,
       )
     }
 
@@ -527,7 +609,7 @@ export async function createChatResponse(
         'Cache-Control': 'no-cache, no-transform',
         Connection: 'keep-alive',
         'X-Accel-Buffering': 'no',
-        'X-Mint-Provider': 'nvidia',
+        'X-Mint-Provider': usedModel === model ? route.provider : 'nvidia',
         'X-Mint-Model': usedModel,
         ...(usedModel === model ? {} : { 'X-Mint-Fallback': model }),
       },
@@ -547,7 +629,7 @@ export async function createChatResponse(
     return jsonResponse(502, {
       error: {
         code: 'UPSTREAM_UNREACHABLE',
-        message: `Could not reach NVIDIA${detail ? `: ${detail}` : '.'}`,
+        message: `Could not reach ${provider.name}${detail ? `: ${detail}` : '.'}`,
       },
     })
   }

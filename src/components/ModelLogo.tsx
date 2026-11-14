@@ -1,14 +1,14 @@
 import type { FileCapability, Model } from '../lib/data'
 import { modelCapabilities } from '../lib/data'
-import { Eye, FileText, Globe2 } from 'lucide-react'
+import { Eye, FileText } from 'lucide-react'
 import { MODEL_LOGOS } from './modelLogoPaths'
 
 const LOGO_COLORS: Record<string, string> = {
   NVIDIA: '#76B900',
   DeepSeek: '#4D6BFE',
   Meta: '#0866FF',
-  Mistral: '#FA520F',
-  MiniMax: '#F23F79',
+  Google: '#4285F4',
+  'Thinking Machines': '#E8E3D6',
   Poolside: '#59B8FF',
 }
 
@@ -49,14 +49,12 @@ export function ModelLogo({
 
 function CapabilityIcon({ capability }: { capability: FileCapability }) {
   if (capability === 'image') return <Eye size={9} />
-  if (capability === 'web') return <Globe2 size={9} />
   return <FileText size={9} />
 }
 
 const CAPABILITY_LABEL: Record<FileCapability, string> = {
   text: 'Text',
   image: 'Vision',
-  web: 'Web',
 }
 
 export function ModelCapabilityBadges({

@@ -8,13 +8,12 @@ import {
   rehydrateText,
   formatBytes,
 } from '../src/lib/privacy'
-import { compactedHistory } from '../src/lib/context'
 import {
+  buildContextMessages,
+  compactedHistory,
+  contextLimitTokens,
   contextMaxTokens,
   formatTokens,
-  growContextWindow,
-  initialContextWindow,
-  outputBudgetTokens,
   retryOutputBudget,
   spentReasoningOnly,
 } from '../src/lib/context'
@@ -130,22 +129,25 @@ test('byte formatting stays readable across units', () => {
   assert.equal(formatBytes(5 * 1024 * 1024), '5.0 MB')
 })
 
-test('context windows grow by powers of two up to the model maximum', () => {
-  const model = { context: '128K' } as never
-  const max = contextMaxTokens(model)
-  assert.equal(max, 131_072)
-  assert.equal(initialContextWindow(max), 2048)
-  assert.equal(growContextWindow(2048, max), 4096)
-  assert.equal(growContextWindow(3000, max), 4096)
-  assert.equal(growContextWindow(16_384, 16_384), 16_384)
-  assert.equal(growContextWindow(2048, 3000), 3000)
+test('the context limit is the model window, capped below the proxy body limit', () => {
+  assert.equal(contextMaxTokens({ context: '128K' } as never), 131_072)
+  assert.equal(contextLimitTokens({ context: '128K' } as never), 96_000)
+  assert.equal(contextLimitTokens({ context: '32K' } as never), 32_768)
 })
 
-test('the output budget keeps room for the answer even on a small window', () => {
-  assert.equal(outputBudgetTokens(2048), 8192)
-  assert.equal(outputBudgetTokens(16_384), 8192)
-  assert.equal(outputBudgetTokens(65_536), 16_384)
-  // A retry gets more room, but never exceeds the proxy ceiling.
+test('follow-up questions carry the earlier turns in full', () => {
+  const answer = 'The roots are x = -1 and x = 3. '.repeat(60)
+  const history = [
+    { id: '1', role: 'user' as const, content: 'Plot y = x^2 - 2x - 3', createdAt: 1 },
+    { id: '2', role: 'assistant' as const, content: answer, createdAt: 2 },
+  ]
+  const sent = buildContextMessages(history, 90_000)
+  assert.equal(sent.length, 2)
+  assert.equal(sent[0].content, 'Plot y = x^2 - 2x - 3')
+  assert.equal(sent[1].content, answer)
+})
+
+test('a retry gets more output room without exceeding the proxy ceiling', () => {
   assert.equal(retryOutputBudget(8192), 12_288)
   assert.equal(retryOutputBudget(12_288), 16_384)
   assert.equal(retryOutputBudget(16_384), 16_384)

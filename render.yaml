@@ -10,6 +10,9 @@ services:
     envVars:
       - key: NVIDIA_API_KEY
         sync: false
+      # OpenRouter key for Gemma 4 31B and Inkling 2 Small.
+      - key: OPEN_CODE_KEY
+        sync: false
       # Requests per minute per visitor for /api/chat (default 15).
       # This is the only spending control, so keep it set.
       - key: MINT_RATE_LIMIT

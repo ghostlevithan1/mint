@@ -2,10 +2,15 @@ import type { Model } from './data'
 import { uid, type ChatMessage } from './chat'
 import type { Attachment } from './files'
 
-/** Every chat starts with a small window and doubles until the model limit. */
-export const CONTEXT_START = 2048
-/** Compact once this share of the current window is in use. */
+/** Compact once this share of the context limit is in use. */
 export const COMPACT_AT = 0.95
+/**
+ * Most conversation one request may carry. The proxy rejects bodies above
+ * 400K characters (~100K tokens), so stay below that even on larger models.
+ */
+const REQUEST_TOKEN_CAP = 96_000
+/** History turns per request; the proxy keeps at most 40 messages, tool steps included. */
+const MAX_HISTORY_MESSAGES = 28
 
 export type ContextContentPart =
   | { type: 'text'; text: string }
@@ -29,41 +34,28 @@ export type ContextImageBudget = {
 const MAX_CONTEXT_IMAGES = 8
 const MAX_CONTEXT_IMAGE_CHARS = 8_000_000
 
+/** The model's advertised context window in tokens, e.g. "128K" → 131072. */
 export function contextMaxTokens(model: Model): number {
   const match = /^\s*([\d.]+)\s*([KkMm])?\s*$/.exec(model.context)
-  if (!match) return CONTEXT_START
+  if (!match) return REQUEST_TOKEN_CAP
   const value = Number(match[1])
-  if (!Number.isFinite(value) || value <= 0) return CONTEXT_START
+  if (!Number.isFinite(value) || value <= 0) return REQUEST_TOKEN_CAP
   const suffix = match[2]?.toLowerCase()
   const multiplier = suffix === 'm' ? 1_000_000 : suffix === 'k' ? 1024 : 1
-  return Math.max(CONTEXT_START, Math.round(value * multiplier))
+  return Math.round(value * multiplier)
 }
 
-export function initialContextWindow(maxTokens: number): number {
-  return Math.min(CONTEXT_START, maxTokens)
-}
-
-/** Next power of two at or above `current`, capped by the model maximum. */
-export function growContextWindow(current: number, maxTokens: number): number {
-  if (current >= maxTokens) return maxTokens
-  let power = CONTEXT_START
-  while (power <= current) power *= 2
-  return Math.min(power, maxTokens)
+/** Tokens of conversation a request to this model may carry. */
+export function contextLimitTokens(model: Model): number {
+  return Math.min(contextMaxTokens(model), REQUEST_TOKEN_CAP)
 }
 
 /**
- * Answer budget (reasoning + answer combined) sent to the model. Reasoning
- * models burn output tokens on scratchpad, so the budget scales with the
- * current context window rather than using a small fixed cap. The floor is
+ * Answer budget (reasoning + answer combined) sent to the model. The floor is
  * high enough that a long private chain still leaves room for the answer.
  */
-export const MIN_OUTPUT_TOKENS = 8192
+export const OUTPUT_TOKENS = 8192
 export const MAX_OUTPUT_TOKENS = 16384
-
-export function outputBudgetTokens(windowTokens: number): number {
-  const scaled = Math.floor(Math.max(1, windowTokens) / 2)
-  return Math.min(MAX_OUTPUT_TOKENS, Math.max(MIN_OUTPUT_TOKENS, scaled))
-}
 
 /**
  * Budget for one more attempt when a reasoner spent the whole cap on its
@@ -71,7 +63,7 @@ export function outputBudgetTokens(windowTokens: number): number {
  */
 export function retryOutputBudget(outputTokens: number): number {
   const raised = Math.max(outputTokens + 4096, Math.round(outputTokens * 1.5))
-  return Math.min(MAX_OUTPUT_TOKENS, Math.max(MIN_OUTPUT_TOKENS, raised))
+  return Math.min(MAX_OUTPUT_TOKENS, Math.max(OUTPUT_TOKENS, raised))
 }
 
 /**
@@ -84,12 +76,6 @@ export function spentReasoningOnly(
   reasoning: string,
 ): boolean {
   return finishReason === 'length' && !answer.trim() && Boolean(reasoning.trim())
-}
-
-export function clampContextWindow(window: number | undefined, model: Model): number {
-  const max = contextMaxTokens(model)
-  const current = Math.round(window ?? initialContextWindow(max))
-  return Math.max(initialContextWindow(max), Math.min(current, max))
 }
 
 export function estimateTextTokens(text: string): number {
@@ -253,6 +239,7 @@ export function buildContextMessages(
   for (let index = normal.length - 1; index >= 0; index -= 1) {
     const message = normal[index]
     const cost = pickCost(message)
+    if (picked.length >= MAX_HISTORY_MESSAGES) break
     if (cost > left && picked.length > 0) break
     picked.unshift(message)
     left -= cost

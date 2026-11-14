@@ -35,11 +35,15 @@ type StreamChunk = {
   choices?: Array<{
     delta?: {
       content?: string | null
+      /** NVIDIA NIM names the scratchpad reasoning_content, OpenRouter reasoning. */
       reasoning_content?: string | null
+      reasoning?: string | null
     }
     finish_reason?: string | null
   }>
   usage?: StreamUsage
+  /** OpenRouter reports failures after the stream has started as an error frame. */
+  error?: { message?: string; code?: number | string }
 }
 
 export class ChatApiError extends Error {
@@ -98,16 +102,26 @@ export async function streamNvidiaChat(request: StreamRequest, handlers: StreamH
   const decoder = new TextDecoder()
   let buffer = ''
   let done = false
+  let streamError: ChatApiError | null = null
 
   const handleData = (data: string) => {
     if (!data) return false
     if (data === '[DONE]') return true
     try {
       const parsed = JSON.parse(data) as StreamChunk
+      if (parsed.error) {
+        streamError = new ChatApiError(
+          parsed.error.message || 'The model stopped with an error. Try again or switch models.',
+          'STREAM_ERROR',
+          502,
+        )
+        return true
+      }
       const choice = parsed.choices?.[0]
       const delta = choice?.delta
-      if (typeof delta?.reasoning_content === 'string' && delta.reasoning_content) {
-        handlers.onReasoning?.(delta.reasoning_content)
+      const reasoning = delta?.reasoning_content || delta?.reasoning
+      if (typeof reasoning === 'string' && reasoning) {
+        handlers.onReasoning?.(reasoning)
       }
       if (typeof delta?.content === 'string' && delta.content) handlers.onDelta(delta.content)
       if (typeof choice?.finish_reason === 'string' && choice.finish_reason) {
@@ -147,4 +161,6 @@ export async function streamNvidiaChat(request: StreamRequest, handlers: StreamH
   } finally {
     await reader.cancel().catch(() => undefined)
   }
+
+  if (streamError) throw streamError
 }

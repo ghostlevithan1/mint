@@ -1,9 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { DEFAULT_MODEL_ID, MODELS } from '../lib/data'
 import { modelById, type Conversation } from '../lib/chat'
-import { clampContextWindow, contextMaxTokens, conversationTokens } from '../lib/context'
+import { contextLimitTokens, conversationTokens } from '../lib/context'
 import { redactText } from '../lib/privacy'
-import { getStoredJpegConversion, saveJpegConversion } from '../lib/preferences'
+import {
+  getStoredJpegConversion,
+  getStoredMetrics,
+  getStoredModelId,
+  getStoredShield,
+  saveJpegConversion,
+  saveMetrics,
+  saveModelId,
+  saveShield,
+} from '../lib/preferences'
 import { useConversations } from '../hooks/useConversations'
 import { useProviderStatus } from '../hooks/useProviderStatus'
 import type { Attachment } from '../lib/files'
@@ -33,15 +42,17 @@ export function ChatApp() {
     renameChat,
     clearChats,
     compactChat,
-    growContext,
     setChatModel,
   } = useConversations()
   const { status: provider, refresh: refreshProvider } = useProviderStatus()
 
-  const [defaultModelId, setDefaultModelId] = useState(DEFAULT_MODEL_ID)
+  const [defaultModelId, setDefaultModelId] = useState(() => {
+    const stored = getStoredModelId()
+    return MODELS.some((model) => model.id === stored) ? (stored as string) : DEFAULT_MODEL_ID
+  })
   const [convertImagesToJpeg, setConvertImagesToJpeg] = useState(getStoredJpegConversion)
-  const [shieldOn, setShieldOn] = useState(true)
-  const [showMetrics, setShowMetrics] = useState(false)
+  const [shieldOn, setShieldOn] = useState(getStoredShield)
+  const [showMetrics, setShowMetrics] = useState(getStoredMetrics)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('general')
@@ -50,8 +61,7 @@ export function ChatApp() {
   const undoTimer = useRef<number | null>(null)
 
   const selectedModel = modelById(MODELS, activeChat.modelId ?? defaultModelId)
-  const contextMax = contextMaxTokens(selectedModel)
-  const contextWindow = clampContextWindow(activeChat.contextWindow, selectedModel)
+  const contextLimit = contextLimitTokens(selectedModel)
   const contextUsed = useMemo(
     () => conversationTokens(activeChat.messages),
     [activeChat.messages],
@@ -88,6 +98,7 @@ export function ChatApp() {
 
   const handleSelectModel = (id: string) => {
     setDefaultModelId(id)
+    saveModelId(id)
     setChatModel(activeId, id)
   }
 
@@ -133,18 +144,21 @@ export function ChatApp() {
     saveJpegConversion(convertImagesToJpeg)
   }, [convertImagesToJpeg])
 
+  useEffect(() => {
+    saveShield(shieldOn)
+  }, [shieldOn])
+
+  useEffect(() => {
+    saveMetrics(showMetrics)
+  }, [showMetrics])
+
   const handleSend = (text: string, attachments: Attachment[]) => {
-    sendMessage({
+    void sendMessage({
       text,
       attachments,
       shieldOn,
       model: selectedModel,
-      provider: provider.mode,
     })
-  }
-
-  const handleRegenerate = (assistantId: string) => {
-    regenerate(assistantId, provider.mode)
   }
 
   const handleDeleteChat = (id: string) => {
@@ -217,15 +231,13 @@ export function ChatApp() {
         convertImagesToJpeg={convertImagesToJpeg}
         isGenerating={isGenerating}
         contextUsed={contextUsed}
-        contextWindow={contextWindow}
-        contextMax={contextMax}
-        onCompact={() => void compactChat(provider.mode)}
-        onGrowContext={() => growContext(selectedModel)}
+        contextLimit={contextLimit}
+        onCompact={() => void compactChat()}
         isCompacting={compactingChatId === activeId}
         onSelectModel={handleSelectModel}
         onSend={handleSend}
         onStop={stopGenerating}
-        onRegenerate={handleRegenerate}
+        onRegenerate={regenerate}
         onInspectMessage={setPayloadMessageId}
         onOpenSettings={openSettings}
         onOpenSidebar={() => setSidebarOpen(true)}

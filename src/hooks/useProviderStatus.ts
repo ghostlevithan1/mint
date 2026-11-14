@@ -2,9 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { INITIAL_PROVIDER_STATUS, type ProviderStatus } from '../lib/provider'
 
 type StatusResponse = {
-  provider?: string
   configured?: boolean
-  models?: Record<string, string>
+  providers?: { nvidia?: boolean; openrouter?: boolean }
 }
 
 export function useProviderStatus() {
@@ -15,24 +14,28 @@ export function useProviderStatus() {
       const response = await fetch('/api/status', { headers: { Accept: 'application/json' } })
       if (!response.ok) throw new Error(`Status request failed (${response.status}).`)
       const data = (await response.json()) as StatusResponse
-      const live = data.provider === 'nvidia' && data.configured === true
+      const nvidia = data.providers?.nvidia ?? data.configured === true
+      const openrouter = data.providers?.openrouter === true
+      const live = nvidia || openrouter
+      const names = [nvidia && 'NVIDIA NIM', openrouter && 'OpenRouter'].filter(Boolean)
       setStatus({
         checked: true,
-        configured: data.configured === true,
-        mode: live ? 'nvidia' : 'demo',
-        label: live ? 'NVIDIA NIM' : 'Local demo',
-        detail: live
-          ? 'Answers stream from NVIDIA NIM through the server proxy.'
-          : 'Live inference is not configured. Answers come from the local demo engine.',
+        live,
+        label: live ? names.join(' + ') : 'Not configured',
+        detail: !live
+          ? 'The server has no API keys, so questions cannot be answered yet.'
+          : nvidia && openrouter
+            ? 'Answers stream from NVIDIA NIM and OpenRouter through the server proxy.'
+            : nvidia
+              ? 'Answers stream from NVIDIA NIM. Gemma 4 and Inkling need an OpenRouter key (OPEN_CODE_KEY).'
+              : 'Answers stream from OpenRouter. The NVIDIA models need an NVIDIA API key.',
       })
     } catch {
       setStatus({
         checked: true,
-        configured: false,
-        mode: 'demo',
-        label: 'Local demo',
-        detail:
-          'The inference proxy is unavailable. Answers come from the local demo engine until it is reachable.',
+        live: false,
+        label: 'Unreachable',
+        detail: 'The Mint server could not be reached. Check your connection.',
       })
     }
   }, [])

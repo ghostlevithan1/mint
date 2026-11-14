@@ -5,10 +5,9 @@ Ask anything or attach files, pick a model, and watch a streamed answer arrive w
 live generation metrics — while personal identifiers are replaced on-device before
 anything leaves the tab.
 
-Answers stream from **NVIDIA NIM** when a server-side key is configured. Without a
-key, the workspace falls back to a local demo engine and clearly labels those answers
-as simulated. The API key is read only by the server; it is never bundled into the
-browser.
+Answers stream from **NVIDIA NIM** through a server-side key. Without a key, a
+question shows a clear "not set up" error. The API key is read only by the server;
+it is never bundled into the browser.
 
 ## Stack
 
@@ -84,30 +83,38 @@ The server reads the key at request time. Choose one of these options:
 The `key` file and `.env` are git-ignored. The key is never sent to the browser,
 never written to logs, and never included in an error message.
 
+## OpenRouter setup
+
+Gemma 4 31B and Inkling 2 Small run on OpenRouter. Set the OpenRouter API key as
+`OPEN_CODE_KEY` (in the Render dashboard, `.env`, or the shell; `OPENROUTER_API_KEY`
+also works). Without it, those two models answer with a "needs an OpenRouter key"
+error and every NVIDIA model keeps working.
+
+## Models
+
 Every model belongs to a **model type**: Quick, Normal, or Intelligent. The type
 sets the reasoning depth and pace; the model menu and Settings both group models by
-it. Override any mapping with the generated `NVIDIA_MODEL_*` variable shown in
-`.env.example`.
+it. Override any mapping with the generated `NVIDIA_MODEL_*` or
+`OPENROUTER_MODEL_*` variable shown in `.env.example`.
 
-| Model type | App model | NVIDIA NIM model |
-| --- | --- | --- |
-| Quick | Nemotron 3.5 Lightning | `nvidia/nemotron-3.5-lightning-30b-a3b` |
-| Quick | Nemotron 3 Nano Omni | `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning` |
-| Normal | Laguna XS 2.1 | `poolside/laguna-xs-2.1` |
-| Normal | MiniMax M3.1 Flash | `minimaxai/minimax-m3.1-flash` |
-| Normal | Muse Glimmer 30B | `meta/muse-glimmer-30b` |
-| Intelligent | Mistral Large 4 | `mistralai/mistral-large-4-1t-a52b` |
-| Intelligent | Nemotron 3.5 Super VL | `nvidia/nemotron-3.5-super-vl-120b-a12b` |
-| Intelligent | Nemotron 3 Ultra | `nvidia/nemotron-3-ultra-550b-a55b` |
-| Intelligent | DeepSeek V4.1 Flash | `deepseek-ai/deepseek-v4.1-flash` |
+| Model type | App model | Provider | Upstream model |
+| --- | --- | --- | --- |
+| Quick | Nemotron 3.5 Lightning | NVIDIA NIM | `nvidia/nemotron-3.5-lightning-30b-a3b` |
+| Quick | Nemotron 3 Nano Omni | NVIDIA NIM | `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning` |
+| Quick | Gemma 4 31B | OpenRouter | `google/gemma-4-31b-it` |
+| Normal | Laguna XS 2.1 | NVIDIA NIM | `poolside/laguna-xs-2.1` |
+| Normal | Inkling 2 Small | OpenRouter | `thinkingmachines/inkling-2-small` |
+| Normal | Muse Glimmer 30B | NVIDIA NIM | `meta/muse-glimmer-30b` |
+| Intelligent | Nemotron 3.5 Super VL | NVIDIA NIM | `nvidia/nemotron-3.5-super-vl-120b-a12b` |
+| Intelligent | Nemotron 3 Ultra | NVIDIA NIM | `nvidia/nemotron-3-ultra-550b-a55b` |
+| Intelligent | DeepSeek V4.1 Flash | NVIDIA NIM | `deepseek-ai/deepseek-v4.1-flash` |
 
 If an upstream model disappears (HTTP 404/410), the server retries once on the
 default model and marks the answer with `X-Mint-Fallback`; the UI shows a
 `FALLBACK MODEL` tag instead of failing the turn.
 
-The composer footer shows whether the workspace is on **NVIDIA NIM · live** or
-**Local demo**. Settings → About has a **Recheck** button after you add a key.
-The server reads the file at runtime, so no restart is required.
+Settings → About shows whether the server has a key, with a **Recheck** button
+after you add one. The server reads the file at runtime, so no restart is required.
 
 Some NVIDIA Build models have very long time-to-first-token. The waiting card
 counts elapsed seconds, explains that 20–30 s warm-ups happen, and reminds you
@@ -149,11 +156,11 @@ that `Esc` stops the request.
 - **Enter** sends; **Shift + Enter** adds a line; **Esc** stops generation.
 - **Export all chats** (Settings → Privacy) downloads one JSON file.
 - **Stop** ends a streamed answer; **Regenerate** re-runs the last response.
-- **Metrics** under each answer are measured from the live SSE stream. Demo answers
-  are labelled `SIMULATED`; live answers are labelled `NVIDIA NIM`.
-- **Demo engine** covers a small scripted set: simple linear equations and
-  arithmetic, contract/legal reviews, research summaries, email drafts, and code
-  reviews.
+- **Metrics** (Settings → General) under each answer are measured from the live
+  SSE stream.
+- **Context meter** in the top bar shows how much of the conversation is sent with
+  each question. Older turns are summarised automatically near the limit, or type
+  `/compact` to do it now.
 
 ## Privacy and storage model
 
@@ -169,8 +176,8 @@ that `Esc` stops the request.
 - **Inspect payload** shows the exact redacted request before it leaves the tab.
 - Returned answers are rehydrated locally, so placeholders become the original
   values only inside the browser.
-- A live request replays as much prior conversation as fits the selected model's
-  context window, oldest turns first. The server relays it to NVIDIA NIM for the
+- A request replays as much prior conversation as fits the selected model's
+  context window (capped at 96K tokens), newest turns first. The server relays it to NVIDIA NIM for the
   length of the request; it does not write prompts or answers to disk.
 - The PII shield is on by default and can be turned off in Settings → Privacy.
 - The NVIDIA key lives on the server. The browser only calls `/api/chat`, and the
@@ -197,7 +204,8 @@ meta tag, so a deployed instance stays out of search engines.
 `render.yaml` describes the service. Set these environment
 variables in the dashboard (they are `sync: false`, so they are never committed):
 
-- `NVIDIA_API_KEY` — enables live inference
+- `NVIDIA_API_KEY` — enables the NVIDIA NIM models
+- `OPEN_CODE_KEY` — OpenRouter key for Gemma 4 31B and Inkling 2 Small
 - `MINT_RATE_LIMIT` — defaults to `15`; keep it set, it is the only spending guard
 
 Build with `npm ci --include=dev && npm run build`, start with `npm start`. The
@@ -226,7 +234,7 @@ src/
     PayloadModal.tsx         redacted payload audit
   hooks/
     useConversations.ts      chats, streaming, compacting, undo, storage errors
-    useProviderStatus.ts     checks /api/status for live vs demo mode
+    useProviderStatus.ts     checks /api/status for a configured key
     useAttachments.ts        25 MB / 10-file validation and local reading
   lib/
     chat.ts                  conversation and message types
@@ -237,7 +245,6 @@ src/
     agent.ts                 tool call parsing, calculator and tool status
     files.ts                 attachment kinds, reading, validation
     privacy.ts               PII detection, redaction, rehydration
-    demo-engine.ts           simulated answers and intent routing
   styles/
     base.css                 tokens and shared primitives
     chat.css                 sidebar, thread, composer, responsive layout

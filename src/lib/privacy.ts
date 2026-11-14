@@ -440,11 +440,6 @@ export function rehydrateText(text: string, redactions: Redaction[]): string {
   return output
 }
 
-export function estimateTokens(text: string): number {
-  if (!text.trim()) return 0
-  return Math.max(1, Math.round(text.trim().split(/\s+/).length * 1.34))
-}
-
 export function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B'
   if (bytes < 1024) return `${bytes} B`

@@ -589,7 +589,7 @@
 
 .context-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 7px;
   margin-top: 12px;
 }
@@ -727,12 +727,12 @@
   font-weight: 400;
 }
 
-.model-trigger svg:last-child {
+.model-trigger > svg:last-child {
   color: var(--dim);
   transition: transform 160ms ease;
 }
 
-.model-trigger svg.is-open {
+.model-trigger > svg.is-open {
   transform: rotate(180deg);
 }
 
@@ -922,12 +922,6 @@
   border-color: var(--line);
   background: transparent;
   color: var(--muted);
-}
-
-.model-cap-badge.cap-web {
-  border-color: rgba(var(--clay-rgb), 0.3);
-  background: rgba(var(--clay-rgb), 0.08);
-  color: var(--clay);
 }
 
 .model-cap-badge {
@@ -1438,12 +1432,6 @@
   background: rgba(var(--clay-rgb), 0.13);
 }
 
-.web-sources-error {
-  flex: 1 1 100%;
-  color: var(--amber);
-  font-size: 12px;
-}
-
 /* /compact progress: live summary streaming inside the thread */
 .msg-system.is-compacting {
   display: flex;
@@ -1485,19 +1473,13 @@
   white-space: pre-wrap;
 }
 
-.stopped-tag,
-.live-tag {
+.stopped-tag {
   padding: 2px 5px;
   border: 1px solid rgba(var(--amber-rgb), 0.3);
   border-radius: 4px;
   color: var(--amber);
   font-family: var(--mono);
   font-size: 12px;
-}
-
-.live-tag {
-  border-color: var(--line);
-  color: var(--green);
 }
 
 .assistant-text {
@@ -1779,21 +1761,6 @@
   font-weight: 500;
 }
 
-.sim-tag {
-  margin-left: auto;
-  padding: 2px 5px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  color: var(--dim);
-  font-family: var(--mono);
-  font-size: 12px;
-}
-
-.sim-tag.is-live {
-  border-color: var(--line);
-  color: var(--green);
-}
-
 .message-actions {
   display: flex;
   align-items: center;
@@ -1904,6 +1871,29 @@
 .markdown strong {
   color: var(--text);
   font-weight: 600;
+}
+
+/* Geist ships no italic, so let the browser slant it here. */
+.markdown em {
+  font-style: italic;
+  font-synthesis: style;
+}
+
+.markdown a {
+  color: var(--text);
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 2px;
+}
+
+.markdown a:hover {
+  text-decoration-color: currentColor;
+}
+
+.markdown hr {
+  margin: 16px 0;
+  border: 0;
+  border-top: 1px solid var(--line-soft);
 }
 
 .markdown blockquote {
@@ -3038,10 +3028,6 @@
 
   .metric-primary strong {
     font-size: 15px;
-  }
-
-  .sim-tag {
-    display: none;
   }
 
   .composer-dock {
