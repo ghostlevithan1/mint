@@ -35,7 +35,6 @@ const DEFAULT_MODEL_IDS: Record<string, string> = {
   'mistral-large-4': 'mistralai/mistral-large-4-1t-a52b',
   'nemotron-super-vl': 'nvidia/nemotron-3.5-super-vl-120b-a12b',
   'nemotron-ultra': 'nvidia/nemotron-3-ultra-550b-a55b',
-  'deepseek-flash': 'deepseek-ai/deepseek-v4.1-flash',
 }
 
 // Only these app models accept inline images. Keep in sync with src/lib/data.ts.

@@ -1,8 +1,8 @@
-import type { Model, Redaction } from './data'
+import type { Model } from './data'
 import type { Attachment } from './files'
 import type { ProviderMode } from './provider'
 
-export type Phase = 'shielding' | 'routing' | 'generating' | 'done'
+export type Phase = 'preparing' | 'routing' | 'generating' | 'done'
 
 export type GenerationStats = {
   tps: number
@@ -18,14 +18,11 @@ export type ChatMessage = {
   createdAt: number
   attachments?: Attachment[]
   modelId?: string
-  redactions?: Redaction[]
-  shieldOn?: boolean
   stats?: GenerationStats
   phase?: Phase
   /** What a running tool is doing, shown while the agent works. */
   activity?: string
   stopped?: boolean
-  redactionCount?: number
   provider?: ProviderMode
   /** Reasoning models may stream a scratchpad before the answer. */
   reasoning?: string

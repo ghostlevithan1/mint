@@ -10,48 +10,44 @@ import {
   LockKeyhole,
   RefreshCw,
   ScanSearch,
-  ShieldCheck,
   SlidersHorizontal,
   Trash2,
   TriangleAlert,
+  Wrench,
   X,
 } from 'lucide-react'
 import { MOD_KEY } from '../lib/platform'
 import { LeafMark } from './Logo'
 import { MODEL_TYPES, MODELS, modelsByType, typeInfo } from '../lib/data'
 import type { ProviderStatus } from '../lib/provider'
-import { formatBytes } from '../lib/privacy'
+import { formatBytes } from '../lib/files'
 import { getStoredProfile, PROFILE_MAX_CHARS, saveProfile } from '../lib/preferences'
 import { storageUsage } from '../lib/storage'
 import { ModelCapabilityBadges, ModelLogo } from './ModelLogo'
 
-export type SettingsTab = 'general' | 'privacy' | 'about'
+export type SettingsTab = 'general' | 'data' | 'about'
 
 type SettingsModalProps = {
   open: boolean
   initialTab: SettingsTab
-  shieldOn: boolean
   modelId: string
   provider: ProviderStatus
   showMetrics: boolean
   convertImagesToJpeg: boolean
-  hasPayload: boolean
   chatCount: number
   messageCount: number
   onClose: () => void
-  onShieldChange: (value: boolean) => void
   onModelChange: (id: string) => void
   onShowMetricsChange: (value: boolean) => void
   onConvertImagesChange: (value: boolean) => void
   onExportChats: () => void
-  onOpenPayload: () => void
   onClearChats: () => void
   onRefreshProvider: () => void
 }
 
 const TABS: Array<{ id: SettingsTab; label: string; icon: typeof Info }> = [
   { id: 'general', label: 'General', icon: SlidersHorizontal },
-  { id: 'privacy', label: 'Privacy & shield', icon: ShieldCheck },
+  { id: 'data', label: 'Your data', icon: HardDrive },
   { id: 'about', label: 'About', icon: Info },
 ]
 
@@ -81,21 +77,17 @@ function Toggle({
 export function SettingsModal({
   open,
   initialTab,
-  shieldOn,
   modelId,
   provider,
   showMetrics,
   convertImagesToJpeg,
-  hasPayload,
   chatCount,
   messageCount,
   onClose,
-  onShieldChange,
   onModelChange,
   onShowMetricsChange,
   onConvertImagesChange,
   onExportChats,
-  onOpenPayload,
   onClearChats,
   onRefreshProvider,
 }: SettingsModalProps) {
@@ -105,7 +97,7 @@ export function SettingsModal({
   const panelRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    if (!open || tab !== 'privacy') return
+    if (!open || tab !== 'data') return
     let cancelled = false
     void storageUsage().then((value) => {
       if (!cancelled) setUsage(value)
@@ -345,38 +337,11 @@ export function SettingsModal({
             </div>
           )}
 
-          {tab === 'privacy' && (
+          {tab === 'data' && (
             <div className="settings-pane">
               <div className="settings-pane-head">
-                <h3>Privacy &amp; shield</h3>
-                <p>Personal identifiers are replaced on this device before a request is routed.</p>
-              </div>
-
-              <div className={`privacy-hero ${shieldOn ? 'is-on' : 'is-off'}`}>
-                <span className="privacy-hero-icon">
-                  <ShieldCheck size={22} />
-                </span>
-                <div>
-                  <strong>PII shield {shieldOn ? 'is on' : 'is off'}</strong>
-                  <p>
-                    {shieldOn
-                      ? 'Names, emails, and phone numbers become placeholders. Answers are restored only in this browser.'
-                      : 'Prompts and file text will be sent as written. Names can identify you.'}
-                  </p>
-                </div>
-                <span className="privacy-state">{shieldOn ? 'ON' : 'OFF'}</span>
-              </div>
-
-              <div className="setting-row">
-                <div>
-                  <strong>Shield personal identifiers</strong>
-                  <span>Detects names, email addresses, and phone numbers locally.</span>
-                </div>
-                <Toggle
-                  checked={shieldOn}
-                  label="Shield personal identifiers"
-                  onChange={onShieldChange}
-                />
+                <h3>Your data</h3>
+                <p>Chats and files are saved in this browser only</p>
               </div>
 
               <div className="settings-facts">
@@ -386,19 +351,9 @@ export function SettingsModal({
                   <strong>25 MB each</strong>
                 </div>
                 <div>
-                  <ScanSearch size={15} />
-                  <span>Detection</span>
-                  <strong>On device</strong>
-                </div>
-                <div>
                   <Gauge size={15} />
                   <span>Files per message</span>
                   <strong>Up to 10</strong>
-                </div>
-                <div>
-                  <LockKeyhole size={15} />
-                  <span>Retention</span>
-                  <strong>This browser</strong>
                 </div>
               </div>
 
@@ -419,14 +374,6 @@ export function SettingsModal({
               <div className="settings-actions">
                 <button
                   className="settings-action"
-                  onClick={onOpenPayload}
-                  disabled={!hasPayload}
-                  title={hasPayload ? undefined : 'Send a message first to inspect a payload'}
-                >
-                  <ShieldCheck size={15} /> Inspect last request
-                </button>
-                <button
-                  className="settings-action"
                   onClick={onExportChats}
                   disabled={chatCount === 0}
                 >
@@ -443,11 +390,6 @@ export function SettingsModal({
                   <Trash2 size={15} /> Clear all chats
                 </button>
               </div>
-
-              <p className="settings-fineprint">
-                Detection is heuristic. Use the audit view to review exactly what would leave this
-                tab before sharing sensitive material.
-              </p>
             </div>
           )}
 
@@ -469,10 +411,9 @@ export function SettingsModal({
               </div>
 
               <p className="about-copy">
-                Your chats and files stay in this browser, and names are swapped for placeholders
-                before a question is sent. When live models are available, questions go through
-                the Mint server to NVIDIA NIM and are not stored there. Without a key, answers come
-                from the local demo engine.
+                Your chats and files stay in this browser. When live models are available,
+                questions go through the Mint server to NVIDIA NIM and are not stored there.
+                Without a key, answers come from the local demo engine.
               </p>
 
               <div className={`settings-provider ${provider.mode === 'nvidia' ? 'is-live' : ''}`}>
@@ -492,9 +433,9 @@ export function SettingsModal({
 
               <div className="settings-facts">
                 <div>
-                  <ShieldCheck size={15} />
-                  <span>Redaction</span>
-                  <strong>On device</strong>
+                  <Wrench size={15} />
+                  <span>Tools</span>
+                  <strong>Search, read, calculate</strong>
                 </div>
                 <div>
                   <FileUp size={15} />

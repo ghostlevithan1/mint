@@ -1,9 +1,8 @@
-# Mint — Private AI Workspace
+# Mint
 
-A responsive, chat-first AI workspace with privacy built into the conversation.
-Ask anything or attach files, pick a model, and watch a streamed answer arrive with
-live generation metrics — while personal identifiers are replaced on-device before
-anything leaves the tab.
+A school AI tutor that explains things your way. Ask a question or attach files,
+and Mint teaches it step by step, with graphs, diagrams and pictures, searching the
+web or calculating exactly when it needs to.
 
 Answers stream from **NVIDIA NIM** when a server-side key is configured. Without a
 key, the workspace falls back to a local demo engine and clearly labels those answers
@@ -99,7 +98,6 @@ it. Override any mapping with the generated `NVIDIA_MODEL_*` variable shown in
 | Intelligent | Mistral Large 4 | `mistralai/mistral-large-4-1t-a52b` |
 | Intelligent | Nemotron 3.5 Super VL | `nvidia/nemotron-3.5-super-vl-120b-a12b` |
 | Intelligent | Nemotron 3 Ultra | `nvidia/nemotron-3-ultra-550b-a55b` |
-| Intelligent | DeepSeek V4.1 Flash | `deepseek-ai/deepseek-v4.1-flash` |
 
 If an upstream model disappears (HTTP 404/410), the server retries once on the
 default model and marks the answer with `X-Mint-Fallback`; the UI shows a
@@ -147,7 +145,7 @@ that `Esc` stops the request.
   asin acos atan sinh cosh tanh exp log ln log2 log10 sqrt abs floor ceil min max
   pow`. Angles are in radians. Charts are `line`, `scatter`, `bar` or `histogram`.
 - **Enter** sends; **Shift + Enter** adds a line; **Esc** stops generation.
-- **Export all chats** (Settings → Privacy) downloads one JSON file.
+- **Export all chats** (Settings → Your data) downloads one JSON file.
 - **Stop** ends a streamed answer; **Regenerate** re-runs the last response.
 - **Metrics** under each answer are measured from the live SSE stream. Demo answers
   are labelled `SIMULATED`; live answers are labelled `NVIDIA NIM`.
@@ -155,7 +153,7 @@ that `Esc` stops the request.
   arithmetic, contract/legal reviews, research summaries, email drafts, and code
   reviews.
 
-## Privacy and storage model
+## Storage model
 
 - Chat history, attachments, preferences, and theme are stored **in this browser**
   (IndexedDB, gzip-compressed). They are never uploaded as history and there is no
@@ -164,20 +162,11 @@ that `Esc` stops the request.
   shows a banner saying chats are not being saved.
 - Files are validated client-side; each file is capped at **25 MB** and the
   workspace accepts up to **10 files**.
-- Names, email addresses and phone numbers are detected locally and replaced with
-  placeholders such as `[PERSON_01]`, `[EMAIL_01]` and `[PHONE_01]`.
-- **Inspect payload** shows the exact redacted request before it leaves the tab.
-- Returned answers are rehydrated locally, so placeholders become the original
-  values only inside the browser.
 - A live request replays as much prior conversation as fits the selected model's
   context window, oldest turns first. The server relays it to NVIDIA NIM for the
   length of the request; it does not write prompts or answers to disk.
-- The PII shield is on by default and can be turned off in Settings → Privacy.
 - The NVIDIA key lives on the server. The browser only calls `/api/chat`, and the
   server attaches the key upstream.
-
-Redaction is heuristic (pattern + stopword based). Review the audit view before
-relying on it for sensitive material.
 
 ## Security headers
 
@@ -217,13 +206,12 @@ server/
 src/
   components/
     ChatApp.tsx              chat orchestration, undo, export
-    Sidebar.tsx              new chat, history, rename, search, shield
+    Sidebar.tsx              new chat, history, rename, search
     ChatView.tsx             top bar, empty state, thread, find bar, drag/drop
-    Composer.tsx             text input, attachments, paste, shield, send/stop
+    Composer.tsx             text input, attachments, paste, send/stop
     ChatMessage.tsx          message bubbles, markdown, metrics, waiting timer
-    SettingsModal.tsx        general, privacy, storage, export, about
+    SettingsModal.tsx        general, your data (storage, export), about
     PlotImage.tsx            draws the ```plot fence as an SVG graph
-    PayloadModal.tsx         redacted payload audit
   hooks/
     useConversations.ts      chats, streaming, compacting, undo, storage errors
     useProviderStatus.ts     checks /api/status for live vs demo mode
@@ -236,12 +224,11 @@ src/
     web.ts                   link reading and web search client
     agent.ts                 tool call parsing, calculator and tool status
     files.ts                 attachment kinds, reading, validation
-    privacy.ts               PII detection, redaction, rehydration
     demo-engine.ts           simulated answers and intent routing
   styles/
     base.css                 tokens and shared primitives
     chat.css                 sidebar, thread, composer, responsive layout
-    modal.css                settings and payload modals
+    modal.css                settings and model switch modals
 public/
   robots.txt                 disallow all
   manifest.webmanifest       installable app metadata
@@ -250,7 +237,7 @@ public/
 ## Request flow
 
 ```
-Browser (redact PII) ──POST /api/chat──▶ Node server ──Bearer key──▶ NVIDIA NIM
+Browser ─────────────POST /api/chat──▶ Node server ──Bearer key──▶ NVIDIA NIM
         ▲                                (rate limit)                    │
         └────────── SSE chunks ◀─────────────────────────────────────────┘
 ```

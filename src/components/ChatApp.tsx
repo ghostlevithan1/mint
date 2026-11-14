@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { DEFAULT_MODEL_ID, MODELS } from '../lib/data'
 import { modelById, type Conversation } from '../lib/chat'
 import { clampContextWindow, contextMaxTokens, conversationTokens } from '../lib/context'
-import { redactText } from '../lib/privacy'
 import { getStoredJpegConversion, saveJpegConversion } from '../lib/preferences'
 import { useConversations } from '../hooks/useConversations'
 import { useProviderStatus } from '../hooks/useProviderStatus'
@@ -10,7 +9,6 @@ import type { Attachment } from '../lib/files'
 import { Sidebar } from './Sidebar'
 import { ChatView } from './ChatView'
 import { SettingsModal, type SettingsTab } from './SettingsModal'
-import { PayloadModal } from './PayloadModal'
 
 /** How long the delete toast stays before the removal becomes final. */
 const UNDO_MS = 8000
@@ -40,12 +38,10 @@ export function ChatApp() {
 
   const [defaultModelId, setDefaultModelId] = useState(DEFAULT_MODEL_ID)
   const [convertImagesToJpeg, setConvertImagesToJpeg] = useState(getStoredJpegConversion)
-  const [shieldOn, setShieldOn] = useState(true)
   const [showMetrics, setShowMetrics] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('general')
-  const [payloadMessageId, setPayloadMessageId] = useState<string | null>(null)
   const [deleted, setDeleted] = useState<{ chat: Conversation; index: number } | null>(null)
   const undoTimer = useRef<number | null>(null)
 
@@ -72,13 +68,13 @@ export function ChatApp() {
     if (!isGenerating) return
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
-      if (settingsOpen || payloadMessageId) return
+      if (settingsOpen) return
       event.preventDefault()
       stopGenerating()
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [isGenerating, settingsOpen, payloadMessageId, stopGenerating])
+  }, [isGenerating, settingsOpen, stopGenerating])
 
   useEffect(() => {
     return () => {
@@ -96,39 +92,6 @@ export function ChatApp() {
     setSettingsOpen(true)
   }
 
-  const lastPayloadId = useMemo(() => {
-    for (let index = activeChat.messages.length - 1; index >= 0; index -= 1) {
-      const message = activeChat.messages[index]
-      if (message.role === 'assistant' && (message.redactions?.length ?? 0) > 0) return message.id
-    }
-    return null
-  }, [activeChat])
-
-  const audit = useMemo(() => {
-    if (!payloadMessageId) return null
-    const chat = chats.find((item) =>
-      item.messages.some((message) => message.id === payloadMessageId),
-    )
-    if (!chat) return null
-    const index = chat.messages.findIndex((message) => message.id === payloadMessageId)
-    const assistant = chat.messages[index]
-    if (!assistant || assistant.role !== 'assistant') return null
-    let userIndex = index - 1
-    while (userIndex >= 0 && chat.messages[userIndex].role !== 'user') userIndex -= 1
-    if (userIndex < 0) return null
-    const userMessage = chat.messages[userIndex]
-    const redactions = assistant.redactions ?? []
-    return {
-      redactedPrompt:
-        assistant.shieldOn !== false
-          ? redactText(userMessage.content, redactions)
-          : userMessage.content,
-      redactions,
-      fileNames: userMessage.attachments?.map((file) => file.name) ?? [],
-      shieldOn: assistant.shieldOn !== false,
-    }
-  }, [payloadMessageId, chats])
-
   useEffect(() => {
     saveJpegConversion(convertImagesToJpeg)
   }, [convertImagesToJpeg])
@@ -137,7 +100,6 @@ export function ChatApp() {
     sendMessage({
       text,
       attachments,
-      shieldOn,
       model: selectedModel,
       provider: provider.mode,
     })
@@ -226,7 +188,6 @@ export function ChatApp() {
         onSend={handleSend}
         onStop={stopGenerating}
         onRegenerate={handleRegenerate}
-        onInspectMessage={setPayloadMessageId}
         onOpenSettings={openSettings}
         onOpenSidebar={() => setSidebarOpen(true)}
       />
@@ -253,40 +214,24 @@ export function ChatApp() {
       <SettingsModal
         open={settingsOpen}
         initialTab={settingsTab}
-        shieldOn={shieldOn}
         modelId={selectedModel.id}
         provider={provider}
         showMetrics={showMetrics}
         convertImagesToJpeg={convertImagesToJpeg}
-        hasPayload={Boolean(lastPayloadId)}
         chatCount={chats.length}
         messageCount={chats.reduce((sum, chat) => sum + chat.messages.length, 0)}
         onClose={() => setSettingsOpen(false)}
         onRefreshProvider={() => void refreshProvider()}
-        onShieldChange={setShieldOn}
         onModelChange={handleSelectModel}
         onShowMetricsChange={setShowMetrics}
         onConvertImagesChange={setConvertImagesToJpeg}
         onExportChats={handleExportChats}
-        onOpenPayload={() => {
-          if (!lastPayloadId) return
-          setSettingsOpen(false)
-          setPayloadMessageId(lastPayloadId)
-        }}
         onClearChats={() => {
           clearChats()
           setSettingsOpen(false)
         }}
       />
 
-      <PayloadModal
-        open={Boolean(payloadMessageId && audit)}
-        onClose={() => setPayloadMessageId(null)}
-        redactedPrompt={audit?.redactedPrompt ?? ''}
-        redactions={audit?.redactions ?? []}
-        fileNames={audit?.fileNames ?? []}
-        shieldOn={audit?.shieldOn ?? shieldOn}
-      />
     </div>
   )
 }

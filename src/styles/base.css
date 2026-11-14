@@ -23,7 +23,7 @@
   --muted: #a1a1a6;
   --dim: #85858b;
 
-  /* Mint's brand green, used rarely: the shield state, selection, focus and one key figure. */
+  /* Mint's brand green, used rarely: selection, focus, live state and one key figure. */
   --green: #86d95f;
   --green-bright: #9be27a;
   --green-deep: #63b443;
@@ -54,11 +54,10 @@
   --nav-bg: #0f0f10;
   --code-bg: #0f0f10;
 
-  /* Paper and ink for the redaction moment. */
+  /* Paper and ink for the lesson sheet on the start screen. */
   --paper: #f2eee6;
   --paper-ink: #1f1b16;
   --paper-muted: #7b7266;
-  --censor: #0f0f10;
 
   /* Depth on dark is surface steps and hairlines. Only floating things get a shadow. */
   --lift: inset 0 1px 0 rgba(255, 255, 255, 0.04);

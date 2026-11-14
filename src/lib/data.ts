@@ -172,20 +172,6 @@ export const MODELS: Model[] = [
     glyph: 'N',
     capabilities: ['web'],
   },
-  {
-    id: 'deepseek-flash',
-    type: 'intelligent',
-    name: 'DeepSeek V4.1 Flash',
-    maker: 'DeepSeek',
-    descriptor: 'Efficient reasoning',
-    bestAt: 'Efficient math, logic, and structured step-by-step reasoning.',
-    meta: 'V4.1',
-    tps: 88,
-    context: '128K',
-    color: '#7FB4FF',
-    glyph: 'D',
-    capabilities: ['web'],
-  },
 ]
 
 export const DEFAULT_MODEL_ID = 'nemotron-lightning'
@@ -197,18 +183,6 @@ export function typeInfo(id: ModelType) {
 export function modelsByType(id: ModelType) {
   return MODELS.filter((model) => model.type === id)
 }
-
-export type Redaction = {
-  original: string
-  placeholder: string
-  kind: 'name' | 'email' | 'phone'
-}
-
-export const SAMPLE_PROMPTS = [
-  'Summarize the attached report for Sarah Chen. Flag the three most important risks and note anything that needs follow-up before Friday.',
-  'Review this contract excerpt for Marcus Reed. Identify unusual liability terms, auto-renewal language, and obligations that should be negotiated.',
-  'Draft a concise reply to James Okafor about the Q3 forecast. Reference the attached spreadsheet and suggest two next steps for the revenue team.',
-]
 
 export const FILE_LIMIT = 25 * 1024 * 1024
 export const MAX_FILES = 10

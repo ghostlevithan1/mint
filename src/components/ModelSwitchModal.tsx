@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { ArrowRight, ShieldCheck, TriangleAlert, X } from 'lucide-react'
+import { ArrowRight, Info, TriangleAlert, X } from 'lucide-react'
 import { MODEL_TYPES, typeInfo, type Model } from '../lib/data'
 import type { AttachmentNeed } from '../lib/modelRouting'
 import { ModelCapabilityBadges, ModelLogo } from './ModelLogo'
@@ -133,7 +133,7 @@ export function ModelSwitchModal({
         </div>
 
         <p className="switch-foot">
-          <ShieldCheck size={11} />
+          <Info size={12} />
           Model type is preserved when possible; this switch only changes what can read the{' '}
           {fileNoun}.
         </p>

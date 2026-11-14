@@ -49,8 +49,7 @@ type ChatViewProps = {
   onSend: (text: string, attachments: Attachment[]) => void
   onStop: () => void
   onRegenerate: (assistantId: string) => void
-  onInspectMessage: (assistantId: string) => void
-  onOpenSettings: (tab: 'general' | 'privacy' | 'about') => void
+  onOpenSettings: (tab: 'general' | 'data' | 'about') => void
   onOpenSidebar: () => void
 }
 
@@ -97,7 +96,6 @@ export function ChatView({
   onSend,
   onStop,
   onRegenerate,
-  onInspectMessage,
   onOpenSettings,
   onOpenSidebar,
 }: ChatViewProps) {
@@ -465,8 +463,6 @@ export function ChatView({
             {chat.messages.map((message) => {
               const messageModel =
                 message.role === 'assistant' ? modelById(MODELS, message.modelId) : undefined
-              const canInspect =
-                message.role === 'assistant' && (message.redactions?.length ?? 0) > 0
               return (
                 <ChatMessageView
                   key={message.id}
@@ -474,9 +470,7 @@ export function ChatView({
                   model={messageModel}
                   showMetrics={showMetrics}
                   isGenerating={isGenerating}
-                  canInspect={canInspect}
                   onRegenerate={onRegenerate}
-                  onInspect={() => onInspectMessage(message.id)}
                 />
               )
             })}

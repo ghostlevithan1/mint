@@ -2,12 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { buildChatTitle, type Conversation } from '../src/lib/chat'
 import { extractUrls } from '../src/lib/web'
-import {
-  detectRedactions,
-  redactText,
-  rehydrateText,
-  formatBytes,
-} from '../src/lib/privacy'
+import { formatBytes } from '../src/lib/files'
 import { compactedHistory } from '../src/lib/context'
 import {
   contextMaxTokens,
@@ -21,27 +16,6 @@ import {
 import { extractImageLinks, isImageLine, isImageUrl } from '../src/lib/imageLinks'
 import { describeFence } from '../src/lib/generatedFiles'
 import { CHAT_RATE_LIMIT, WEB_RATE_LIMIT, guardApi } from '../server/limits'
-
-test('PII shield round-trips an email, phone, and name', () => {
-  const original =
-    'Jane Doe sent this to alice.johnson@example.com or called +1 415 555 0132 today.'
-  const redactions = detectRedactions(original)
-  const kinds = new Set(redactions.map((item) => item.kind))
-  assert.ok(kinds.has('email'), 'email is detected')
-  assert.ok(kinds.has('phone'), 'phone is detected')
-  assert.ok(kinds.has('name'), 'name is detected')
-
-  const redacted = redactText(original, redactions)
-  assert.ok(!redacted.includes('alice.johnson@example.com'))
-  assert.ok(!redacted.includes('Jane Doe'))
-  assert.equal(rehydrateText(redacted, redactions), original)
-})
-
-test('greetings and the product name are not treated as people', () => {
-  assert.equal(detectRedactions('Hello Mint, say hi in one short sentence.').length, 0)
-  assert.equal(detectRedactions('Hi there, summarize this file.').length, 0)
-  assert.equal(detectRedactions('Thanks, that worked.').length, 0)
-})
 
 test('extractUrls dedupes, strips trailing punctuation, and caps at three', () => {
   const urls = extractUrls(

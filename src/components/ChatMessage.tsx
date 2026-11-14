@@ -22,8 +22,7 @@ import {
 } from 'lucide-react'
 import { typeInfo, type Model } from '../lib/data'
 import type { ChatMessage } from '../lib/chat'
-import type { Attachment } from '../lib/files'
-import { formatBytes } from '../lib/privacy'
+import { formatBytes, type Attachment } from '../lib/files'
 import { extractImageLinks } from '../lib/imageLinks'
 import { Markdown } from './Markdown'
 import { LeafMark } from './Logo'
@@ -35,9 +34,7 @@ type ChatMessageProps = {
   model?: Model
   showMetrics: boolean
   isGenerating: boolean
-  canInspect: boolean
   onRegenerate: (id: string) => void
-  onInspect: () => void
 }
 
 function AttachmentGlyph({ kind }: { kind: Attachment['kind'] }) {
@@ -62,7 +59,7 @@ function AttachmentChips({ files }: { files: Attachment[] }) {
 }
 
 const PHASE_COPY = {
-  shielding: {
+  preparing: {
     title: 'Reading your question',
     detail: 'Getting your question ready.',
   },
@@ -167,9 +164,7 @@ export const ChatMessageView = memo(
   model,
   showMetrics,
   isGenerating,
-  canInspect,
   onRegenerate,
-  onInspect,
 }: ChatMessageProps) {
   const [copied, setCopied] = useState(false)
 
@@ -254,7 +249,7 @@ export const ChatMessageView = memo(
   }
 
   const stats = message.stats
-  const waiting = message.phase === 'shielding' || message.phase === 'routing'
+  const waiting = message.phase === 'preparing' || message.phase === 'routing'
   const streaming = message.phase === 'generating'
 
   return (
@@ -338,7 +333,7 @@ export const ChatMessageView = memo(
             startedAt={message.createdAt}
             activity={message.activity}
             detail={
-              message.phase === 'routing' ? PHASE_COPY.routing.detail : PHASE_COPY.shielding.detail
+              message.phase === 'routing' ? PHASE_COPY.routing.detail : PHASE_COPY.preparing.detail
             }
           />
         )}
@@ -358,15 +353,7 @@ export const ChatMessageView = memo(
           <p className="assistant-empty">No response captured. Try running this prompt again.</p>
         )}
 
-        {message.phase === 'done' && message.content && canInspect && (
-          <div className="message-meta">
-            <button className="meta-link" onClick={onInspect}>
-              See what was sent
-            </button>
-          </div>
-        )}
-
-        {showMetrics && stats && message.phase !== 'shielding' && message.phase !== 'routing' && (
+        {showMetrics && stats && message.phase !== 'preparing' && message.phase !== 'routing' && (
           <div className="msg-metrics" aria-label="Generation metrics">
             <div className="metric-primary">
               <Gauge size={13} />
@@ -445,7 +432,6 @@ function areMessagePropsEqual(
     previous.message === next.message &&
     previous.model === next.model &&
     previous.showMetrics === next.showMetrics &&
-    previous.isGenerating === next.isGenerating &&
-    previous.canInspect === next.canInspect
+    previous.isGenerating === next.isGenerating
   )
 }

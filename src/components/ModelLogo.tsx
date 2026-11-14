@@ -4,7 +4,6 @@ import { Eye, FileText, Globe2 } from 'lucide-react'
 
 const LOGO_COLORS: Record<string, string> = {
   NVIDIA: '#76B900',
-  DeepSeek: '#4D6BFE',
   Meta: '#0866FF',
   Mistral: '#FA520F',
   MiniMax: '#F23F79',
@@ -21,17 +20,6 @@ function LogoMark({ maker }: { maker: string }) {
           opacity=".85"
         />
         <circle cx="12" cy="12" r="2.6" fill="currentColor" />
-      </>
-    )
-  }
-  if (maker === 'DeepSeek') {
-    return (
-      <>
-        <path
-          d="M4.5 13.2c2.7-4.1 7.4-5.4 11.4-3.7 1.5.7 2.7 1.9 3.6 3.4-1.5-.6-2.7-.8-4.1-.4-1.1 3-3.7 4.9-7.1 4.9-2.6 0-4.6-1.3-5.7-3 1.2.2 2.1 0 2.8-.5-.7-.5-1.2-1.2-1.5-2.1.5.2.9.3 1.4.2-.3-.5-.6-1-.8-1.6Z"
-          fill="currentColor"
-        />
-        <circle cx="16.6" cy="7.7" r="1.15" fill="currentColor" />
       </>
     )
   }

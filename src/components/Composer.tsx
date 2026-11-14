@@ -13,9 +13,8 @@ import {
   TriangleAlert,
   X,
 } from 'lucide-react'
-import type { Attachment } from '../lib/files'
 import { attachmentTokens, estimateTextTokens } from '../lib/context'
-import { formatBytes } from '../lib/privacy'
+import { formatBytes, type Attachment } from '../lib/files'
 
 type ComposerProps = {
   text: string

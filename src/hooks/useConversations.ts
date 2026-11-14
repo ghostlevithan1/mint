@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { MODELS, modelCapabilities, type Model, type Redaction } from '../lib/data'
+import { MODELS, modelCapabilities, type Model } from '../lib/data'
 import { buildDemoAnswer, tokenize } from '../lib/demo-engine'
-import { detectRedactionsAsync, redactText, rehydrateText } from '../lib/privacy'
 import { fetchWebContext, extractUrls, fetchWebSearchContext } from '../lib/web'
 import { MAX_TOOL_STEPS, parseToolCall, runCalculator, stripToolCalls, toolStatus } from '../lib/agent'
 import {
@@ -43,7 +42,6 @@ import { loadConversations, persistConversations, purgeLegacyChatStorageOnce, wi
 type SendInput = {
   text: string
   attachments: Attachment[]
-  shieldOn: boolean
   model: Model
   provider: ProviderMode
 }
@@ -53,9 +51,7 @@ type RunInput = {
   assistantId: string
   text: string
   attachments: Attachment[]
-  shieldOn: boolean
   model: Model
-  redactions: Redaction[]
   provider: ProviderMode
   history: ChatMessage[]
   contextWindow: number
@@ -273,19 +269,18 @@ export function useConversations() {
     setGeneratingChatId(null)
   }
 
-  const runDemo = (runId: number, input: RunInput, activeRedactions: Redaction[]) => {
+  const runDemo = (runId: number, input: RunInput) => {
     if (runIdRef.current !== runId) return
 
-    const promptForModel = input.shieldOn ? redactText(input.text, input.redactions) : input.text
+    const promptForModel = input.text
     const fileText = input.attachments.map((file) => file.text).join('\n\n').slice(0, 20_000)
-    const context = input.shieldOn ? redactText(fileText, input.redactions) : fileText
+    const context = fileText
     const answer = buildDemoAnswer({
       prompt: promptForModel,
       files: input.attachments.map((file) => file.name),
       images: input.attachments
         .filter((file) => file.kind === 'image')
         .map((file) => file.name),
-      redactions: activeRedactions,
       model: input.model,
       context,
     })
@@ -295,10 +290,8 @@ export function useConversations() {
     const batchSize = Math.max(1, Math.round(targetTps / 16.5))
 
     patchMessage(input.chatId, input.assistantId, {
-      phase: 'shielding',
+      phase: 'preparing',
       provider: 'demo',
-      redactions: activeRedactions,
-      shieldOn: input.shieldOn,
       modelId: input.model.id,
       content: '',
       stats: undefined,
@@ -333,7 +326,7 @@ export function useConversations() {
           const complete = cursor >= tokens.length
 
           patchMessage(input.chatId, input.assistantId, {
-            content: rehydrateText(tokens.slice(0, cursor).join(''), activeRedactions),
+            content: tokens.slice(0, cursor).join(''),
             stats: {
               tps: complete ? tokens.length / elapsed : liveTps,
               ttft,
@@ -361,8 +354,7 @@ export function useConversations() {
     const runId = runIdRef.current
     runRef.current = { chatId: input.chatId, messageId: input.assistantId }
 
-    const activeRedactions = input.shieldOn ? input.redactions : []
-    const promptForModel = input.shieldOn ? redactText(input.text, input.redactions) : input.text
+    const promptForModel = input.text
     const maxTokens = contextMaxTokens(input.model)
     const windowTokens = Math.max(
       initialContextWindow(maxTokens),
@@ -377,14 +369,12 @@ export function useConversations() {
       .map((file) => file.text)
       .join('\n\n')
       .slice(0, fileBudget)
-    const context = input.shieldOn ? redactText(fileText, input.redactions) : fileText
+    const context = fileText
     const files = input.attachments.map((file) => file.name)
 
     patchMessage(input.chatId, input.assistantId, {
-      phase: 'shielding',
+      phase: 'preparing',
       provider: input.provider,
-      redactions: activeRedactions,
-      shieldOn: input.shieldOn,
       modelId: input.model.id,
       content: '',
       stats: undefined,
@@ -417,7 +407,7 @@ export function useConversations() {
     }
 
     if (input.provider === 'demo') {
-      runDemo(runId, input, activeRedactions)
+      runDemo(runId, input)
       return
     }
 
@@ -491,9 +481,9 @@ export function useConversations() {
       if (!force && now - lastFlush < 55) return
       lastFlush = now
       patchMessage(input.chatId, input.assistantId, {
-        content: rehydrateText(stripToolCalls(raw), activeRedactions),
+        content: stripToolCalls(raw),
         reasoning: reasoningRaw
-          ? rehydrateText(reasoningRaw, activeRedactions)
+          ? reasoningRaw
           : undefined,
         phase: 'generating',
         activity: undefined,
@@ -597,7 +587,7 @@ export function useConversations() {
         patchMessage(input.chatId, input.assistantId, {
           phase: 'routing',
           activity: toolStatus(call),
-          content: rehydrateText(stripToolCalls(raw), activeRedactions),
+          content: stripToolCalls(raw),
         })
         let result = ''
         if (call.name === 'calculate') {
@@ -637,7 +627,7 @@ export function useConversations() {
       // The final reply can still end in a tool call once the steps run out.
       raw = stripToolCalls(raw)
       const reasoning = reasoningRaw
-        ? rehydrateText(reasoningRaw, activeRedactions)
+        ? reasoningRaw
         : undefined
       let emptyError: string | undefined
       if (!raw) {
@@ -651,7 +641,7 @@ export function useConversations() {
           'The answer hit the output limit and may be truncated. Ask me to continue where I stopped.'
       }
       patchMessage(input.chatId, input.assistantId, {
-        content: rehydrateText(raw, activeRedactions),
+        content: raw,
         reasoning,
         phase: 'done',
         provider: 'nvidia',
@@ -664,15 +654,15 @@ export function useConversations() {
       if (controller.signal.aborted) return
 
       if (error instanceof ChatApiError && error.code === 'NO_KEY') {
-        runDemo(runId, input, activeRedactions)
+        runDemo(runId, input)
         return
       }
 
       if (error instanceof ChatApiError) {
         patchMessage(input.chatId, input.assistantId, {
-          content: rehydrateText(raw, activeRedactions),
+          content: raw,
           reasoning: reasoningRaw
-            ? rehydrateText(reasoningRaw, activeRedactions)
+            ? reasoningRaw
             : undefined,
           phase: 'done',
           provider: 'nvidia',
@@ -685,14 +675,13 @@ export function useConversations() {
 
       // A static preview has no proxy, and a live network can drop. Keep the
       // workspace usable by falling back to the local demo engine.
-      runDemo(runId, input, activeRedactions)
+      runDemo(runId, input)
     }
   }
 
   const sendMessage = async ({
     text,
     attachments,
-    shieldOn,
     model,
     provider,
   }: SendInput) => {
@@ -704,19 +693,12 @@ export function useConversations() {
     if (!chat) return
 
     const now = Date.now()
-    const combined = `${content}\n\n${attachments.map((file) => file.text).join('\n\n')}`.slice(
-      0,
-      160_000,
-    )
-    const detected = await detectRedactionsAsync(combined)
     const userMessage: ChatMessage = {
       id: uid(),
       role: 'user',
       content,
       createdAt: now,
       attachments,
-      shieldOn,
-      redactionCount: shieldOn ? detected.length : 0,
     }
     const assistantId = uid()
     const assistantMessage: ChatMessage = {
@@ -724,10 +706,8 @@ export function useConversations() {
       role: 'assistant',
       content: '',
       createdAt: now + 1,
-      phase: 'shielding',
+      phase: 'preparing',
       modelId: model.id,
-      shieldOn,
-      redactions: shieldOn ? detected : [],
       provider,
     }
 
@@ -792,9 +772,7 @@ export function useConversations() {
       assistantId,
       text: content,
       attachments,
-      shieldOn,
       model,
-      redactions: detected,
       provider,
       history,
       contextWindow: window,
@@ -857,10 +835,8 @@ export function useConversations() {
       role: 'assistant',
       content: '',
       createdAt: Date.now(),
-      phase: 'shielding',
+      phase: 'preparing',
       modelId: assistant.modelId,
-      shieldOn: assistant.shieldOn ?? true,
-      redactions: assistant.redactions ?? [],
       provider,
     }
 
@@ -883,9 +859,7 @@ export function useConversations() {
       assistantId: newAssistantId,
       text: userMessage.content,
       attachments: userMessage.attachments ?? [],
-      shieldOn: assistant.shieldOn ?? true,
       model,
-      redactions: assistant.redactions ?? [],
       provider,
       history: chat.messages.slice(0, userIndex),
       contextWindow,

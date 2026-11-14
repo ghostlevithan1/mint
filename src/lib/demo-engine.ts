@@ -1,10 +1,9 @@
-import type { Model, Redaction } from './data'
+import type { Model } from './data'
 
 type AnswerInput = {
   prompt: string
   files: string[]
   images?: string[]
-  redactions: Redaction[]
   model: Model
   context?: string
 }
@@ -12,10 +11,6 @@ type AnswerInput = {
 type Side = {
   coef: number
   constant: number
-}
-
-function firstName(redactions: Redaction[]) {
-  return redactions.find((item) => item.kind === 'name')?.placeholder
 }
 
 function attachmentLine(files: string[]) {
@@ -389,9 +384,8 @@ ${check}
 > Solved locally by Mint's demo engine.`
 }
 
-function legalAnswer({ prompt, files, redactions }: AnswerInput) {
-  const person = firstName(redactions)
-  const subject = person ? `For ${person}, the` : 'The'
+function legalAnswer({ prompt, files }: AnswerInput) {
+  const subject = 'The'
   return `## Risk read
 ${subject} excerpt is structurally conventional, but three points deserve a closer look before anyone signs. This is a directional review, not legal advice.
 
@@ -418,9 +412,8 @@ Several delivery and cooperation duties are written in passive language. They ar
 > Context note: ${prompt.slice(0, 140)}${prompt.length > 140 ? '…' : ''}${attachmentLine(files)}`
 }
 
-function researchAnswer({ prompt, files, redactions }: AnswerInput) {
-  const person = firstName(redactions)
-  const subject = person ? `${person}'s` : 'The'
+function researchAnswer({ prompt, files }: AnswerInput) {
+  const subject = 'The'
   return `## Executive summary
 ${subject} material makes a coherent argument, but the conclusion is stronger than the evidence currently provided. The core thesis holds; the confidence around it should be tightened.${attachmentLine(files)}
 
@@ -442,9 +435,8 @@ ${subject} material makes a coherent argument, but the conclusion is stronger th
 > Context note: ${prompt.slice(0, 140)}${prompt.length > 140 ? '…' : ''}${attachmentLine(files)}`
 }
 
-function replyAnswer({ prompt, files, redactions }: AnswerInput) {
-  const person = firstName(redactions)
-  const salutation = person ? `Hi ${person},` : 'Hi,'
+function replyAnswer({ prompt, files }: AnswerInput) {
+  const salutation = 'Hi,'
   return `## Draft reply
 
 **Subject:** Re: Q3 forecast — next steps
@@ -489,15 +481,13 @@ The naming is strong and the happy path is easy to follow. The next gain is not 
 > Context note: ${prompt.slice(0, 140)}${prompt.length > 140 ? '…' : ''}${attachmentLine(files)}`
 }
 
-function defaultAnswer({ prompt, files, redactions }: AnswerInput) {
-  const person = firstName(redactions)
-  const audience = person ? `\nPrepared for ${person}.` : ''
+function defaultAnswer({ prompt, files }: AnswerInput) {
   const trimmed = prompt.trim()
   const excerpt = trimmed.slice(0, 180)
   return `## Local demo limitation
 Live inference is not configured, so this reply comes from Mint's built-in demo engine — not a language model. It only covers a few scripted patterns, like graphs (try "plot y = x^2 - 4"), simple equations and the photosynthesis example. Add an NVIDIA key on the server for real answers.
 
-**Prompt:** ${excerpt}${trimmed.length > 180 ? '…' : ''}${attachmentLine(files)}${audience}`
+**Prompt:** ${excerpt}${trimmed.length > 180 ? '…' : ''}${attachmentLine(files)}`
 }
 
 function withImageNote(answer: string, images: string[] | undefined) {
