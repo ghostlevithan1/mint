@@ -4,6 +4,7 @@ import { buildChatTitle, type Conversation } from '../src/lib/chat'
 import { extractUrls } from '../src/lib/web'
 import {
   detectRedactions,
+  mergeRedactions,
   redactText,
   rehydrateText,
   formatBytes,
@@ -12,6 +13,8 @@ import {
   buildContextMessages,
   compactedHistory,
   contextLimitTokens,
+  conversationRedactions,
+  redactContextMessages,
   contextMaxTokens,
   formatTokens,
   retryOutputBudget,
@@ -19,7 +22,8 @@ import {
 } from '../src/lib/context'
 import { extractImageLinks, isImageLine, isImageUrl } from '../src/lib/imageLinks'
 import { describeFence } from '../src/lib/generatedFiles'
-import { CHAT_RATE_LIMIT, WEB_RATE_LIMIT, guardApi } from '../server/limits'
+import { sheetLines, unescapeXml } from '../src/lib/files'
+import { CHAT_RATE_LIMIT, WEB_RATE_LIMIT, clientAddress, guardApi } from '../server/limits'
 import { cleanTitle } from '../server/web'
 
 test('PII shield round-trips an email, phone, and name', () => {
@@ -35,6 +39,73 @@ test('PII shield round-trips an email, phone, and name', () => {
   assert.ok(!redacted.includes('alice.johnson@example.com'))
   assert.ok(!redacted.includes('Jane Doe'))
   assert.equal(rehydrateText(redacted, redactions), original)
+})
+
+test('earlier turns, the profile and summaries stay shielded on later requests', () => {
+  const first = detectRedactions('My name is Jane Doe, email jane.doe@example.com.')
+  const history = [
+    {
+      id: '1',
+      role: 'user' as const,
+      content: 'My name is Jane Doe, email jane.doe@example.com.',
+      createdAt: 1,
+    },
+    {
+      id: '2',
+      role: 'assistant' as const,
+      // Answers are restored locally, so the stored reply holds the real name.
+      content: 'Nice to meet you, Jane Doe. I will write to jane.doe@example.com.',
+      createdAt: 2,
+      redactions: first,
+    },
+  ]
+  // The new turn numbers its own people from 01 as well.
+  const current = detectRedactions('Please ask Omar Haddad about the lab.')
+  const all = conversationRedactions(history, 'I live near Priya Nair.', current)
+
+  // Placeholders never repeat for different people, and the new turn keeps its own.
+  const placeholders = all.map((item) => item.placeholder)
+  assert.equal(new Set(placeholders).size, placeholders.length)
+  assert.equal(all.find((item) => item.original === 'Omar Haddad')?.placeholder, current[0].placeholder)
+
+  const sent = redactContextMessages(buildContextMessages(history, 90_000), all)
+  const wire = JSON.stringify(sent)
+  assert.ok(!wire.includes('Jane Doe'), 'earlier name leaked')
+  assert.ok(!wire.includes('jane.doe@example.com'), 'earlier email leaked')
+  assert.ok(!redactText('I live near Priya Nair.', all).includes('Priya'), 'profile leaked')
+
+  // The placeholders in the answer come back as the real text on this device.
+  assert.equal(
+    rehydrateText(redactText(history[1].content, all), all),
+    history[1].content,
+  )
+
+  // Compaction drops the turns that carried the list, so the summary keeps it.
+  const compacted = compactedHistory(history as never, 'Jane Doe emailed.', 1, all)
+  assert.equal(compacted[0].role, 'system')
+  const sentAfter = JSON.stringify(
+    redactContextMessages(buildContextMessages(compacted, 90_000), compacted[0].redactions ?? []),
+  )
+  assert.ok(!sentAfter.includes('Jane Doe') && !sentAfter.includes('jane.doe@example.com'))
+})
+
+test('merged redactions keep one placeholder per person', () => {
+  const merged = mergeRedactions(
+    [{ original: 'Ana Silva', placeholder: '[PERSON_01]', kind: 'name' }],
+    [
+      { original: 'ana silva', placeholder: '[PERSON_01]', kind: 'name' },
+      { original: 'Bo Chen', placeholder: '[PERSON_01]', kind: 'name' },
+      { original: 'bo@example.com', placeholder: '[EMAIL_01]', kind: 'email' },
+    ],
+  )
+  assert.deepEqual(
+    merged.map((item) => [item.original, item.placeholder]),
+    [
+      ['Ana Silva', '[PERSON_01]'],
+      ['Bo Chen', '[PERSON_02]'],
+      ['bo@example.com', '[EMAIL_01]'],
+    ],
+  )
 })
 
 test('greetings and the product name are not treated as people', () => {
@@ -53,6 +124,14 @@ test('extractUrls dedupes, strips trailing punctuation, and caps at three', () =
     'https://example.org/b',
     'https://example.net/c',
   ])
+})
+
+test('extractUrls keeps balanced brackets inside a link', () => {
+  assert.deepEqual(
+    extractUrls('Read https://en.wikipedia.org/wiki/Mercury_(planet), then (https://example.org/b).'),
+    ['https://en.wikipedia.org/wiki/Mercury_(planet)', 'https://example.org/b'],
+  )
+  assert.deepEqual(extractUrls('see [this](https://example.com/page) now'), ['https://example.com/page'])
 })
 
 test('chat titles collapse whitespace and truncate long prompts', () => {
@@ -106,8 +185,8 @@ test('the chat rate limit answers 429 after the budget', () => {
   }
   // One hit per unique IP keeps this test independent of the other cases.
   const req = {
-    headers: { 'x-forwarded-for': '198.51.100.77' },
-    socket: {},
+    headers: {},
+    socket: { remoteAddress: '198.51.100.77' },
   }
   try {
     assert.equal(CHAT_RATE_LIMIT, 15)
@@ -121,6 +200,58 @@ test('the chat rate limit answers 429 after the budget', () => {
   } finally {
     if (previous === undefined) delete process.env.MINT_RATE_LIMIT
     else process.env.MINT_RATE_LIMIT = previous
+  }
+})
+
+test('a client cannot pick its own rate-limit bucket with X-Forwarded-For', () => {
+  const saved = {
+    render: process.env.RENDER,
+    trust: process.env.MINT_TRUST_PROXY_HEADERS,
+    hops: process.env.MINT_PROXY_HOPS,
+  }
+  const restore = (name: string, value: string | undefined) => {
+    if (value === undefined) delete process.env[name]
+    else process.env[name] = value
+  }
+  const request = (headers: Record<string, string>) =>
+    ({ headers, socket: { remoteAddress: '10.0.0.9' } }) as never
+  try {
+    delete process.env.RENDER
+    delete process.env.MINT_TRUST_PROXY_HEADERS
+    delete process.env.MINT_PROXY_HOPS
+
+    // Untrusted setup: forwarded headers are ignored, the socket decides.
+    assert.equal(
+      clientAddress(request({ 'x-forwarded-for': '203.0.113.5', 'cf-connecting-ip': '203.0.113.6' })),
+      '10.0.0.9',
+    )
+
+    // On Render the edge-set headers identify the visitor, not the spoofed XFF.
+    process.env.RENDER = 'true'
+    assert.equal(
+      clientAddress(
+        request({
+          'x-forwarded-for': '198.51.100.77,188.70.47.204, 162.158.42.184, 10.24.148.160',
+          'true-client-ip': '188.70.47.204',
+        }),
+      ),
+      '188.70.47.204',
+    )
+    assert.equal(clientAddress(request({ 'cf-connecting-ip': '188.70.47.204' })), '188.70.47.204')
+    // A malformed header value is not used as a bucket key.
+    assert.equal(clientAddress(request({ 'true-client-ip': 'not an ip' })), '10.0.0.9')
+    delete process.env.RENDER
+
+    // Other proxies: count entries from the right, where the proxy appended.
+    process.env.MINT_PROXY_HOPS = '2'
+    assert.equal(
+      clientAddress(request({ 'x-forwarded-for': 'spoofed, 188.70.47.204, 162.158.42.184' })),
+      '188.70.47.204',
+    )
+  } finally {
+    restore('RENDER', saved.render)
+    restore('MINT_TRUST_PROXY_HEADERS', saved.trust)
+    restore('MINT_PROXY_HOPS', saved.hops)
   }
 })
 
@@ -146,6 +277,32 @@ test('follow-up questions carry the earlier turns in full', () => {
   assert.equal(sent.length, 2)
   assert.equal(sent[0].content, 'Plot y = x^2 - 2x - 3')
   assert.equal(sent[1].content, answer)
+})
+
+test('a long thread keeps its newest turns instead of dropping them', () => {
+  // Six turns of roughly 10K tokens each fit a 90K budget, so none may be cut.
+  const history = Array.from({ length: 6 }, (_, index) => ({
+    id: String(index),
+    role: index % 2 === 0 ? ('user' as const) : ('assistant' as const),
+    content: `turn ${index} `.padEnd(40_000, 'x'),
+    createdAt: index,
+  }))
+  const sent = buildContextMessages(history, 90_000)
+  assert.equal(sent.length, 6)
+  assert.equal(sent[5].content, history[5].content)
+
+  // Over budget: the oldest turns go, the newest stay whole.
+  const trimmed = buildContextMessages(history, 35_000)
+  assert.equal(trimmed.at(-1)?.content, history[5].content)
+  assert.ok(trimmed.length >= 2 && trimmed.length < 6)
+
+  // A summary is paid for out of the same budget and still comes first.
+  const withSummary = buildContextMessages(
+    [{ id: 's', role: 'system' as const, content: 'Earlier: the student studies maths.', createdAt: 0 }, ...history],
+    90_000,
+  )
+  assert.equal(withSummary[0].role, 'system')
+  assert.equal(withSummary.at(-1)?.content, history[5].content)
 })
 
 test('a retry gets more output room without exceeding the proxy ceiling', () => {
@@ -188,6 +345,21 @@ test('image links require https and keep their alt text', () => {
     extractImageLinks('https://example.com/a.png and https://example.com/a.png'),
     [{ url: 'https://example.com/a.png', alt: 'a.png' }],
   )
+})
+
+test('spreadsheet rows keep their columns around empty styled cells', () => {
+  const shared = ['Name', 'Score', 'Ana']
+  const xml =
+    '<sheetData>' +
+    '<row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c></row>' +
+    // An empty, self-closed cell must not swallow the cell after it.
+    '<row r="2"><c r="A2" s="1"/><c r="B2" t="s"><v>2</v></c><c r="C2"><v>9.5</v></c></row>' +
+    '<row r="3"><c r="A3" t="inlineStr"><is><t>a &amp; b</t></is></c></row>' +
+    '<row r="4"><c r="A4" s="1"/></row>' +
+    '</sheetData>'
+  assert.deepEqual(sheetLines(xml, shared), ['Name\tScore', '\tAna\t9.5', 'a & b'])
+  // An invalid character reference is dropped instead of aborting the file.
+  assert.equal(unescapeXml('ok &#x110000; &#0; done'), 'ok   done')
 })
 
 test('fenced code info strings produce a safe download name', () => {

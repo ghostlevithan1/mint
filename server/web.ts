@@ -463,11 +463,6 @@ async function readCrawl4aiSelfHostedPage(url: URL, budget: number): Promise<Pag
 }
 
 /**
- * Reads a page through the configured chain: crawl4ai Cloud, then a
- * self-hosted crawl4ai server, then the built-in reader. The first backend
- * that returns usable text wins; the built-in reader is never benched.
- */
-/**
  * Compressed-link services (ha.mr) serve their app on a 404 status and show a
  * "Proceed to <url>?" interstitial that only a browser sees. When a rendered
  * page is really such an interstitial, return the destination it names.

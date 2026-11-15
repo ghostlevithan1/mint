@@ -24,16 +24,18 @@ import {
   compactedHistory,
   compactMessages,
   contextLimitTokens,
+  conversationRedactions,
   conversationTokens,
   estimateTextTokens,
   OUTPUT_TOKENS,
+  redactContextMessages,
   retryOutputBudget,
   spentReasoningOnly,
   localSummary,
   messageContextText,
 } from '../lib/context'
 import type { Attachment } from '../lib/files'
-import { getStoredProfile } from '../lib/preferences'
+import { getStoredProfile, getStoredShield } from '../lib/preferences'
 import { loadConversations, persistConversations, purgeLegacyChatStorageOnce, wipePersistedStore } from '../lib/storage'
 
 type SendInput = {
@@ -112,6 +114,7 @@ async function compressWithModel(
   model: Model,
   signal: AbortSignal,
   onProgress?: (running: string) => void,
+  redactions: Redaction[] = [],
 ): Promise<string> {
   if (messages.length) {
     const controller = new AbortController()
@@ -129,7 +132,7 @@ async function compressWithModel(
               content:
                 'Compress the conversation into a dense context brief. Keep decisions, facts, names, numbers, open questions, and the user intent. Use short bullets. Do not add commentary.',
             },
-            { role: 'user', content: transcriptOf(messages) },
+            { role: 'user', content: redactText(transcriptOf(messages), redactions) },
           ],
           temperature: 0.2,
           max_tokens: 2048,
@@ -138,7 +141,7 @@ async function compressWithModel(
           signal: controller.signal,
           onDelta: (delta) => {
             summary += delta
-            onProgress?.(summary)
+            onProgress?.(rehydrateText(summary, redactions))
           },
         },
       )
@@ -148,7 +151,7 @@ async function compressWithModel(
       window.clearTimeout(timeout)
       signal.removeEventListener('abort', abort)
     }
-    if (summary.trim()) return summary.trim()
+    if (summary.trim()) return rehydrateText(summary, redactions).trim()
   }
   return localSummary(messages)
 }
@@ -212,8 +215,12 @@ export function useConversations() {
     void loadConversations().then((stored) => {
       if (cancelled) return
       if (stored) {
-        setChats(stored.conversations)
-        setActiveId(stored.activeId ?? stored.conversations[0].id)
+        // A chat the student started while this read was running must survive it.
+        const ids = new Set(stored.conversations.map((chat) => chat.id))
+        const started = chatsRef.current.filter((chat) => chat.messages.length > 0 && !ids.has(chat.id))
+        const keepActive = started.some((chat) => chat.id === activeIdRef.current)
+        setChats(started.length ? [...started, ...stored.conversations] : stored.conversations)
+        if (!keepActive) setActiveId(stored.activeId ?? stored.conversations[0].id)
       }
       loadedRef.current = true
     })
@@ -222,19 +229,30 @@ export function useConversations() {
     }
   }, [])
 
-  // Debounced save so streaming updates don't write on every tick. A
-  // longer interval during generation keeps serialization off the hot path.
+  // Throttled save so streaming updates don't write on every tick. A change
+  // schedules one save if none is pending, and that save writes whatever the
+  // state is when it fires. (A debounce would restart on every streamed token
+  // and write nothing until the answer ended.) A longer interval during
+  // generation keeps serialization off the hot path.
+  const saveTimerRef = useRef<number | null>(null)
   useEffect(() => {
-    if (!loadedRef.current) return
+    if (!loadedRef.current || saveTimerRef.current !== null) return
     const interval = isGenerating ? 2000 : 800
-    const handle = window.setTimeout(() => {
-      void persistConversations(chats, activeId).then((error) => {
+    saveTimerRef.current = window.setTimeout(() => {
+      saveTimerRef.current = null
+      void persistConversations(chatsRef.current, activeIdRef.current).then((error) => {
         setStorageError(error ?? '')
       })
     }, interval)
-    return () => window.clearTimeout(handle)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chats, activeId, isGenerating])
+
+  useEffect(
+    () => () => {
+      if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = null
+    },
+    [],
+  )
 
   // Best-effort flush on page unload; IDB transactions usually survive it.
   // Sessions holding only empty auto-created blanks skip the write so the
@@ -279,16 +297,22 @@ export function useConversations() {
     const runId = runIdRef.current
     runRef.current = { chatId: input.chatId, messageId: input.assistantId }
 
-    const activeRedactions = input.shieldOn ? input.redactions : []
-    const promptForModel = input.shieldOn ? redactText(input.text, input.redactions) : input.text
+    // Read at request time so send and regenerate both use the latest profile.
+    const profile = getStoredProfile().trim()
+    // One list shields everything that leaves the browser in this request:
+    // the new prompt, earlier turns, the profile, file names and fetched pages.
+    const activeRedactions = input.shieldOn
+      ? conversationRedactions(input.history, profile, input.redactions)
+      : []
+    const promptForModel = redactText(input.text, activeRedactions)
     const limitTokens = contextLimitTokens(input.model)
     const outputTokens = OUTPUT_TOKENS
     const fileText = input.attachments
       .map((file) => file.text)
       .join('\n\n')
       .slice(0, FILE_CONTEXT_CHARS)
-    const context = input.shieldOn ? redactText(fileText, input.redactions) : fileText
-    const files = input.attachments.map((file) => file.name)
+    const context = redactText(fileText, activeRedactions)
+    const files = input.attachments.map((file) => redactText(file.name, activeRedactions))
 
     patchMessage(input.chatId, input.assistantId, {
       phase: 'shielding',
@@ -313,7 +337,7 @@ export function useConversations() {
       try {
         const web = await fetchWebContext(links, webController.signal, LINK_CONTEXT_CHARS)
         if (runIdRef.current !== runId) return
-        webContext = web.context
+        webContext = redactText(web.context, activeRedactions)
         if (web.sources.length) patchMessage(input.chatId, input.assistantId, { webSources: web.sources })
       } catch {
         if (runIdRef.current !== runId) return
@@ -339,8 +363,6 @@ export function useConversations() {
     const imageTokens = input.attachments
       .filter((file) => file.kind === 'image' && file.dataUrl)
       .reduce((sum, file) => sum + attachmentTokens(file), 0)
-    // Read at request time so send and regenerate both use the latest profile.
-    const profile = getStoredProfile().trim()
     const profileMessage: StreamMessage[] = profile
       ? [{ role: 'system', content: `About this student, in their own words:\n${profile}` }]
       : []
@@ -349,13 +371,19 @@ export function useConversations() {
       limitTokens - estimateTextTokens(userText) - imageTokens - estimateTextTokens(profile),
     )
     const currentImageChars = images.reduce((sum, url) => sum + url.length, 0)
+    // The new turn is already shielded above; profile and earlier turns are not.
     const requestMessages: StreamMessage[] = [
-      ...profileMessage,
-      ...buildContextMessages(input.history, historyBudget, {
-        enabled: supportsImages,
-        used: images.length,
-        chars: currentImageChars,
-      }),
+      ...redactContextMessages(
+        [
+          ...profileMessage,
+          ...buildContextMessages(input.history, historyBudget, {
+            enabled: supportsImages,
+            used: images.length,
+            chars: currentImageChars,
+          }),
+        ],
+        activeRedactions,
+      ),
       { role: 'user', content: userContent },
     ]
     let raw = ''
@@ -577,13 +605,45 @@ export function useConversations() {
     }
   }
 
-  const sendMessage = async ({
+  /**
+   * Starts a run. runAnswer reports its own request errors; this catches
+   * anything thrown before that, which would otherwise leave the chat stuck
+   * on "generating" with the send button disabled.
+   */
+  const startRun = (input: RunInput) => {
+    void runAnswer(input).catch(() => {
+      if (runRef.current?.messageId !== input.assistantId) return
+      patchMessage(input.chatId, input.assistantId, {
+        phase: 'done',
+        activity: undefined,
+        error: 'Something went wrong before the request was sent. Try again.',
+      })
+      runRef.current = null
+      abortRef.current = null
+      setIsGenerating(false)
+      setGeneratingChatId(null)
+    })
+  }
+
+  // Held from the first await in sendMessage until the run starts, so a second
+  // Enter in that gap cannot start a second run on the same stale history.
+  const sendingRef = useRef(false)
+  const sendMessage = async (input: SendInput) => {
+    if (sendingRef.current || isGenerating) return
+    sendingRef.current = true
+    try {
+      await sendMessageNow(input)
+    } finally {
+      sendingRef.current = false
+    }
+  }
+
+  const sendMessageNow = async ({
     text,
     attachments,
     shieldOn,
     model,
   }: SendInput) => {
-    if (isGenerating) return
     const content = text.trim()
     if (!content && !attachments.length) return
 
@@ -624,7 +684,11 @@ export function useConversations() {
       10
     // Near the model's limit, summarise older turns instead of overflowing.
     if (conversationTokens(history) + promptTokens >= contextLimitTokens(model) * COMPACT_AT) {
-      history = compactMessages(history, 4)
+      history = compactMessages(
+        history,
+        4,
+        shieldOn ? conversationRedactions(history, getStoredProfile().trim()) : [],
+      )
     }
 
     setChats((current) =>
@@ -643,7 +707,7 @@ export function useConversations() {
     )
     setIsGenerating(true)
     setGeneratingChatId(chat.id)
-    void runAnswer({
+    startRun({
       chatId: chat.id,
       assistantId,
       text: content,
@@ -725,7 +789,7 @@ export function useConversations() {
     )
     setIsGenerating(true)
     setGeneratingChatId(chat.id)
-    void runAnswer({
+    startRun({
       chatId: chat.id,
       assistantId: newAssistantId,
       text: userMessage.content,
@@ -851,24 +915,34 @@ export function useConversations() {
     const controller = new AbortController()
     abortRef.current = controller
     let summary = ''
+    // The shield setting is read here, as the profile is, so /compact follows it too.
+    const redactions = getStoredShield()
+      ? conversationRedactions(chat.messages, getStoredProfile().trim())
+      : []
     try {
-      summary = await compressWithModel(chat.messages, model, controller.signal, (running) => {
-        if (runIdRef.current !== guard) return
-        setChats((current) =>
-          current.map((item) =>
-            item.id === chat.id
-              ? {
-                  ...item,
-                  messages: item.messages.map((message) =>
-                    message.id === compactMessageId
-                      ? { ...message, content: running }
-                      : message,
-                  ),
-                }
-              : item,
-          ),
-        )
-      })
+      summary = await compressWithModel(
+        chat.messages,
+        model,
+        controller.signal,
+        (running) => {
+          if (runIdRef.current !== guard) return
+          setChats((current) =>
+            current.map((item) =>
+              item.id === chat.id
+                ? {
+                    ...item,
+                    messages: item.messages.map((message) =>
+                      message.id === compactMessageId
+                        ? { ...message, content: running }
+                        : message,
+                    ),
+                  }
+                : item,
+            ),
+          )
+        },
+        redactions,
+      )
     } finally {
       if (abortRef.current === controller) abortRef.current = null
     }
@@ -888,7 +962,7 @@ export function useConversations() {
     }
 
     if (!summary.trim()) summary = localSummary(chat.messages)
-    const compacted = compactedHistory(chat.messages, summary.trim(), 4)
+    const compacted = compactedHistory(chat.messages, summary.trim(), 4, redactions)
     setChats((current) =>
       current.map((item) =>
         item.id === chat.id

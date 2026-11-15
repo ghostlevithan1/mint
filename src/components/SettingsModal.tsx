@@ -115,11 +115,19 @@ export function SettingsModal({
     }
   }, [open, tab])
 
+  // The parent passes a new onClose every render; keeping it in a ref stops
+  // each render from resetting the tab and pulling focus back to the panel.
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+
+  useEffect(() => {
+    if (open) setTab(initialTab)
+  }, [open, initialTab])
+
   useEffect(() => {
     if (!open) return
-    setTab(initialTab)
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
+      if (event.key === 'Escape') onCloseRef.current()
     }
     document.addEventListener('keydown', onKey)
     document.body.classList.add('modal-open')
@@ -128,7 +136,7 @@ export function SettingsModal({
       document.removeEventListener('keydown', onKey)
       document.body.classList.remove('modal-open')
     }
-  }, [open, initialTab, onClose])
+  }, [open])
 
   const buildSha = typeof __BUILD_SHA__ === 'string' ? __BUILD_SHA__ : 'dev'
   const totalMessages = messageCount.toLocaleString()

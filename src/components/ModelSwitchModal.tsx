@@ -24,11 +24,14 @@ export function ModelSwitchModal({
   onChoose,
 }: ModelSwitchModalProps) {
   const panelRef = useRef<HTMLDivElement>(null)
+  // A fresh onClose every render must not re-run the effect and steal focus.
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
 
   useEffect(() => {
     if (!open) return
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
+      if (event.key === 'Escape') onCloseRef.current()
     }
     document.addEventListener('keydown', onKey)
     document.body.classList.add('modal-open')
@@ -37,7 +40,7 @@ export function ModelSwitchModal({
       document.removeEventListener('keydown', onKey)
       document.body.classList.remove('modal-open')
     }
-  }, [open, onClose])
+  }, [open])
 
   if (!open || !alternatives.length) return null
 

@@ -1,6 +1,7 @@
-import type { Model } from './data'
+import type { Model, Redaction } from './data'
 import { uid, type ChatMessage } from './chat'
 import type { Attachment } from './files'
+import { detectRedactions, mergeRedactions, redactText } from './privacy'
 
 /** Compact once this share of the context limit is in use. */
 export const COMPACT_AT = 0.95
@@ -189,19 +190,63 @@ export function localSummary(messages: ChatMessage[]): string {
   return lines.join('\n').slice(0, 2400)
 }
 
+/**
+ * Every identifier to shield in a request that carries `messages`: the ones
+ * found for this turn (`primary`, whose placeholders stay as they are), those
+ * saved on earlier turns and summaries, and a fresh scan of what the student
+ * typed before (and their profile) in case a turn ran with the shield off.
+ * Assistant text is not scanned: prose is full of capitalised pairs that are
+ * not people.
+ */
+export function conversationRedactions(
+  messages: ChatMessage[],
+  profile = '',
+  primary: Redaction[] = [],
+): Redaction[] {
+  const typed = [profile, ...messages.filter((m) => m.role === 'user').map(messageContextText)]
+    .join('\n\n')
+    .slice(0, 160_000)
+  return mergeRedactions(primary, messages.flatMap((m) => m.redactions ?? []), detectRedactions(typed))
+}
+
+/** Shields every text part of an outgoing message list; images pass through. */
+export function redactContextMessages(
+  messages: ContextMessage[],
+  redactions: Redaction[],
+): ContextMessage[] {
+  if (!redactions.length) return messages
+  return messages.map((message) => ({
+    ...message,
+    content:
+      typeof message.content === 'string'
+        ? redactText(message.content, redactions)
+        : message.content.map((part) =>
+            part.type === 'text' ? { ...part, text: redactText(part.text, redactions) } : part,
+          ),
+  }))
+}
+
+/**
+ * Replaces older turns with one summary note. The note keeps every redaction
+ * the dropped turns carried (plus `redactions`, found while summarising), so
+ * the names the summary mentions are still shielded on later requests.
+ */
 export function compactedHistory(
   messages: ChatMessage[],
   summary: string,
   keep = 4,
+  redactions: Redaction[] = [],
 ): ChatMessage[] {
   const existing = messages.find((message) => message.role === 'system')
   const normal = messages.filter((message) => message.role !== 'system')
   const tail = normal.slice(-keep)
+  const carried = mergeRedactions(redactions, messages.flatMap((message) => message.redactions ?? []))
   const notice: ChatMessage = {
     id: uid(),
     role: 'system',
     content: `Earlier conversation compressed to save context:\n\n${summary}`.trim(),
     createdAt: Date.now(),
+    ...(carried.length ? { redactions: carried } : {}),
   }
   const combined = existing
     ? `${existing.content}\n\n${summary}`.slice(0, 3200)
@@ -213,12 +258,16 @@ export function compactedHistory(
 }
 
 /** Replaces old turns with a compact summary so a request fits the window. */
-export function compactMessages(messages: ChatMessage[], keep = 4): ChatMessage[] {
+export function compactMessages(
+  messages: ChatMessage[],
+  keep = 4,
+  redactions: Redaction[] = [],
+): ChatMessage[] {
   if (messages.length <= keep + 1) return messages
   const older = messages.slice(0, messages.length - keep)
   const summary = localSummary(older)
   if (!summary.trim()) return messages.slice(-keep)
-  return compactedHistory(messages, summary, keep)
+  return compactedHistory(messages, summary, keep, redactions)
 }
 
 /**
@@ -234,7 +283,15 @@ export function buildContextMessages(
   const summary = messages.filter((message) => message.role === 'system')
   const normal = messages.filter((message) => message.role !== 'system')
   const picked: ChatMessage[] = []
-  let left = Math.max(64, budget)
+  const total = Math.max(64, budget)
+  let left = total
+
+  // The summary is paid for first, so the turns picked below fit what is left.
+  const summaryText = summary
+    .map((message) => message.content)
+    .join('\n\n')
+    .slice(0, Math.max(400, Math.round(total)))
+  if (summaryText) left = Math.max(64, left - estimateTextTokens(summaryText))
 
   for (let index = normal.length - 1; index >= 0; index -= 1) {
     const message = normal[index]
@@ -269,17 +326,12 @@ export function buildContextMessages(
   }
 
   const selected: ContextMessage[] = []
-  if (summary.length) {
-    const text = summary
-      .map((message) => message.content)
-      .join('\n\n')
-      .slice(0, Math.max(400, Math.round(left * 4)))
-    selected.push({ role: 'system', content: text })
-    left -= estimateTextTokens(text)
-  }
+  if (summaryText) selected.push({ role: 'system', content: summaryText })
 
+  // Every picked turn already fits the budget, so only a single oversized
+  // newest turn is ever cut here.
+  const maxChars = Math.max(200, total * 4)
   for (const message of picked) {
-    const maxChars = Math.max(200, left * 4)
     const content = messageContextText(message).slice(0, maxChars)
     const images = historyImages.get(message.id)
     if (images?.length) {
@@ -296,8 +348,6 @@ export function buildContextMessages(
     } else {
       selected.push({ role: message.role, content })
     }
-    left -= estimateTextTokens(content)
-    if (left <= 0) break
   }
 
   return selected

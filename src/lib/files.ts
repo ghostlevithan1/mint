@@ -422,15 +422,51 @@ async function readXlsxEntries(bytes: Uint8Array): Promise<Map<string, string>> 
   return entries
 }
 
-function unescapeXml(text: string): string {
+/** A character reference, or nothing when it is not a valid code point. */
+function codePointChar(value: number): string {
+  return Number.isInteger(value) && value > 0 && value <= 0x10ffff ? String.fromCodePoint(value) : ''
+}
+
+export function unescapeXml(text: string): string {
   return text
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&apos;/g, "'")
-    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(Number.parseInt(hex, 16)))
-    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(Number.parseInt(dec, 10)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => codePointChar(Number.parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec) => codePointChar(Number.parseInt(dec, 10)))
     .replace(/&amp;/g, '&')
+}
+
+/**
+ * One text line per non-empty worksheet row, cells joined by tabs. Empty
+ * styled cells arrive self-closed (`<c r="A1" s="1"/>`); they must stay as
+ * blanks so the cells after them keep their columns.
+ */
+export function sheetLines(xml: string, sharedStrings: string[]): string[] {
+  const lines: string[] = []
+  for (const row of xml.matchAll(/<row[^>]*>([\s\S]*?)<\/row>/g)) {
+    const cells: string[] = []
+    for (const cell of row[1].matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+      const attrs = cell[1]
+      const body = cell[2] ?? ''
+      const valueMatch = body.match(/<v[^>]*>([\s\S]*?)<\/v>/)
+      const inlineMatch = body.match(/<t[^>]*>([\s\S]*?)<\/t>/)
+      let value = ''
+      if (/t\s*=\s*"s"/.test(attrs)) {
+        const index = Number(valueMatch?.[1])
+        value = Number.isFinite(index) ? sharedStrings[index] ?? '' : ''
+      } else if (inlineMatch) {
+        value = unescapeXml(inlineMatch[1])
+      } else if (valueMatch) {
+        value = unescapeXml(valueMatch[1])
+      }
+      cells.push(value)
+    }
+    const line = cells.join('\t').replace(/[ ]+/g, ' ').trimEnd()
+    if (line.trim()) lines.push(line)
+  }
+  return lines
 }
 
 /** Extracts visible cell text from an .xlsx in reading order. */
@@ -460,28 +496,7 @@ async function extractXlsxText(file: File): Promise<string | undefined> {
 
     const lines: string[] = []
     for (const name of worksheetNames) {
-      const xml = entries.get(name) ?? ''
-      for (const row of xml.matchAll(/<row[^>]*>([\s\S]*?)<\/row>/g)) {
-        const cells: string[] = []
-        for (const cell of row[1].matchAll(/<c\b([^>]*)>([\s\S]*?)<\/c>/g)) {
-          const attrs = cell[1]
-          const body = cell[2]
-          const valueMatch = body.match(/<v[^>]*>([\s\S]*?)<\/v>/)
-          const inlineMatch = body.match(/<t[^>]*>([\s\S]*?)<\/t>/)
-          let value = ''
-          if (/t\s*=\s*"s"/.test(attrs)) {
-            const index = Number(valueMatch?.[1])
-            value = Number.isFinite(index) ? sharedStrings[index] ?? '' : ''
-          } else if (inlineMatch) {
-            value = unescapeXml(inlineMatch[1])
-          } else if (valueMatch) {
-            value = unescapeXml(valueMatch[1])
-          }
-          cells.push(value)
-        }
-        const line = cells.join('\t').replace(/[ ]+/g, ' ').trimEnd()
-        if (line.trim()) lines.push(line)
-      }
+      lines.push(...sheetLines(entries.get(name) ?? '', sharedStrings))
     }
     const text = lines.join('\n').slice(0, 200_000)
     return text.trim() ? text : undefined

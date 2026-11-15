@@ -432,6 +432,44 @@ export function redactText(text: string, redactions: Redaction[]): string {
   return output
 }
 
+const PLACEHOLDER_LABEL: Record<Redaction['kind'], string> = {
+  name: 'PERSON',
+  email: 'EMAIL',
+  phone: 'PHONE',
+}
+
+/**
+ * Joins redaction lists into one list for a whole request. Earlier lists keep
+ * their placeholders; an original that was already seen is dropped, and a new
+ * one whose placeholder is taken (every turn numbers from 01) gets the next
+ * free number, so one placeholder never stands for two different people.
+ */
+export function mergeRedactions(...lists: Redaction[][]): Redaction[] {
+  const merged: Redaction[] = []
+  const seen = new Set<string>()
+  const used = new Set<string>()
+  for (const list of lists) {
+    for (const item of list) {
+      const original = item.original?.trim()
+      if (!original) continue
+      const key = `${item.kind}:${original.toLowerCase()}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      let placeholder = item.placeholder
+      if (!placeholder || used.has(placeholder)) {
+        let number = 1
+        do {
+          placeholder = `[${PLACEHOLDER_LABEL[item.kind]}_${String(number).padStart(2, '0')}]`
+          number += 1
+        } while (used.has(placeholder))
+      }
+      used.add(placeholder)
+      merged.push({ original, placeholder, kind: item.kind })
+    }
+  }
+  return merged
+}
+
 export function rehydrateText(text: string, redactions: Redaction[]): string {
   let output = text
   for (const item of redactions) {

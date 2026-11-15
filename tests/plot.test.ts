@@ -1,6 +1,14 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { compileExpression, formatTick, niceTicks, parsePlotSpec, PlotError, sharedTicks } from '../src/lib/plotSpec.ts'
+import {
+  compileExpression,
+  formatTick,
+  niceTicks,
+  parsePlotSpec,
+  PlotError,
+  sharedTicks,
+  ticksBetween,
+} from '../src/lib/plotSpec.ts'
 import { parseDiagramSpec, wrapLabel } from '../src/lib/diagramSpec.ts'
 import { SYSTEM_PROMPT, withSystemPrompt } from '../server/core.ts'
 
@@ -202,4 +210,29 @@ test('client system messages fold into the one leading system prompt', () => {
   assert.equal(out[0].role, 'system')
   assert.ok((out[0].content as string).endsWith('About this student: Year 9'))
   assert.equal(out.filter((m) => m.role === 'system').length, 1)
+})
+
+test('hostile coordinates cannot stall or overflow the axis maths', () => {
+  // Each of these once spun forever: the step was below the float spacing.
+  assert.deepEqual(niceTicks(-1e308, 1e308), [])
+  assert.ok(niceTicks(1e17, 1e17 + 32).length <= 200)
+  assert.deepEqual(ticksBetween(0, 1e9, 1), [])
+  assert.deepEqual(ticksBetween(Number.NEGATIVE_INFINITY, 5, 1), [])
+  assert.ok(sharedTicks(-1e308, 1e308, -1e308, 1e308).x.length <= 200)
+
+  // A curve that overflows draws on a sane window instead of an infinite one.
+  const huge = parsePlotSpec(
+    JSON.stringify({ chart: 'line', xRange: [-1, 1], equations: [{ expr: '1e308*x' }] }),
+  )
+  assert.ok(Number.isFinite(huge.yRange[0]) && Number.isFinite(huge.yRange[1]))
+
+  // Out-of-range coordinates are rejected rather than plotted.
+  assert.throws(
+    () => parsePlotSpec(JSON.stringify({ chart: 'scatter', series: [{ x: [0, 1e308], y: [0, 1] }] })),
+    PlotError,
+  )
+  const clamped = parsePlotSpec(
+    JSON.stringify({ chart: 'line', xRange: [-1, 1], yRange: [-1e308, 1e308], equations: [{ expr: 'x' }] }),
+  )
+  assert.ok(Number.isFinite(clamped.yRange[0]) && Number.isFinite(clamped.yRange[1]))
 })

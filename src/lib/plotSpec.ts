@@ -189,8 +189,15 @@ function text(value: unknown): string {
   return typeof value === 'string' ? value.trim().slice(0, MAX_TEXT) : ''
 }
 
+/**
+ * Plot coordinates beyond this make the axis maths overflow or stall (a step
+ * below the float spacing never advances), so such specs are rejected.
+ */
+const MAX_COORD = 1e12
+const MAX_TICKS = 200
+
 function finite(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value)
+  return typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= MAX_COORD
 }
 
 function numbers(value: unknown, field: string, max: number): number[] {
@@ -211,7 +218,7 @@ function extent(values: number[]): [number, number] {
   let lo = Infinity
   let hi = -Infinity
   for (const v of values) {
-    if (!Number.isFinite(v)) continue
+    if (!Number.isFinite(v) || Math.abs(v) > MAX_COORD) continue
     if (v < lo) lo = v
     if (v > hi) hi = v
   }
@@ -223,7 +230,9 @@ function extent(values: number[]): [number, number] {
 
 /** Robust y extent: ignores the spikes near asymptotes (tan, 1/x) that would flatten the curve. */
 function curveExtent(values: number[]): [number, number] {
-  const sorted = values.filter(Number.isFinite).sort((a, b) => a - b)
+  const sorted = values
+    .filter((v) => Number.isFinite(v) && Math.abs(v) <= MAX_COORD)
+    .sort((a, b) => a - b)
   if (sorted.length < 20) return extent(sorted)
   const lo = sorted[Math.floor(sorted.length * 0.02)]
   const hi = sorted[Math.ceil(sorted.length * 0.98) - 1]
@@ -438,9 +447,14 @@ export function niceStep(raw: number): number {
 /** Tick values at an exact step covering [lo, hi]. */
 export function ticksBetween(lo: number, hi: number, step: number): number[] {
   if (!(step > 0) || !Number.isFinite(step)) return []
+  if (!Number.isFinite(lo) || !Number.isFinite(hi) || !((hi - lo) / step <= MAX_TICKS)) return []
   const ticks: number[] = []
-  for (let v = Math.ceil(lo / step - 1e-9) * step; v <= hi + step * 1e-9; v += step) {
+  for (let v = Math.ceil(lo / step - 1e-9) * step; v <= hi + step * 1e-9; ) {
     ticks.push(Math.abs(v) < step * 1e-9 ? 0 : Number(v.toPrecision(12)))
+    const next = v + step
+    // A step smaller than the float spacing at v would never advance.
+    if (!(next > v) || ticks.length >= MAX_TICKS) break
+    v = next
   }
   return ticks
 }

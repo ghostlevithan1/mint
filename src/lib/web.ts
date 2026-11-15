@@ -1,7 +1,7 @@
 import type { WebSource } from './chat'
 
 const URL_PATTERN = /\bhttps?:\/\/[^\s<>"`]+/gi
-const TRAILING_PUNCTUATION = /[.,;:!?)\]}]+$/
+const CLOSERS: Record<string, string> = { ')': '(', ']': '[', '}': '{' }
 const MAX_LINKS = 3
 const READ_TIMEOUT_MS = 45_000
 const SEARCH_TIMEOUT_MS = 11_000
@@ -32,12 +32,35 @@ export type WebSearchContext = WebContext & {
   error?: string
 }
 
+/**
+ * Drops sentence punctuation after a link. A closing bracket goes only when
+ * the link has no opening one to match, so "(see https://x.org/a)" loses its
+ * ")" while "https://en.wikipedia.org/wiki/Mercury_(planet)" keeps it.
+ */
+function trimLinkEnd(raw: string): string {
+  let url = raw
+  while (url) {
+    const last = url[url.length - 1]
+    if ('.,;:!?'.includes(last)) {
+      url = url.slice(0, -1)
+      continue
+    }
+    const opener = CLOSERS[last]
+    if (opener && url.split(last).length > url.split(opener).length) {
+      url = url.slice(0, -1)
+      continue
+    }
+    break
+  }
+  return url
+}
+
 /** Pulls distinct http(s) links out of a prompt, ignoring trailing punctuation. */
 export function extractUrls(text: string): string[] {
   const found = text.match(URL_PATTERN) ?? []
   const cleaned: string[] = []
   for (const raw of found) {
-    const candidate = raw.replace(TRAILING_PUNCTUATION, '')
+    const candidate = trimLinkEnd(raw)
     try {
       const url = new URL(candidate)
       if (url.protocol !== 'http:' && url.protocol !== 'https:') continue

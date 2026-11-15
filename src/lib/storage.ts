@@ -32,8 +32,24 @@ function openDb(): Promise<IDBDatabase> {
         db.createObjectStore(META_STORE)
       }
     }
-    request.onsuccess = () => resolve(request.result)
+    request.onsuccess = () => {
+      const db = request.result
+      // Another tab upgrading the store, or the browser closing the
+      // connection, must not leave a dead handle cached.
+      db.onversionchange = () => {
+        db.close()
+        dbPromise = null
+      }
+      db.onclose = () => {
+        dbPromise = null
+      }
+      resolve(db)
+    }
     request.onblocked = () => reject(new Error('indexedDB blocked'))
+  })
+  // A failed open is not remembered, so the next save can try again.
+  dbPromise.catch(() => {
+    dbPromise = null
   })
   return dbPromise
 }
@@ -125,7 +141,26 @@ export async function loadConversations(): Promise<{
  * Returns null on success, or a short human-readable reason on failure so the
  * UI can warn that this browser is not saving chats.
  */
-export async function persistConversations(
+export function persistConversations(
+  conversations: Conversation[],
+  activeId: string,
+): Promise<string | null> {
+  return enqueue(() => persistNow(conversations, activeId))
+}
+
+/**
+ * Saves and wipes run one at a time. A save that is still compressing must not
+ * write its old chats back after a wipe, and two saves must not interleave.
+ */
+let writeQueue: Promise<unknown> = Promise.resolve()
+
+function enqueue<T>(job: () => Promise<T>): Promise<T> {
+  const run = writeQueue.then(job, job)
+  writeQueue = run.catch(() => undefined)
+  return run
+}
+
+async function persistNow(
   conversations: Conversation[],
   activeId: string,
 ): Promise<string | null> {
@@ -146,7 +181,6 @@ export async function persistConversations(
     }
 
     const deletions = [...persistedHash.keys()].filter((id) => !current.has(id))
-    for (const id of deletions) persistedHash.delete(id)
 
     const db = await openDb()
     const transaction = db.transaction([CONV_STORE, META_STORE], 'readwrite')
@@ -162,6 +196,8 @@ export async function persistConversations(
       transaction.onabort = () => reject(transaction.error ?? new Error('indexedDB transaction aborted'))
     })
 
+    // Only now is the disk known to match, so a failed save retries its deletions.
+    for (const id of deletions) persistedHash.delete(id)
     for (const { row, hash } of writes) persistedHash.set(row.id, hash)
     return null
   } catch (error) {
@@ -174,8 +210,11 @@ export async function persistConversations(
   }
 }
 
-export async function wipePersistedStore(): Promise<boolean> {
-  persistedHash.clear()
+export function wipePersistedStore(): Promise<boolean> {
+  return enqueue(wipeNow)
+}
+
+async function wipeNow(): Promise<boolean> {
   try {
     const db = await openDb()
     await new Promise<void>((resolve, reject) => {
@@ -184,7 +223,9 @@ export async function wipePersistedStore(): Promise<boolean> {
       transaction.objectStore(META_STORE).clear()
       transaction.oncomplete = () => resolve()
       transaction.onerror = () => reject(transaction.error ?? new Error('indexedDB clear failed'))
+      transaction.onabort = () => reject(transaction.error ?? new Error('indexedDB clear aborted'))
     })
+    persistedHash.clear()
     return true
   } catch {
     // Best effort; never block the app on storage housekeeping.
