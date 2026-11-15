@@ -60,6 +60,13 @@ guard.
 Visitors behind the same router share one budget, so a busy household or office
 may hit the limit together. Raise `MINT_RATE_LIMIT` if that becomes a problem.
 
+**Who counts as one visitor.** A client can write anything in `X-Forwarded-For`, so
+that header is never trusted from its left end. On Render (`RENDER=true`) the
+edge-set `True-Client-IP` / `CF-Connecting-IP` identify the visitor. Elsewhere the
+socket address is used; behind your own proxy set `MINT_PROXY_HOPS=n` to take the
+n-th entry from the right of `X-Forwarded-For`, or `MINT_TRUST_PROXY_HEADERS=1` if
+that proxy sets `True-Client-IP` itself.
+
 Responses include `X-RateLimit-Limit` and `X-RateLimit-Remaining`; a limited
 request answers `429` with `Retry-After` and a readable message.
 
@@ -154,6 +161,11 @@ that `Esc` stops the request.
   implicit multiplication (`2x`, `3sin(x)`, `2π`); and the functions `sin cos tan
   asin acos atan sinh cosh tanh exp log ln log2 log10 sqrt abs floor ceil min max
   pow`. Angles are in radians. Charts are `line`, `scatter`, `bar` or `histogram`.
+  **Graph detail** (Settings → General → Graphs) sets how many points are worked out
+  along each equation curve before they are joined with straight lines (20 to 2,000;
+  default 600). Graphs already on screen redraw when it changes. Each graph also
+  carries a plain-text reading (window, values along the curve, marked points) for
+  screen readers.
 - **Enter** sends; **Shift + Enter** adds a line; **Esc** stops generation.
 - **Export all chats** (Settings → Privacy) downloads one JSON file.
 - **Stop** ends a streamed answer; **Regenerate** re-runs the last response.
@@ -175,8 +187,18 @@ that `Esc` stops the request.
 - Names, email addresses and phone numbers are detected locally and replaced with
   placeholders such as `[PERSON_01]`, `[EMAIL_01]` and `[PHONE_01]`.
 - **Inspect payload** shows the exact redacted request before it leaves the tab.
+- The same list shields the whole request, not just the new message: earlier turns,
+  your profile, file names, fetched page text and the `/compact` transcript. One
+  placeholder never stands for two different people, and compacted summaries keep
+  the list.
 - Returned answers are rehydrated locally, so placeholders become the original
   values only inside the browser.
+- **Images in answers wait for a click.** Loading an image tells its site the full
+  URL, and a model steered by a web page could put your text in it. Block and inline
+  images show the site and a Show button; "Always show from this site" is kept on
+  this device. Links you typed yourself load directly.
+- The web reader checks each address when it connects (not just when it looks the
+  name up), so a hostile DNS answer cannot point it at an internal address.
 - A request replays as much prior conversation as fits the selected model's
   context window (capped at 96K tokens), newest turns first. The server relays it
   to that model's provider for the length of the request; it does not write
@@ -223,6 +245,7 @@ server/
   core.ts                    model mapping, upstream SSE, fallback on 404/410
   node-http.ts               /api/chat and /api/status handlers
   web.ts                     /api/web page reader and /api/search
+  safe-fetch.ts              connect-time address checks for the page reader
   nvidia.ts                  Vite dev/preview proxy with the same limits
 src/
   components/
@@ -236,6 +259,8 @@ src/
     PayloadModal.tsx         redacted payload audit
   hooks/
     useConversations.ts      chats, streaming, compacting, undo, storage errors
+    useModalFocus.ts         focus trap, Escape and focus restore for dialogs
+    usePlotDetail.ts         the graph detail setting, shared with every graph
     useProviderStatus.ts     checks /api/status for a configured key
     useAttachments.ts        25 MB / 10-file validation and local reading
   lib/
