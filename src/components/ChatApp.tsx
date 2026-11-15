@@ -76,13 +76,15 @@ export function ChatApp() {
     return () => document.removeEventListener('keydown', onKey)
   }, [sidebarOpen])
 
-  // Esc stops a generation from anywhere in the workspace. Dialogs handle
-  // their own Escape first, so only stop when nothing modal is open.
+  // Esc stops a generation from anywhere in the workspace. Anything open as a
+  // dialog (settings, the model menu, the context window, the model switcher)
+  // takes the key to close itself first; the next Esc then stops the answer.
   useEffect(() => {
     if (!isGenerating) return
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
       if (settingsOpen || payloadMessageId) return
+      if (document.querySelector('[role="dialog"]')) return
       event.preventDefault()
       stopGenerating()
     }

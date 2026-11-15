@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { Check, ChevronDown } from 'lucide-react'
 import { MODEL_TYPES, MODELS, modelsByType, typeInfo } from '../lib/data'
 import type { Model } from '../lib/data'
@@ -12,7 +13,12 @@ type ModelMenuProps = {
 export function ModelMenu({ model, onSelect }: ModelMenuProps) {
   const [open, setOpen] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const popoverRef = useRef<HTMLDivElement>(null)
   const currentType = typeInfo(model.type)
+
+  const choices = () =>
+    [...(popoverRef.current?.querySelectorAll<HTMLButtonElement>('.model-choice') ?? [])]
 
   useEffect(() => {
     if (!open) return
@@ -20,7 +26,9 @@ export function ModelMenu({ model, onSelect }: ModelMenuProps) {
       if (!wrapRef.current?.contains(event.target as Node)) setOpen(false)
     }
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false)
+      if (event.key !== 'Escape') return
+      setOpen(false)
+      triggerRef.current?.focus()
     }
     document.addEventListener('mousedown', onPointer)
     document.addEventListener('keydown', onKey)
@@ -30,13 +38,42 @@ export function ModelMenu({ model, onSelect }: ModelMenuProps) {
     }
   }, [open])
 
+  // Opening moves focus onto the current model, so the keyboard lands in the list.
+  useEffect(() => {
+    if (!open) return
+    const list = choices()
+    ;(list.find((item) => item.classList.contains('is-selected')) ?? list[0])?.focus()
+  }, [open])
+
+  /** Arrow keys, Home and End walk the models; Tab still leaves the menu. */
+  const onListKey = (event: ReactKeyboardEvent) => {
+    const list = choices()
+    if (!list.length) return
+    const index = list.indexOf(document.activeElement as HTMLButtonElement)
+    let next = -1
+    if (event.key === 'ArrowDown') next = (index + 1) % list.length
+    else if (event.key === 'ArrowUp') next = (index - 1 + list.length) % list.length
+    else if (event.key === 'Home') next = 0
+    else if (event.key === 'End') next = list.length - 1
+    if (next < 0) return
+    event.preventDefault()
+    list[next].focus()
+  }
+
   return (
     <div className="model-menu-wrap" ref={wrapRef}>
       <button
+        ref={triggerRef}
         type="button"
         className="model-trigger"
         onClick={() => setOpen((value) => !value)}
-        aria-haspopup="listbox"
+        onKeyDown={(event) => {
+          if (event.key === 'ArrowDown' && !open) {
+            event.preventDefault()
+            setOpen(true)
+          }
+        }}
+        aria-haspopup="dialog"
         aria-expanded={open}
       >
         <span className="model-glyph">
@@ -53,7 +90,13 @@ export function ModelMenu({ model, onSelect }: ModelMenuProps) {
       </button>
 
       {open && (
-        <div className="model-popover" role="listbox" aria-label="Choose a model">
+        <div
+          className="model-popover"
+          role="dialog"
+          aria-label="Choose a model"
+          ref={popoverRef}
+          onKeyDown={onListKey}
+        >
           <div className="model-popover-head">
             <span>Model type</span>
             <span>
@@ -80,12 +123,12 @@ export function ModelMenu({ model, onSelect }: ModelMenuProps) {
                       <button
                         key={item.id}
                         type="button"
-                        role="option"
-                        aria-selected={selected}
+                        aria-current={selected ? 'true' : undefined}
                         className={`model-choice ${selected ? 'is-selected' : ''}`}
                         onClick={() => {
                           onSelect(item.id)
                           setOpen(false)
+                          triggerRef.current?.focus()
                         }}
                       >
                         <span className="model-choice-glyph">

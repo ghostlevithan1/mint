@@ -473,6 +473,50 @@ export function parsePlotSpec(raw: string, options: PlotOptions = {}): PlotData 
   return data
 }
 
+function spoken(value: number): string {
+  return String(Number(value.toPrecision(4)))
+}
+
+/**
+ * The graph as plain sentences, for readers who cannot see it: the window,
+ * then values along each curve (or its data points), then the marked points.
+ * The drawing's own click-for-values needs a pointer; this does not.
+ */
+export function describePlot(data: PlotData): string[] {
+  const out: string[] = []
+  if (data.chart === 'bar' || data.chart === 'histogram') {
+    out.push(`${data.chart === 'bar' ? 'Bar chart' : 'Histogram'} with ${data.bars.length} bars.`)
+    for (const bar of data.bars.slice(0, 40)) out.push(`${bar.label}: ${spoken(bar.value)}`)
+    return out
+  }
+
+  const kind = data.chart === 'scatter' ? 'Scatter plot' : 'Line graph'
+  const axis = (label: string, fallback: string) => (label ? `${label} (${fallback})` : fallback)
+  out.push(
+    `${kind}. ${axis(data.xLabel, 'x')} runs from ${spoken(data.xRange[0])} to ${spoken(data.xRange[1])}; ` +
+      `${axis(data.yLabel, 'y')} from ${spoken(data.yRange[0])} to ${spoken(data.yRange[1])}.`,
+  )
+  for (const line of data.lines) {
+    const points = line.points
+    if (line.expr && points.length > 1) {
+      // Seven evenly spaced readings give the shape without listing every point.
+      const readings = Array.from({ length: 7 }, (_, step) => {
+        const [x, y] = points[Math.round((step * (points.length - 1)) / 6)]
+        return `x = ${spoken(x)}, y = ${Number.isFinite(y) ? spoken(y) : 'undefined'}`
+      })
+      out.push(`${line.label}: ${readings.join('; ')}`)
+    } else {
+      const shown = points.slice(0, 12).map(([x, y]) => `(${spoken(x)}, ${spoken(y)})`)
+      const more = points.length > 12 ? `, and ${points.length - 12} more` : ''
+      out.push(`${line.label}: ${shown.join(' ')}${more}`)
+    }
+  }
+  for (const marker of data.markers) {
+    out.push(`Marked point${marker.label ? ` ${marker.label}` : ''} at (${spoken(marker.x)}, ${spoken(marker.y)})`)
+  }
+  return out
+}
+
 /** The "nice" step (1, 2, 5 × 10^n) closest to a requested spacing. */
 export function niceStep(raw: number): number {
   if (!(raw > 0) || !Number.isFinite(raw)) return 1

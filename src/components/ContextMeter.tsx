@@ -19,8 +19,15 @@ export function ContextMeter({
 }: ContextMeterProps) {
   const [open, setOpen] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
   const percent = limit > 0 ? Math.min(100, (used / limit) * 100) : 0
   const nearLimit = percent >= 95
+
+  /** Closing from the keyboard hands focus back to the button that opened it. */
+  const close = () => {
+    setOpen(false)
+    triggerRef.current?.focus()
+  }
 
   useEffect(() => {
     if (!open) return
@@ -28,7 +35,10 @@ export function ContextMeter({
       if (!wrapRef.current?.contains(event.target as Node)) setOpen(false)
     }
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false)
+      if (event.key === 'Escape') {
+        setOpen(false)
+        triggerRef.current?.focus()
+      }
     }
     document.addEventListener('mousedown', onPointer)
     document.addEventListener('keydown', onKey)
@@ -41,6 +51,7 @@ export function ContextMeter({
   return (
     <div className="context-meter-wrap" ref={wrapRef}>
       <button
+        ref={triggerRef}
         type="button"
         className={`context-meter ${nearLimit ? 'is-near' : ''}`}
         onClick={() => setOpen((value) => !value)}
@@ -66,7 +77,7 @@ export function ContextMeter({
             <button
               type="button"
               className="icon-button"
-              onClick={() => setOpen(false)}
+              onClick={close}
               aria-label="Close context window"
             >
               <X size={13} />

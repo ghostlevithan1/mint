@@ -1,8 +1,8 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { Loader2, TriangleAlert } from 'lucide-react'
 import { usePlotDetail } from '../hooks/usePlotDetail'
-import { compileExpression, formatTick, niceTicks, parsePlotSpec, PlotError, sharedTicks, type PlotData } from '../lib/plotSpec'
+import { compileExpression, describePlot, formatTick, niceTicks, parsePlotSpec, PlotError, sharedTicks, type PlotData } from '../lib/plotSpec'
 import { clampLabel, estimateTextWidth, insideArea, nearestOnSegment, panView, placeMarkerLabels, placeReadout, squareView, zoomView, type View } from '../lib/plotGeometry'
 
 const W = 640
@@ -32,6 +32,8 @@ function coordinate(value: number): string {
 }
 
 function Chart({ data, detail }: { data: PlotData; detail: number }) {
+  // Every graph needs its own clip id, or one graph's clip is used by the rest.
+  const clipId = `plot-area-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`
   const interactive = data.chart === 'line' || data.chart === 'scatter'
   const isBars = !interactive
   const initial = useMemo<View>(() => {
@@ -292,7 +294,7 @@ function Chart({ data, detail }: { data: PlotData; detail: number }) {
         onClick={interactive ? undefined : () => setBarPick(null)}
       >
         <defs>
-          <clipPath id="plot-area">
+          <clipPath id={clipId}>
             <rect x={M.left} y={M.top} width={IW} height={IH} />
           </clipPath>
         </defs>
@@ -327,7 +329,7 @@ function Chart({ data, detail }: { data: PlotData; detail: number }) {
         )}
         <line className="plot-frame" x1={M.left} x2={W - M.right} y1={H - M.bottom} y2={H - M.bottom} />
 
-        <g clipPath="url(#plot-area)">
+        <g clipPath={`url(#${clipId})`}>
           {isBars &&
             data.bars.map((bar, i) => {
               const top = sy(Math.max(0, bar.value))
@@ -518,6 +520,11 @@ export const PlotImage = memo(function PlotImage({ spec, streaming = false }: { 
     <figure className="plot-figure">
       {data.title && <figcaption className="plot-title">{data.title}</figcaption>}
       <Chart data={data} detail={detail} />
+      <ul className="sr-only" aria-label="Graph values">
+        {describePlot(data).map((line, i) => (
+          <li key={i}>{line}</li>
+        ))}
+      </ul>
       {legend && data.chart !== 'bar' && data.chart !== 'histogram' && (
         <ul className="plot-legend">
           {data.lines.map((line, i) => (

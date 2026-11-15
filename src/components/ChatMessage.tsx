@@ -123,7 +123,7 @@ function WaitingProgress({
       <span className="thinking-copy">
         <strong>
           {title}
-          <span className="thinking-elapsed"> · {seconds}s</span>
+          <span className="thinking-elapsed" aria-hidden="true"> · {seconds}s</span>
         </strong>
         <small>{hint}</small>
       </span>
@@ -139,7 +139,7 @@ function WaitingProgress({
 function ReasoningPanel({ text, live }: { text: string; live: boolean }) {
   if (live) {
     return (
-      <div className="reasoning-live" role="status" aria-live="polite">
+      <div className="reasoning-live" role="group" aria-label="Model reasoning, updating">
         <div className="reasoning-head">
           <Brain size={12} />
           <span>Thinking out loud</span>

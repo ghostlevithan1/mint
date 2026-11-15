@@ -31,13 +31,19 @@ function OuterLabel({ angle, radius, label }: { angle: number; radius: number; l
   )
 }
 
-function Cycle({ nodes }: Diagram) {
+function Cycle({ nodes, title }: Diagram) {
   const n = nodes.length
   const R = 112
   const angle = (i: number) => -Math.PI / 2 + (i * 2 * Math.PI) / n
   const gap = 0.24
+  const steps = nodes.map((node, i) => `${i + 1}, ${node.label}`).join('; ')
   return (
-    <svg className="diagram-svg" viewBox={`0 0 ${W} ${H}`} aria-hidden="true">
+    <svg
+      className="diagram-svg"
+      viewBox={`0 0 ${W} ${H}`}
+      role="img"
+      aria-label={`Cycle${title ? `: ${title}` : ''}. In order: ${steps}; then back to 1.`}
+    >
       <defs>
         <marker id="dg-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
           <path d="M1 1 9 5 1 9" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
@@ -71,14 +77,19 @@ function Cycle({ nodes }: Diagram) {
   )
 }
 
-function Hub({ nodes }: Diagram) {
+function Hub({ nodes, title }: Diagram) {
   const [centre, ...branches] = nodes
   const n = branches.length
   const R = 120
   const angle = (i: number) => -Math.PI / 2 + (i * 2 * Math.PI) / n
   const centreLines = wrapLabel(centre.label, 12)
   return (
-    <svg className="diagram-svg" viewBox={`0 0 ${W} ${H}`} aria-hidden="true">
+    <svg
+      className="diagram-svg"
+      viewBox={`0 0 ${W} ${H}`}
+      role="img"
+      aria-label={`Diagram${title ? `: ${title}` : ''}. ${centre.label}, with ${branches.map((node) => node.label).join('; ')}.`}
+    >
       {branches.map((_, i) => {
         const [x1, y1] = polar(52, angle(i))
         const [x2, y2] = polar(R, angle(i))

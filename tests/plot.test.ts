@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   clampPlotDetail,
   compileExpression,
+  describePlot,
   formatTick,
   niceTicks,
   parsePlotSpec,
@@ -256,6 +257,46 @@ test('graph detail sets how many points are joined along an equation curve', () 
   const coarse = parsePlotSpec(spec, { samples: PLOT_DETAIL_MIN }).lines[0].points
   assert.equal(coarse[0][0], -3)
   assert.equal(coarse.at(-1)?.[0], 3)
+})
+
+test('a graph can be read out as plain sentences', () => {
+  const curve = describePlot(
+    parsePlotSpec(
+      JSON.stringify({
+        chart: 'line',
+        title: 'Quadratic',
+        xRange: [-3, 3],
+        equations: [{ expr: 'x^2', label: 'y = x^2' }],
+        points: [{ x: 0, y: 0, label: 'vertex' }],
+      }),
+      { samples: 61 },
+    ),
+  )
+  assert.match(curve[0], /^Line graph\. x runs from -3 to 3; y from /)
+  // Seven readings along the curve, from the left edge to the right edge.
+  assert.match(curve[1], /^y = x\^2: x = -3, y = 9; /)
+  assert.match(curve[1], /x = 0, y = 0; /)
+  assert.match(curve[1], /x = 3, y = 9$/)
+  assert.equal(curve.at(-1), 'Marked point vertex at (0, 0)')
+
+  // A curve that is undefined somewhere says so instead of printing NaN.
+  const rooted = describePlot(
+    parsePlotSpec(JSON.stringify({ xRange: [-4, 4], equations: [{ expr: 'sqrt(x)', label: 'root' }] }), {
+      samples: 61,
+    }),
+  )
+  assert.match(rooted[1], /x = -4, y = undefined/)
+  assert.ok(!rooted[1].includes('NaN'))
+
+  const data = describePlot(
+    parsePlotSpec(JSON.stringify({ chart: 'scatter', series: [{ label: 'Heights', x: [1, 2, 3], y: [4, 5, 6] }] })),
+  )
+  assert.equal(data[1], 'Heights: (1, 4) (2, 5) (3, 6)')
+
+  const bars = describePlot(
+    parsePlotSpec(JSON.stringify({ chart: 'bar', series: [{ x: ['Q1', 'Q2'], y: [12, 19] }] })),
+  )
+  assert.deepEqual(bars, ['Bar chart with 2 bars.', 'Q1: 12', 'Q2: 19'])
 })
 
 test('graph detail stays inside its limits and maps cleanly onto the slider', () => {

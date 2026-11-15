@@ -44,13 +44,35 @@ export function Sidebar({
   const [draft, setDraft] = useState('')
   const searchRef = useRef<HTMLInputElement>(null)
   const renameRef = useRef<HTMLInputElement>(null)
+  const asideRef = useRef<HTMLElement>(null)
+  const closeRef = useRef<HTMLButtonElement>(null)
+  // Escape cancels a rename; the input then unmounts, and the blur that can
+  // follow must not save it.
+  const cancelRenameRef = useRef(false)
+
+  // Below 980px the sidebar is a drawer parked off-screen. While it is shut,
+  // its buttons must not take Tab stops; `inert` hides them from keyboard and
+  // screen readers alike. Opening it moves focus onto its close button.
+  useEffect(() => {
+    const narrow = window.matchMedia('(max-width: 980px)')
+    const apply = () => asideRef.current?.toggleAttribute('inert', narrow.matches && !open)
+    apply()
+    if (open && narrow.matches) closeRef.current?.focus()
+    narrow.addEventListener('change', apply)
+    return () => narrow.removeEventListener('change', apply)
+  }, [open])
 
   const startRename = (chat: Conversation) => {
+    cancelRenameRef.current = false
     setRenamingId(chat.id)
     setDraft(chat.title)
   }
 
   const commitRename = () => {
+    if (cancelRenameRef.current) {
+      cancelRenameRef.current = false
+      return
+    }
     if (!renamingId) return
     onRenameChat(renamingId, draft)
     setRenamingId(null)
@@ -83,10 +105,10 @@ export function Sidebar({
   return (
     <>
       {open && <div className="sidebar-scrim" onClick={onClose} aria-hidden="true" />}
-      <aside className={`sidebar ${open ? 'is-open' : ''}`} aria-label="Chats">
+      <aside ref={asideRef} className={`sidebar ${open ? 'is-open' : ''}`} aria-label="Chats">
         <div className="sidebar-head">
           <Logo />
-          <button className="sidebar-close" onClick={onClose} aria-label="Close sidebar">
+          <button ref={closeRef} className="sidebar-close" onClick={onClose} aria-label="Close sidebar">
             <PanelLeftClose size={17} />
           </button>
         </div>
@@ -161,6 +183,7 @@ export function Sidebar({
                             commitRename()
                           } else if (event.key === 'Escape') {
                             event.preventDefault()
+                            cancelRenameRef.current = true
                             setRenamingId(null)
                             setDraft('')
                           }

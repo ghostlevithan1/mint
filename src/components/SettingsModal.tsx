@@ -23,6 +23,7 @@ import { MODEL_TYPES, modelsByType } from '../lib/data'
 import type { ProviderStatus } from '../lib/provider'
 import { formatBytes } from '../lib/privacy'
 import { getStoredProfile, PROFILE_MAX_CHARS, saveProfile } from '../lib/preferences'
+import { useModalFocus } from '../hooks/useModalFocus'
 import { usePlotDetail } from '../hooks/usePlotDetail'
 import {
   PLOT_DETAIL_DEFAULT,
@@ -158,28 +159,11 @@ export function SettingsModal({
     }
   }, [open, tab])
 
-  // The parent passes a new onClose every render; keeping it in a ref stops
-  // each render from resetting the tab and pulling focus back to the panel.
-  const onCloseRef = useRef(onClose)
-  onCloseRef.current = onClose
-
   useEffect(() => {
     if (open) setTab(initialTab)
   }, [open, initialTab])
 
-  useEffect(() => {
-    if (!open) return
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onCloseRef.current()
-    }
-    document.addEventListener('keydown', onKey)
-    document.body.classList.add('modal-open')
-    panelRef.current?.focus()
-    return () => {
-      document.removeEventListener('keydown', onKey)
-      document.body.classList.remove('modal-open')
-    }
-  }, [open])
+  useModalFocus(open, panelRef, onClose)
 
   const buildSha = typeof __BUILD_SHA__ === 'string' ? __BUILD_SHA__ : 'dev'
   const totalMessages = messageCount.toLocaleString()

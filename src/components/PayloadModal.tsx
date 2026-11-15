@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Check, Copy, LockKeyhole, Mail, Phone, RotateCcw, ShieldCheck, UserRound, X } from 'lucide-react'
+import { useModalFocus } from '../hooks/useModalFocus'
 import type { Redaction } from '../lib/data'
 
 type PayloadModalProps = {
@@ -27,23 +28,16 @@ export function PayloadModal({
 }: PayloadModalProps) {
   const [copied, setCopied] = useState(false)
   const [showOriginals, setShowOriginals] = useState(true)
+  const panelRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!open) {
       setCopied(false)
       setShowOriginals(true)
-      return
     }
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', onKey)
-    document.body.classList.add('modal-open')
-    return () => {
-      document.removeEventListener('keydown', onKey)
-      document.body.classList.remove('modal-open')
-    }
-  }, [open, onClose])
+  }, [open])
+
+  useModalFocus(open, panelRef, onClose)
 
   if (!open) return null
 
@@ -65,7 +59,14 @@ export function PayloadModal({
 
   return (
     <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <div className="payload-modal" role="dialog" aria-modal="true" aria-labelledby="payload-title">
+      <div
+        className="payload-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="payload-title"
+        tabIndex={-1}
+        ref={panelRef}
+      >
         <div className="payload-header">
           <div>
             <span className="eyebrow">PII shield / audit view</span>

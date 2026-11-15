@@ -197,6 +197,19 @@ svg {
     transform 120ms var(--ease);
 }
 
+/* Text for screen readers only: present in the page, invisible on screen. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .button-primary {
   background: var(--text);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);

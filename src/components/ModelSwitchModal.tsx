@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react'
+import { useRef } from 'react'
+import { useModalFocus } from '../hooks/useModalFocus'
 import { ArrowRight, ShieldCheck, TriangleAlert, X } from 'lucide-react'
 import { MODEL_TYPES, typeInfo, type Model } from '../lib/data'
 import type { AttachmentNeed } from '../lib/modelRouting'
@@ -24,23 +25,7 @@ export function ModelSwitchModal({
   onChoose,
 }: ModelSwitchModalProps) {
   const panelRef = useRef<HTMLDivElement>(null)
-  // A fresh onClose every render must not re-run the effect and steal focus.
-  const onCloseRef = useRef(onClose)
-  onCloseRef.current = onClose
-
-  useEffect(() => {
-    if (!open) return
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onCloseRef.current()
-    }
-    document.addEventListener('keydown', onKey)
-    document.body.classList.add('modal-open')
-    panelRef.current?.focus()
-    return () => {
-      document.removeEventListener('keydown', onKey)
-      document.body.classList.remove('modal-open')
-    }
-  }, [open])
+  useModalFocus(open && alternatives.length > 0, panelRef, onClose)
 
   if (!open || !alternatives.length) return null
 
