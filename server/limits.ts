@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { isIP } from 'node:net'
 import { resolve } from 'node:path'
 
 /**
@@ -69,12 +70,38 @@ function chatLimit(): number {
   return Number.isFinite(value) && value >= 0 ? value : CHAT_RATE_LIMIT
 }
 
-function clientAddress(req: IncomingMessage): string {
-  console.log('TEMP-IPDIAG', JSON.stringify({ xff: req.headers['x-forwarded-for'], tci: req.headers['true-client-ip'], cf: req.headers['cf-connecting-ip'], xri: req.headers['x-real-ip'], remote: req.socket?.remoteAddress }))
-  const forwarded = req.headers['x-forwarded-for']
-  const raw = Array.isArray(forwarded) ? forwarded[0] : forwarded
-  const first = (raw ?? '').split(',')[0]?.trim()
-  if (first) return first
+function headerAddress(req: IncomingMessage, name: string): string {
+  const raw = req.headers[name]
+  const value = (Array.isArray(raw) ? raw[0] : raw)?.trim() ?? ''
+  return isIP(value) ? value : ''
+}
+
+/**
+ * Who the request is from, for rate limiting. A client can put anything in
+ * X-Forwarded-For, so its leftmost entry is never used. On Render the edge
+ * sets True-Client-IP / CF-Connecting-IP to the real visitor and overwrites
+ * any client-sent copy, so those are trusted there (or when
+ * MINT_TRUST_PROXY_HEADERS=1). Behind another proxy, MINT_PROXY_HOPS=n picks
+ * the n-th entry from the right of X-Forwarded-For. Otherwise the socket
+ * address is used.
+ */
+export function clientAddress(req: IncomingMessage): string {
+  const trusted = envValue('RENDER') === 'true' || envValue('MINT_TRUST_PROXY_HEADERS') === '1'
+  if (trusted) {
+    const edge = headerAddress(req, 'true-client-ip') || headerAddress(req, 'cf-connecting-ip')
+    if (edge) return edge
+  }
+
+  const hops = Number.parseInt(envValue('MINT_PROXY_HOPS'), 10)
+  if (Number.isInteger(hops) && hops > 0) {
+    const forwarded = req.headers['x-forwarded-for']
+    const entries = (Array.isArray(forwarded) ? forwarded.join(',') : (forwarded ?? ''))
+      .split(',')
+      .map((entry) => entry.trim())
+    const entry = entries[entries.length - hops]
+    if (entry && isIP(entry)) return entry
+  }
+
   return req.socket?.remoteAddress ?? 'unknown'
 }
 
