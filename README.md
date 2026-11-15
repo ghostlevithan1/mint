@@ -5,14 +5,15 @@ Ask anything or attach files, pick a model, and watch a streamed answer arrive w
 live generation metrics — while personal identifiers are replaced on-device before
 anything leaves the tab.
 
-Answers stream from **NVIDIA NIM** through a server-side key. Without a key, a
-question shows a clear "not set up" error. The API key is read only by the server;
-it is never bundled into the browser.
+Answers stream from **NVIDIA NIM** or **OpenRouter** through server-side keys.
+Without a key for a model's provider, that model shows a clear "not set up"
+error. The API keys are read only by the server; they are never bundled into
+the browser.
 
 ## Stack
 
 - Vite + React 18 + TypeScript
-- NVIDIA NIM via the OpenAI-compatible `chat/completions` endpoint
+- NVIDIA NIM and OpenRouter via the OpenAI-compatible `chat/completions` endpoint
 - A small Node server (`server/index.ts`) that serves the build and proxies SSE;
   the same middleware is installed as a Vite plugin for local development
 - Hand-written CSS design system (no UI framework)
@@ -52,7 +53,7 @@ guard.
 ## Rate limits
 
 - `/api/chat`: **15 requests per minute per client IP**. This is the budget that
-  keeps one visitor or script from draining the NVIDIA key.
+  keeps one visitor or script from draining a provider key.
 - `/api/web` and `/api/search`: 60 requests per minute per client IP.
 - `MINT_RATE_LIMIT=0` disables chat limiting for local testing.
 
@@ -177,11 +178,12 @@ that `Esc` stops the request.
 - Returned answers are rehydrated locally, so placeholders become the original
   values only inside the browser.
 - A request replays as much prior conversation as fits the selected model's
-  context window (capped at 96K tokens), newest turns first. The server relays it to NVIDIA NIM for the
-  length of the request; it does not write prompts or answers to disk.
+  context window (capped at 96K tokens), newest turns first. The server relays it
+  to that model's provider for the length of the request; it does not write
+  prompts or answers to disk.
 - The PII shield is on by default and can be turned off in Settings → Privacy.
-- The NVIDIA key lives on the server. The browser only calls `/api/chat`, and the
-  server attaches the key upstream.
+- Provider keys live on the server. The browser only calls `/api/chat`, and the
+  server attaches the right key upstream.
 
 Redaction is heuristic (pattern + stopword based). Review the audit view before
 relying on it for sensitive material.
@@ -258,11 +260,11 @@ public/
 
 ```
 Browser (redact PII) ──POST /api/chat──▶ Node server ──Bearer key──▶ NVIDIA NIM
-        ▲                                (rate limit)                    │
+        ▲                                (rate limit)      └──────────▶ OpenRouter
         └────────── SSE chunks ◀─────────────────────────────────────────┘
 ```
 
-`/api/status` reports whether a key is configured and which NVIDIA model IDs are
+`/api/status` reports which provider keys are configured and which model IDs are
 mapped. It returns no key material. `/api/chat` accepts an app model ID, not an
 arbitrary upstream model, so the browser cannot repoint the proxy at another
 provider.
