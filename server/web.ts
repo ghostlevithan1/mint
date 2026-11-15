@@ -168,7 +168,7 @@ function pageTitle(html: string, fallback: string): string {
   const heading = /<h1[^>]*>([\s\S]*?)<\/h1>/i.exec(html)
   const raw = match?.[1] ?? heading?.[1] ?? ''
   const title = decodeEntities(raw.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim()
-  return (title || fallback).slice(0, 200)
+  return cleanTitle(title, fallback)
 }
 
 function isTextual(contentType: string): boolean {
@@ -339,7 +339,7 @@ function classifyBackendFailure(status: number): { benchMs: number; message: str
 
 function pageFromMarkdown(url: URL, markdown: string, budget: number): Page {
   const heading = /^#{1,2}\s+(.{1,200})$/m.exec(markdown)?.[1] ?? ''
-  const title = (heading || url.hostname.replace(/^www\./, '')).trim()
+  const title = cleanTitle(heading, url.hostname.replace(/^www\./, ''))
   const clipped = clipPageText(markdown, budget)
   return {
     url: url.toString(),
@@ -571,7 +571,7 @@ async function cloudSearch(query: string): Promise<SearchResult[]> {
     seen.add(key2)
     results.push({
       url: entry.url,
-      title: typeof entry.title === 'string' && entry.title.trim() ? entry.title : entry.url,
+      title: cleanTitle(typeof entry.title === 'string' ? entry.title : '', entry.url),
       snippet: typeof entry.snippet === 'string' ? entry.snippet.slice(0, 400) : '',
     })
     if (results.length >= MAX_SEARCH_RESULTS) break
@@ -633,6 +633,30 @@ function plainFragment(html: string): string {
   return decodeEntities(html.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim()
 }
 
+/**
+ * Search engines and Crawl4AI sometimes hand back a page's markdown heading as
+ * the result title ("[Node.js Releases](#nodejs-releases)"). Strip the markup so
+ * the source list reads like a title, and keep a sensible fallback. Only a
+ * *leading* hash is dropped, so a title such as "C# Guide" survives intact.
+ */
+export function cleanTitle(raw: string, fallback = ''): string {
+  const source = typeof raw === 'string' ? decodeEntities(raw) : ''
+  const title = source
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/__([^_]+)__/g, '$1')
+    .replace(/~~([^~]+)~~/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/(^|[\s(])_([^_]+)_(?=$|[\s).,;:!?])/g, '$1$2')
+    .replace(/(^|[\s(])\*([^*]+)\*(?=$|[\s).,;:!?])/g, '$1$2')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^#+\s*/, '')
+    .replace(/^[*_~`]+|[*_~`]+$/g, '')
+    .trim()
+  return (title || fallback).slice(0, 200)
+}
+
 /** Parses the html.duckduckgo.com results page (class result__a / result__snippet). */
 function parseHtmlResults(html: string): SearchResult[] {
   const results: SearchResult[] = []
@@ -659,7 +683,7 @@ function parseHtmlResults(html: string): SearchResult[] {
     const key = url.replace(/\/+$/, '')
     if (seen.has(key)) continue
     seen.add(key)
-    results.push({ url, title: title || host, snippet: snippet.slice(0, 400) })
+    results.push({ url, title: cleanTitle(title, host), snippet: snippet.slice(0, 400) })
     if (results.length >= MAX_SEARCH_RESULTS) break
   }
   return results
@@ -690,7 +714,7 @@ function parseLiteResults(html: string): SearchResult[] {
     const key = url.replace(/\/+$/, '')
     if (seen.has(key)) continue
     seen.add(key)
-    results.push({ url, title: title || host, snippet: snippet.slice(0, 400) })
+    results.push({ url, title: cleanTitle(title, host), snippet: snippet.slice(0, 400) })
     if (results.length >= MAX_SEARCH_RESULTS) break
   }
   return results

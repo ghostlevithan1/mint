@@ -59,8 +59,9 @@ export class ChatApiError extends Error {
 }
 
 /**
- * Streams an NVIDIA NIM response through the local server proxy. The browser
- * never sees the API key: it only talks to /api/chat on the same origin.
+ * Streams a chat completion through the local server proxy, which routes to
+ * NVIDIA NIM or OpenRouter. The browser never sees an API key: it only talks
+ * to /api/chat on the same origin.
  */
 export async function streamNvidiaChat(request: StreamRequest, handlers: StreamHandlers) {
   const response = await fetch('/api/chat', {

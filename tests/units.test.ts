@@ -20,6 +20,7 @@ import {
 import { extractImageLinks, isImageLine, isImageUrl } from '../src/lib/imageLinks'
 import { describeFence } from '../src/lib/generatedFiles'
 import { CHAT_RATE_LIMIT, WEB_RATE_LIMIT, guardApi } from '../server/limits'
+import { cleanTitle } from '../server/web'
 
 test('PII shield round-trips an email, phone, and name', () => {
   const original =
@@ -205,4 +206,19 @@ test('fenced code info strings produce a safe download name', () => {
     filename: 'mint-snippet-1.txt',
     extension: 'txt',
   })
+})
+
+test('search result titles lose markdown wrappers but keep real hashes', () => {
+  // Crawl4AI returns the page's markdown heading as the title.
+  assert.equal(cleanTitle('[Node.js Releases](#nodejs-releases)'), 'Node.js Releases')
+  assert.equal(cleanTitle('## Getting started'), 'Getting started')
+  assert.equal(cleanTitle('**Bold** and _quiet_ text'), 'Bold and quiet text')
+  assert.equal(cleanTitle('`npm install` works'), 'npm install works')
+  // A hash inside a title is meaningful, so only a leading one is dropped.
+  assert.equal(cleanTitle('C# Guide'), 'C# Guide')
+  assert.equal(cleanTitle('  spaced   out  '), 'spaced out')
+  assert.equal(cleanTitle('&amp; Symbols'), '& Symbols')
+  // Empty markup falls back to the URL host.
+  assert.equal(cleanTitle('[ ]()', 'nodejs.org'), 'nodejs.org')
+  assert.equal(cleanTitle('', 'example.com'), 'example.com')
 })

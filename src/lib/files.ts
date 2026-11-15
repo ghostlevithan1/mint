@@ -555,9 +555,10 @@ export async function readAttachment(
   if (kind === 'image') {
     const sourceMime = imageMimeOf(file, extension)
     if (await isAnimatedGif(file, extension)) {
-      // NVIDIA rejects GIF uploads, so an animation cannot be sent at all.
+      // The upstream vision endpoints reject GIF uploads, so an animation
+      // cannot be sent at all.
       imageError =
-        'Animated GIFs cannot be sent to NVIDIA models. Attach a still image or export a single frame first.'
+        'Animated GIFs cannot be sent to the models. Attach a still image or export a single frame first.'
     } else if (options.convertImagesToJpeg !== false || sourceMime === 'image/gif') {
       // GIF is never accepted upstream, so still GIFs become JPEG even when
       // automatic conversion is switched off.

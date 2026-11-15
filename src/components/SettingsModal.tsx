@@ -280,8 +280,8 @@ export function SettingsModal({
                 </h4>
                 <p className="settings-help">
                   Raster images are prepared on this device before they reach a vision model.
-                  Applies to newly attached files. Static GIFs always become JPEG because NVIDIA
-                  rejects GIF uploads, and animated GIFs cannot be sent.
+                  Applies to newly attached files. Static GIFs always become JPEG because the
+                  vision endpoints do not accept GIF uploads, and animated GIFs cannot be sent.
                 </p>
                 <div className="setting-row">
                   <div>
@@ -443,7 +443,7 @@ export function SettingsModal({
               <p className="about-copy">
                 Your chats and files stay in this browser, and names are swapped for placeholders
                 before a question is sent. Questions go through the Mint server to NVIDIA NIM and
-                are not stored there.
+                OpenRouter, and are not stored there.
               </p>
 
               <div className={`settings-provider ${provider.live ? 'is-live' : ''}`}>
@@ -492,8 +492,8 @@ export function SettingsModal({
               </section>
 
               <p className="settings-fineprint">
-                © 2026 Mint Intelligence · build {buildSha} · NVIDIA NIM when live inference is
-                available.
+                © 2026 Mint Intelligence · build {buildSha} · Live answers come from NVIDIA NIM
+                and OpenRouter.
               </p>
             </div>
           )}

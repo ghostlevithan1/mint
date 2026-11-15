@@ -1,6 +1,6 @@
 export type ProviderStatus = {
   checked: boolean
-  /** True when the server has an NVIDIA key and can stream live answers. */
+  /** True when the server has at least one provider key and can stream live answers. */
   live: boolean
   label: string
   detail: string
