@@ -70,6 +70,7 @@ function chatLimit(): number {
 }
 
 function clientAddress(req: IncomingMessage): string {
+  console.log('TEMP-IPDIAG', JSON.stringify({ xff: req.headers['x-forwarded-for'], tci: req.headers['true-client-ip'], cf: req.headers['cf-connecting-ip'], xri: req.headers['x-real-ip'], remote: req.socket?.remoteAddress }))
   const forwarded = req.headers['x-forwarded-for']
   const raw = Array.isArray(forwarded) ? forwarded[0] : forwarded
   const first = (raw ?? '').split(',')[0]?.trim()
