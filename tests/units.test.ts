@@ -20,7 +20,8 @@ import {
   retryOutputBudget,
   spentReasoningOnly,
 } from '../src/lib/context'
-import { extractImageLinks, isImageLine, isImageUrl } from '../src/lib/imageLinks'
+import { extractImageLinks, imageHost, isImageLine, isImageUrl } from '../src/lib/imageLinks'
+import { allowImageHost, isImageHostAllowed } from '../src/lib/imageHosts'
 import { describeFence } from '../src/lib/generatedFiles'
 import { sheetLines, unescapeXml } from '../src/lib/files'
 import { CHAT_RATE_LIMIT, WEB_RATE_LIMIT, clientAddress, guardApi } from '../server/limits'
@@ -345,6 +346,26 @@ test('image links require https and keep their alt text', () => {
     extractImageLinks('https://example.com/a.png and https://example.com/a.png'),
     [{ url: 'https://example.com/a.png', alt: 'a.png' }],
   )
+})
+
+test('images in answers are held back until their site is allowed', () => {
+  assert.equal(imageHost('https://www.Example.com/a/b.png?x=1'), 'example.com')
+  assert.equal(imageHost('not a url'), '')
+
+  assert.equal(isImageHostAllowed('cdn.test-images.example'), false)
+  allowImageHost('CDN.Test-Images.example')
+  assert.equal(isImageHostAllowed('cdn.test-images.example'), true)
+  assert.equal(isImageHostAllowed('www.cdn.test-images.example'), true)
+  // Allowing one site never allows another, even one that merely contains it.
+  assert.equal(isImageHostAllowed('evil-cdn.test-images.example'), false)
+  assert.equal(isImageHostAllowed('test-images.example'), false)
+  allowImageHost('')
+  assert.equal(isImageHostAllowed(''), false)
+
+  // The list is capped, dropping the oldest entries first.
+  for (let index = 0; index < 60; index += 1) allowImageHost(`host-${index}.example`)
+  assert.equal(isImageHostAllowed('host-59.example'), true)
+  assert.equal(isImageHostAllowed('host-0.example'), false)
 })
 
 test('spreadsheet rows keep their columns around empty styled cells', () => {

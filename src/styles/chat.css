@@ -2110,6 +2110,107 @@
   font-size: 12px;
 }
 
+/* Images in answers wait for a click: loading one tells the site the full URL. */
+.remote-image-gate {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-soft);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.remote-image-gate > svg {
+  flex: 0 0 auto;
+  color: var(--dim);
+}
+
+.remote-image-gate-copy {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.remote-image-gate-copy strong {
+  overflow: hidden;
+  color: var(--text-soft);
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.remote-image-gate-copy small {
+  color: var(--dim);
+  font-size: 12px;
+}
+
+.remote-image-gate button,
+.remote-image-chip button {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-soft);
+  font-size: 12px;
+  transition: border-color 140ms ease, color 140ms ease;
+}
+
+.remote-image-gate button:hover,
+.remote-image-chip button:hover {
+  border-color: var(--muted);
+  color: var(--text);
+}
+
+.remote-image-gate button.is-quiet,
+.remote-image-chip button.is-quiet {
+  border-color: transparent;
+  color: var(--dim);
+}
+
+.remote-image-gate button.is-quiet:hover,
+.remote-image-chip button.is-quiet:hover {
+  color: var(--text-soft);
+}
+
+.remote-image-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 2px 4px 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-soft);
+  color: var(--dim);
+  font-size: 12px;
+  vertical-align: middle;
+}
+
+.remote-image-chip > span {
+  overflow: hidden;
+  max-width: 180px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 640px) {
+  .remote-image-gate {
+    flex-wrap: wrap;
+  }
+
+  .remote-image-gate-copy {
+    flex-basis: 100%;
+  }
+}
+
 .markdown-inline-image {
   display: inline-block;
   overflow: hidden;

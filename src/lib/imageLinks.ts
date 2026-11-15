@@ -18,6 +18,15 @@ export function isImageUrl(value: string): boolean {
   }
 }
 
+/** The site an image URL points at, without a leading "www.", or "" if it is not a URL. */
+export function imageHost(value: string): string {
+  try {
+    return new URL(value).hostname.toLowerCase().replace(/^www\./, '')
+  } catch {
+    return ''
+  }
+}
+
 /** Filename from the URL as a fallback alt text. */
 function altFromUrl(url: string): string {
   try {

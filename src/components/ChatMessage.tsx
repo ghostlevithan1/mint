@@ -226,7 +226,7 @@ export const ChatMessageView = memo(
             </p>
           )}
           {imageLinks.map((image) => (
-            <RemoteImage key={image.url} url={image.url} alt={image.alt} />
+            <RemoteImage key={image.url} url={image.url} alt={image.alt} trusted />
           ))}
         </div>
       </article>

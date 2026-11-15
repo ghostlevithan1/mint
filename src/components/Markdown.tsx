@@ -11,7 +11,7 @@ import {
 import { isImageLine, isImageUrl } from '../lib/imageLinks'
 import { PlotImage } from './PlotImage'
 import { DiagramView } from './DiagramView'
-import { RemoteImage } from './RemoteImage'
+import { InlineRemoteImage, RemoteImage } from './RemoteImage'
 
 type InlineToken =
   | { type: 'text'; value: string }
@@ -261,18 +261,7 @@ function inline(text: string, keyPrefix: string): ReactNode[] {
       return <MathNode key={key} tex={token.value} display={token.display} />
     }
     if (token.type === 'image') {
-      return (
-        <a
-          key={key}
-          className="markdown-inline-image"
-          href={token.url}
-          target="_blank"
-          rel="noreferrer noopener"
-          title={token.alt}
-        >
-          <img src={token.url} alt={token.alt} loading="lazy" decoding="async" referrerPolicy="no-referrer" />
-        </a>
-      )
+      return <InlineRemoteImage key={key} url={token.url} alt={token.alt} />
     }
     return <span key={key}>{token.value}</span>
   })
