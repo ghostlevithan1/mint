@@ -1,3 +1,5 @@
+import { PLOT_DETAIL_DEFAULT, clampPlotDetail } from './plotSpec'
+
 function readFlag(key: string, fallback: boolean): boolean {
   if (typeof localStorage === 'undefined') return fallback
   try {
@@ -89,3 +91,41 @@ export function saveProfile(text: string): void {
     // ignore
   }
 }
+
+const PLOT_DETAIL_KEY = 'mint.plotDetail'
+let plotDetail: number | null = null
+const plotDetailListeners = new Set<() => void>()
+
+/** Points calculated along each equation curve (see PLOT_DETAIL_MIN/MAX). */
+export function getPlotDetail(): number {
+  if (plotDetail !== null) return plotDetail
+  let stored: string | null = null
+  try {
+    stored = typeof localStorage === 'undefined' ? null : localStorage.getItem(PLOT_DETAIL_KEY)
+  } catch {
+    // ignore
+  }
+  plotDetail = stored === null ? PLOT_DETAIL_DEFAULT : clampPlotDetail(stored)
+  return plotDetail
+}
+
+/** Saves the setting and redraws every open graph. */
+export function setPlotDetail(value: number): void {
+  const next = clampPlotDetail(value)
+  if (next === plotDetail) return
+  plotDetail = next
+  try {
+    localStorage.setItem(PLOT_DETAIL_KEY, String(next))
+  } catch {
+    // ignore
+  }
+  for (const listener of plotDetailListeners) listener()
+}
+
+export function subscribePlotDetail(listener: () => void): () => void {
+  plotDetailListeners.add(listener)
+  return () => {
+    plotDetailListeners.delete(listener)
+  }
+}
+

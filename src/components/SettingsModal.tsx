@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import {
+  Activity,
   Check,
   Download,
   FileUp,
@@ -22,6 +23,14 @@ import { MODEL_TYPES, modelsByType } from '../lib/data'
 import type { ProviderStatus } from '../lib/provider'
 import { formatBytes } from '../lib/privacy'
 import { getStoredProfile, PROFILE_MAX_CHARS, saveProfile } from '../lib/preferences'
+import { usePlotDetail } from '../hooks/usePlotDetail'
+import {
+  PLOT_DETAIL_DEFAULT,
+  PLOT_DETAIL_MAX,
+  PLOT_DETAIL_MIN,
+  plotDetailFromPosition,
+  plotDetailPosition,
+} from '../lib/plotSpec'
 import { storageUsage } from '../lib/storage'
 import { ModelCapabilityBadges, ModelLogo } from './ModelLogo'
 
@@ -54,6 +63,39 @@ const TABS: Array<{ id: SettingsTab; label: string; icon: typeof Info }> = [
   { id: 'privacy', label: 'Privacy & shield', icon: ShieldCheck },
   { id: 'about', label: 'About', icon: Info },
 ]
+
+const DETAIL_PRESETS = [
+  { label: 'Low', value: 100 },
+  { label: 'Standard', value: PLOT_DETAIL_DEFAULT },
+  { label: 'High', value: PLOT_DETAIL_MAX },
+]
+
+/** y = sin(x) drawn with the chosen number of points, joined by straight lines. */
+function DetailPreview({ points }: { points: number }) {
+  const width = 220
+  const height = 64
+  const pad = 8
+  // Past a few hundred points the drawing cannot tell the difference.
+  const count = Math.max(2, Math.min(points, 400))
+  const coords = Array.from({ length: count }, (_, index) => {
+    const t = index / (count - 1)
+    return [pad + t * (width - pad * 2), height / 2 - Math.sin(t * Math.PI * 2) * (height / 2 - pad)]
+  })
+  const path = coords.map(([x, y], index) => `${index ? 'L' : 'M'}${x.toFixed(1)} ${y.toFixed(1)}`).join('')
+  return (
+    <svg
+      className="detail-preview"
+      viewBox={`0 0 ${width} ${height}`}
+      role="img"
+      aria-label={`Preview: y = sin(x) drawn with ${points} points`}
+    >
+      <line x1={pad} x2={width - pad} y1={height / 2} y2={height / 2} className="detail-axis" />
+      <path d={path} className="detail-curve" />
+      {points <= 60 &&
+        coords.map(([x, y], index) => <circle key={index} cx={x} cy={y} r={2} className="detail-dot" />)}
+    </svg>
+  )
+}
 
 function Toggle({
   checked,
@@ -101,6 +143,7 @@ export function SettingsModal({
 }: SettingsModalProps) {
   const [tab, setTab] = useState<SettingsTab>(initialTab)
   const [profile, setProfile] = useState(getStoredProfile)
+  const [plotDetail, setPlotDetail] = usePlotDetail()
   const [usage, setUsage] = useState<{ usage: number; quota: number } | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
 
@@ -279,6 +322,55 @@ export function SettingsModal({
                     label="Show generation metrics"
                     onChange={onShowMetricsChange}
                   />
+                </div>
+              </section>
+
+              <section className="settings-section">
+                <h4 className="settings-section-title">
+                  <Activity size={13} /> Graphs
+                </h4>
+                <p className="settings-help">
+                  Mint works out this many points along each equation curve and joins them with
+                  straight lines. More points draw smoother curves; fewer draw faster and show the
+                  corners. Graphs already on screen redraw when you change it.
+                </p>
+                <div className="detail-control">
+                  <DetailPreview points={plotDetail} />
+                  <div className="detail-body">
+                    <div className="detail-readout">
+                      <strong>Graph detail</strong>
+                      <span>{plotDetail.toLocaleString()} points per curve</span>
+                    </div>
+                    <input
+                      type="range"
+                      className="detail-slider"
+                      min={0}
+                      max={100}
+                      step={1}
+                      value={plotDetailPosition(plotDetail)}
+                      aria-label="Graph detail"
+                      aria-valuetext={`${plotDetail} points per curve`}
+                      onChange={(event) => setPlotDetail(plotDetailFromPosition(Number(event.target.value)))}
+                    />
+                    <div className="detail-scale" aria-hidden="true">
+                      <span>{PLOT_DETAIL_MIN}</span>
+                      <span>{PLOT_DETAIL_MAX.toLocaleString()}</span>
+                    </div>
+                    <div className="detail-presets" role="group" aria-label="Graph detail presets">
+                      {DETAIL_PRESETS.map((preset) => (
+                        <button
+                          key={preset.label}
+                          type="button"
+                          aria-pressed={plotDetail === preset.value}
+                          className={plotDetail === preset.value ? 'is-active' : ''}
+                          onClick={() => setPlotDetail(preset.value)}
+                        >
+                          {preset.label}
+                          <small>{preset.value.toLocaleString()}</small>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </section>
 

@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { Loader2, TriangleAlert } from 'lucide-react'
+import { usePlotDetail } from '../hooks/usePlotDetail'
 import { compileExpression, formatTick, niceTicks, parsePlotSpec, PlotError, sharedTicks, type PlotData } from '../lib/plotSpec'
 import { clampLabel, estimateTextWidth, insideArea, nearestOnSegment, panView, placeMarkerLabels, placeReadout, squareView, zoomView, type View } from '../lib/plotGeometry'
 
@@ -30,7 +31,7 @@ function coordinate(value: number): string {
   return String(Number(value.toPrecision(5)))
 }
 
-function Chart({ data }: { data: PlotData }) {
+function Chart({ data, detail }: { data: PlotData; detail: number }) {
   const interactive = data.chart === 'line' || data.chart === 'scatter'
   const isBars = !interactive
   const initial = useMemo<View>(() => {
@@ -43,7 +44,7 @@ function Chart({ data }: { data: PlotData }) {
   // may widen, so the drawn curve reaches the edges of the plot.
   const lines = useMemo(() => {
     if (!interactive) return data.lines
-    const samples = 600
+    const samples = Math.max(2, detail)
     return data.lines.map((line) => {
       if (!line.expr) return line
       try {
@@ -58,7 +59,7 @@ function Chart({ data }: { data: PlotData }) {
         return line
       }
     })
-  }, [data.lines, initial, interactive])
+  }, [data.lines, detail, initial, interactive])
   const [view, setView] = useState<View>(initial)
   const [selection, setSelection] = useState<Selection | null>(null)
   const [barPick, setBarPick] = useState<number | null>(null)
@@ -484,13 +485,14 @@ function Chart({ data }: { data: PlotData }) {
  * pending state instead of an error.
  */
 export const PlotImage = memo(function PlotImage({ spec, streaming = false }: { spec: string; streaming?: boolean }) {
+  const [detail] = usePlotDetail()
   const result = useMemo(() => {
     try {
-      return { data: parsePlotSpec(spec) }
+      return { data: parsePlotSpec(spec, { samples: detail }) }
     } catch (error) {
       return { error: error instanceof PlotError ? error.message : 'The graph could not be drawn.' }
     }
-  }, [spec])
+  }, [spec, detail])
 
   if ('error' in result) {
     if (streaming) {
@@ -515,7 +517,7 @@ export const PlotImage = memo(function PlotImage({ spec, streaming = false }: { 
   return (
     <figure className="plot-figure">
       {data.title && <figcaption className="plot-title">{data.title}</figcaption>}
-      <Chart data={data} />
+      <Chart data={data} detail={detail} />
       {legend && data.chart !== 'bar' && data.chart !== 'histogram' && (
         <ul className="plot-legend">
           {data.lines.map((line, i) => (

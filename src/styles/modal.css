@@ -616,6 +616,130 @@
   line-height: 1.5;
 }
 
+.detail-control {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 14px;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  background: var(--panel-soft);
+}
+
+.detail-preview {
+  flex: 0 0 auto;
+  width: 160px;
+  height: auto;
+  border-radius: 6px;
+  background: rgba(var(--wash-rgb), 0.03);
+}
+
+.detail-axis {
+  stroke: var(--line-strong);
+  stroke-width: 1;
+}
+
+.detail-curve {
+  fill: none;
+  stroke: var(--green);
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+}
+
+.detail-dot {
+  fill: var(--green);
+}
+
+.detail-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.detail-readout {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.detail-readout strong {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.detail-readout span {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.detail-slider {
+  width: 100%;
+  margin: 0;
+  accent-color: var(--green);
+  cursor: pointer;
+}
+
+.detail-scale {
+  display: flex;
+  justify-content: space-between;
+  margin-top: -4px;
+  color: var(--dim);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.detail-presets {
+  display: flex;
+  gap: 6px;
+}
+
+.detail-presets button {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  transition:
+    border-color 150ms var(--ease),
+    color 150ms var(--ease),
+    background-color 150ms var(--ease);
+}
+
+.detail-presets button small {
+  color: var(--dim);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.detail-presets button:hover {
+  color: var(--text);
+}
+
+.detail-presets button.is-active {
+  border-color: rgba(var(--green-rgb, 134, 217, 95), 0.5);
+  background: rgba(var(--green-rgb, 134, 217, 95), 0.08);
+  color: var(--text);
+}
+
+@media (max-width: 640px) {
+  .detail-control {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .detail-preview {
+    width: 100%;
+  }
+}
+
 .settings-callout {
   display: flex;
   align-items: flex-start;

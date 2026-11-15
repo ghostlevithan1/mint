@@ -9,6 +9,37 @@ import { estimateTextWidth } from './plotGeometry'
 const MAX_EXPR_CHARS = 300
 const DEFAULT_SAMPLES = 400
 const MAX_SAMPLES = 2000
+
+/**
+ * Graph detail: how many points are calculated along an equation curve before
+ * they are joined with straight lines. It is the student's setting; a graph
+ * drawn at 20 shows its corners, one at 2000 looks smooth.
+ */
+export const PLOT_DETAIL_MIN = 20
+export const PLOT_DETAIL_MAX = MAX_SAMPLES
+export const PLOT_DETAIL_DEFAULT = 600
+
+export function clampPlotDetail(value: unknown): number {
+  const number = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(number)) return PLOT_DETAIL_DEFAULT
+  return Math.round(Math.min(PLOT_DETAIL_MAX, Math.max(PLOT_DETAIL_MIN, number)))
+}
+
+const DETAIL_SPAN = Math.log(PLOT_DETAIL_MAX / PLOT_DETAIL_MIN)
+
+/**
+ * A slider position (0-100) as a detail value. The scale is logarithmic, since
+ * going from 20 to 40 points matters far more than 1900 to 1920, and values
+ * keep two significant figures so the readout stays tidy.
+ */
+export function plotDetailFromPosition(position: number): number {
+  const fraction = Math.min(1, Math.max(0, position / 100))
+  return clampPlotDetail(Number((PLOT_DETAIL_MIN * Math.exp(DETAIL_SPAN * fraction)).toPrecision(2)))
+}
+
+export function plotDetailPosition(detail: number): number {
+  return Math.round((100 * Math.log(clampPlotDetail(detail) / PLOT_DETAIL_MIN)) / DETAIL_SPAN)
+}
 const MAX_EQUATIONS = 6
 const MAX_SERIES = 8
 const MAX_SERIES_POINTS = 500
@@ -313,7 +344,12 @@ export function repairPlotJson(raw: string): string | null {
   return out
 }
 
-export function parsePlotSpec(raw: string): PlotData {
+export type PlotOptions = {
+  /** Points per equation curve; wins over any "samples" the spec asks for. */
+  samples?: number
+}
+
+export function parsePlotSpec(raw: string, options: PlotOptions = {}): PlotData {
   let spec: unknown
   try {
     spec = JSON.parse(raw)
@@ -380,7 +416,10 @@ export function parsePlotSpec(raw: string): PlotData {
 
   // line and scatter
   const xRange = range(s.xRange) ?? [-10, 10]
-  const samples = Math.round(Math.min(MAX_SAMPLES, Math.max(32, finite(s.samples) ? s.samples : DEFAULT_SAMPLES)))
+  const samples =
+    options.samples !== undefined
+      ? clampPlotDetail(options.samples)
+      : Math.round(Math.min(MAX_SAMPLES, Math.max(32, finite(s.samples) ? s.samples : DEFAULT_SAMPLES)))
   const mode = chart === 'scatter' ? 'scatter' : 'line'
   const ys: number[] = []
 

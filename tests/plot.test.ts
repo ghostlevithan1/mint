@@ -1,10 +1,16 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  clampPlotDetail,
   compileExpression,
   formatTick,
   niceTicks,
   parsePlotSpec,
+  PLOT_DETAIL_DEFAULT,
+  PLOT_DETAIL_MAX,
+  PLOT_DETAIL_MIN,
+  plotDetailFromPosition,
+  plotDetailPosition,
   PlotError,
   sharedTicks,
   ticksBetween,
@@ -235,4 +241,44 @@ test('hostile coordinates cannot stall or overflow the axis maths', () => {
     JSON.stringify({ chart: 'line', xRange: [-1, 1], yRange: [-1e308, 1e308], equations: [{ expr: 'x' }] }),
   )
   assert.ok(Number.isFinite(clamped.yRange[0]) && Number.isFinite(clamped.yRange[1]))
+})
+
+test('graph detail sets how many points are joined along an equation curve', () => {
+  const spec = JSON.stringify({ chart: 'line', xRange: [-3, 3], equations: [{ expr: 'x^2' }] })
+  assert.equal(parsePlotSpec(spec, { samples: 20 }).lines[0].points.length, 20)
+  assert.equal(parsePlotSpec(spec, { samples: 1500 }).lines[0].points.length, 1500)
+  // The student's setting wins over a "samples" value inside the spec.
+  const asked = JSON.stringify({ chart: 'line', samples: 64, xRange: [-3, 3], equations: [{ expr: 'x' }] })
+  assert.equal(parsePlotSpec(asked, { samples: 300 }).lines[0].points.length, 300)
+  // With no setting passed, the spec (or the default) still decides.
+  assert.equal(parsePlotSpec(asked).lines[0].points.length, 64)
+  // The curve still spans the whole window at the lowest detail.
+  const coarse = parsePlotSpec(spec, { samples: PLOT_DETAIL_MIN }).lines[0].points
+  assert.equal(coarse[0][0], -3)
+  assert.equal(coarse.at(-1)?.[0], 3)
+})
+
+test('graph detail stays inside its limits and maps cleanly onto the slider', () => {
+  assert.equal(clampPlotDetail(5), PLOT_DETAIL_MIN)
+  assert.equal(clampPlotDetail(99_999), PLOT_DETAIL_MAX)
+  assert.equal(clampPlotDetail(333.6), 334)
+  assert.equal(clampPlotDetail('250'), 250)
+  assert.equal(clampPlotDetail('junk'), PLOT_DETAIL_DEFAULT)
+  assert.equal(clampPlotDetail(Number.NaN), PLOT_DETAIL_DEFAULT)
+
+  assert.equal(plotDetailFromPosition(0), PLOT_DETAIL_MIN)
+  assert.equal(plotDetailFromPosition(100), PLOT_DETAIL_MAX)
+  assert.equal(plotDetailFromPosition(-50), PLOT_DETAIL_MIN)
+  assert.equal(plotDetailFromPosition(500), PLOT_DETAIL_MAX)
+
+  // Moving the slider never lowers the value, and every preset is reachable.
+  let previous = 0
+  for (let position = 0; position <= 100; position += 1) {
+    const value = plotDetailFromPosition(position)
+    assert.ok(value >= previous, `slider went backwards at ${position}`)
+    previous = value
+  }
+  for (const preset of [100, PLOT_DETAIL_DEFAULT, PLOT_DETAIL_MAX]) {
+    assert.equal(plotDetailFromPosition(plotDetailPosition(preset)), preset)
+  }
 })
