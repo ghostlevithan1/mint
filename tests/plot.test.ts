@@ -2,10 +2,13 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   clampPlotDetail,
+  compactNumber,
   compileExpression,
   describePlot,
   formatTick,
+  isCategoryLine,
   niceTicks,
+  percent,
   parsePlotSpec,
   PLOT_DETAIL_DEFAULT,
   PLOT_DETAIL_MAX,
@@ -61,7 +64,7 @@ test('asymptotes do not flatten the y range', () => {
 
 test('bar and histogram specs become bars', () => {
   const bar = parsePlotSpec(JSON.stringify({ chart: 'bar', series: [{ x: ['A', 'B'], y: [3, 5] }] }))
-  assert.deepEqual(bar.bars.map((b) => b.value), [3, 5])
+  assert.deepEqual(bar.groups[0].values, [3, 5])
   assert.equal(bar.yRange[0], 0)
   const hist = parsePlotSpec(JSON.stringify({ chart: 'histogram', data: [1, 2, 2, 3, 3, 3], bins: 4 }))
   assert.equal(hist.bars.reduce((sum, b) => sum + b.value, 0), 6)
@@ -69,7 +72,8 @@ test('bar and histogram specs become bars', () => {
 
 test('broken specs explain what is wrong', () => {
   assert.throws(() => parsePlotSpec('plot: [0,1'), /valid JSON/)
-  assert.throws(() => parsePlotSpec('{"chart":"pie"}'), /chart/)
+  assert.throws(() => parsePlotSpec('{"chart":"radar"}'), /"chart" must be/)
+  assert.throws(() => parsePlotSpec('{"chart":"pie"}'), /needs "series"/)
   assert.throws(() => parsePlotSpec('{}'), /Nothing to plot/)
 })
 
@@ -77,17 +81,20 @@ test('every plot example in the system prompt is valid', () => {
   const examples = [...SYSTEM_PROMPT.matchAll(/```plot\n([\s\S]*?)```/g)].map(
     (match) => match[1],
   )
-  assert.equal(examples.length, 4, 'the prompt carries one example per chart type')
+  assert.equal(examples.length, 7, 'the prompt carries one example per chart shape')
   assert.deepEqual(
     examples.map((code) => parsePlotSpec(code).chart),
-    ['line', 'scatter', 'bar', 'histogram'],
+    ['line', 'scatter', 'bar', 'bar', 'line', 'pie', 'histogram'],
   )
 
   const line = parsePlotSpec(examples[0])
   assert.equal(line.markers.length, 3)
   assert.ok(line.xRange[0] < -1 && line.xRange[1] > 3)
-  assert.equal(parsePlotSpec(examples[2]).bars.length, 4)
-  assert.equal(parsePlotSpec(examples[3]).bars.length, 5)
+  assert.equal(parsePlotSpec(examples[2]).categories.length, 4)
+  assert.equal(parsePlotSpec(examples[3]).groups.length, 2)
+  assert.ok(isCategoryLine(parsePlotSpec(examples[4])))
+  assert.equal(parsePlotSpec(examples[5]).slices.length, 4)
+  assert.equal(parsePlotSpec(examples[6]).bars.length, 5)
 
   for (const code of examples) {
     const spec = JSON.parse(code) as { equations?: Array<{ expr: string }> }
@@ -123,7 +130,7 @@ test('unicode constants and operators are accepted in equations', () => {
 
 test('the bar, histogram and scatter shapes the prompt describes parse', () => {
   const bar = parsePlotSpec(JSON.stringify({ chart: 'bar', series: [{ x: ['A', 'B'], y: [3, 5] }] }))
-  assert.deepEqual(bar.bars.map((b) => b.label), ['A', 'B'])
+  assert.deepEqual(bar.categories, ['A', 'B'])
   const hist = parsePlotSpec(JSON.stringify({ chart: 'histogram', data: [1, 2, 2, 3, 3, 3], bins: 4 }))
   assert.equal(hist.bars.length, 4)
   const scatter = parsePlotSpec(JSON.stringify({ chart: 'scatter', series: [{ x: [1, 2], y: [3, 4] }] }))
@@ -322,4 +329,92 @@ test('graph detail stays inside its limits and maps cleanly onto the slider', ()
   for (const preset of [100, PLOT_DETAIL_DEFAULT, PLOT_DETAIL_MAX]) {
     assert.equal(plotDetailFromPosition(plotDetailPosition(preset)), preset)
   }
+})
+
+test('bar charts take several series, grouped or stacked', () => {
+  const grouped = parsePlotSpec(
+    JSON.stringify({
+      chart: 'bar',
+      series: [
+        { label: '2025', x: ['N', 'S'], y: [3, 5] },
+        { label: '2026', x: ['N', 'S'], y: [4, 2] },
+      ],
+    }),
+  )
+  assert.deepEqual(grouped.categories, ['N', 'S'])
+  assert.deepEqual(grouped.groups.map((g) => g.label), ['2025', '2026'])
+  assert.equal(grouped.stacked, false)
+  assert.ok(grouped.yRange[1] >= 5 && grouped.yRange[1] < 8)
+
+  const stacked = parsePlotSpec(
+    JSON.stringify({ chart: 'bar', stacked: true, horizontal: true, categories: ['N', 'S'], series: [{ y: [3, 5] }, { y: [4, 2] }] }),
+  )
+  assert.equal(stacked.stacked, true)
+  assert.equal(stacked.horizontal, true)
+  // The axis reaches the tallest stack (5 + 2 and 3 + 4 = 7), not the tallest single bar.
+  assert.ok(stacked.yRange[1] >= 7)
+  assert.equal(stacked.yRange[0], 0)
+
+  // Negative values keep the zero line inside the window.
+  const loss = parsePlotSpec(JSON.stringify({ chart: 'bar', series: [{ x: ['A', 'B'], y: [-4, 6] }] }))
+  assert.ok(loss.yRange[0] < -4 && loss.yRange[1] > 6)
+
+  assert.throws(
+    () => parsePlotSpec(JSON.stringify({ chart: 'bar', series: [{ x: ['A', 'B'], y: [1, 2] }, { y: [1] }] })),
+    /one "y" value per "x" label/,
+  )
+  assert.throws(() => parsePlotSpec(JSON.stringify({ chart: 'bar', series: [{ x: [{}], y: [1] }] })), /labels/)
+})
+
+test('pie charts keep positive shares and merge a long tail into Other', () => {
+  const pie = parsePlotSpec(JSON.stringify({ chart: 'pie', series: [{ x: ['Rent', 'Food', 'Gifts'], y: [900, 400, 0] }] }))
+  assert.deepEqual(pie.slices, [
+    { label: 'Rent', value: 900 },
+    { label: 'Food', value: 400 },
+  ])
+  assert.equal(pie.donut, false)
+  assert.equal(parsePlotSpec(JSON.stringify({ chart: 'donut', series: [{ labels: ['A'], values: [1] }] })).donut, true)
+
+  const many = parsePlotSpec(
+    JSON.stringify({ chart: 'pie', series: [{ x: Array.from({ length: 20 }, (_, i) => `S${i}`), y: Array.from({ length: 20 }, (_, i) => i + 1) }] }),
+  )
+  assert.equal(many.slices.length, 12)
+  assert.equal(many.slices.at(-1)?.label, 'Other')
+  assert.equal(many.slices.reduce((sum, s) => sum + s.value, 0), 210)
+
+  assert.throws(() => parsePlotSpec(JSON.stringify({ chart: 'pie', series: [{ x: ['A', 'B'], y: [-1, 2] }] })), /negative/)
+  assert.throws(() => parsePlotSpec(JSON.stringify({ chart: 'pie', series: [{ x: ['A'], y: [0] }] })), /above 0/)
+})
+
+test('a line chart over text labels runs on categories, numeric x still draws a graph', () => {
+  const months = parsePlotSpec(
+    JSON.stringify({ chart: 'line', series: [{ label: 'Visits', x: ['Jan', 'Feb', 'Mar'], y: [3, 4, 2] }] }),
+  )
+  assert.ok(isCategoryLine(months))
+  assert.deepEqual(months.categories, ['Jan', 'Feb', 'Mar'])
+  const numeric = parsePlotSpec(JSON.stringify({ chart: 'line', series: [{ x: [1, 2, 3], y: [3, 4, 2] }] }))
+  assert.equal(isCategoryLine(numeric), false)
+  assert.equal(numeric.lines.length, 1)
+})
+
+test('data charts read out as sentences with values and shares', () => {
+  const grouped = describePlot(
+    parsePlotSpec(
+      JSON.stringify({ chart: 'bar', stacked: true, series: [{ label: 'A', x: ['Q1'], y: [2] }, { label: 'B', x: ['Q1'], y: [3] }] }),
+    ),
+  )
+  assert.deepEqual(grouped, ['Stacked bar chart with 1 categories and 2 series.', 'Q1: A 2, B 3'])
+  const pie = describePlot(parsePlotSpec(JSON.stringify({ chart: 'pie', series: [{ x: ['Yes', 'No'], y: [3, 1] }] })))
+  assert.deepEqual(pie, ['Pie chart with 2 slices, totalling 4.', 'Yes: 3 (75%)', 'No: 1 (25%)'])
+})
+
+test('data values are written short', () => {
+  assert.equal(compactNumber(0), '0')
+  assert.equal(compactNumber(1250), '1250')
+  assert.equal(compactNumber(150000), '150K')
+  assert.equal(compactNumber(-2_400_000), '-2.4M')
+  assert.equal(compactNumber(3.2e9), '3.2B')
+  assert.equal(compactNumber(0.125), '0.125')
+  assert.equal(percent(1, 3), '33.3%')
+  assert.equal(percent(1, 0), '0%')
 })

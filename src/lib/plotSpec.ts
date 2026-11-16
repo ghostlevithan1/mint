@@ -57,18 +57,45 @@ export type Line = {
 }
 export type Marker = { x: number; y: number; label: string }
 export type Bar = { label: string; value: number }
+/** One data series over the shared category labels of a bar or category line chart. */
+export type Group = { label: string; values: number[] }
+export type Slice = { label: string; value: number }
 
 export type PlotData = {
-  chart: 'line' | 'scatter' | 'bar' | 'histogram'
+  chart: 'line' | 'scatter' | 'bar' | 'histogram' | 'pie'
   title: string
   xLabel: string
   yLabel: string
   grid: boolean
   lines: Line[]
   markers: Marker[]
+  /** Histogram bins. */
   bars: Bar[]
+  /**
+   * Text labels along the category axis. Set for bar charts, and for line
+   * charts whose x values are labels (months, names) rather than numbers.
+   */
+  categories: string[]
+  groups: Group[]
+  stacked: boolean
+  horizontal: boolean
+  slices: Slice[]
+  donut: boolean
   xRange: [number, number]
   yRange: [number, number]
+}
+
+const MAX_SLICES = 12
+
+/** Series and slice colours for every chart. Twelve, so no two pie slices repeat. */
+export const PLOT_COLORS = [
+  '#86d95f', '#8fb4d9', '#e0b26a', '#d6a28c', '#5fc8b0', '#e5484d',
+  '#c9c9cd', '#a1c96a', '#b48ead', '#f0c674', '#7fa7a0', '#d08770',
+]
+
+/** True for a line chart drawn over text labels instead of a numeric x axis. */
+export function isCategoryLine(data: PlotData): boolean {
+  return data.chart === 'line' && data.categories.length > 0
 }
 
 export class PlotError extends Error {}
@@ -271,6 +298,54 @@ function curveExtent(values: number[]): [number, number] {
   return full > (hi - lo) * 4 ? extent([lo, hi]) : extent(sorted)
 }
 
+function labelList(value: unknown, field: string, max: number): string[] {
+  if (
+    !Array.isArray(value) ||
+    value.length < 1 ||
+    value.length > max ||
+    !value.every((item) => typeof item === 'string' || finite(item))
+  ) {
+    throw new PlotError(`"${field}" must be a list of 1-${max} labels.`)
+  }
+  return value.map((item) => String(item).trim().slice(0, 40))
+}
+
+/**
+ * The series of a bar, pie or category line chart: shared category labels
+ * (from "categories" or the first series' "x") and one value per label in
+ * every series. "labels"/"values" are accepted as aliases for "x"/"y".
+ */
+function categorySeries(s: Record<string, unknown>, chart: string): { categories: string[]; groups: Group[] } {
+  const list = Array.isArray(s.series) ? s.series : []
+  if (!list.length) throw new PlotError(`A ${chart} chart needs "series" with "x" labels and "y" values.`)
+  if (list.length > MAX_SERIES) throw new PlotError(`At most ${MAX_SERIES} series can be plotted.`)
+  let categories = s.categories === undefined ? null : labelList(s.categories, 'categories', MAX_CATEGORIES)
+  const groups = list.map((item, index) => {
+    const record = item && typeof item === 'object' ? (item as Record<string, unknown>) : {}
+    const values = numbers(record.y ?? record.values, `series[${index}].y`, MAX_CATEGORIES)
+    if (!categories) categories = labelList(record.x ?? record.labels, `series[${index}].x`, MAX_CATEGORIES)
+    if (values.length !== categories.length) {
+      throw new PlotError('Every series needs exactly one "y" value per "x" label.')
+    }
+    return { label: text(record.label) || (list.length > 1 ? `Series ${index + 1}` : ''), values }
+  })
+  return { categories: categories ?? [], groups }
+}
+
+/** Short value labels for data charts: 1,250 → 1250, 150000 → 150K, 2.4e9 → 2.4B. */
+export function compactNumber(value: number): string {
+  if (!Number.isFinite(value)) return String(value)
+  const abs = Math.abs(value)
+  for (const [size, suffix] of [[1e12, 'T'], [1e9, 'B'], [1e6, 'M'], [1e5, 'K']] as const) {
+    if (abs >= size) {
+      const scale = suffix === 'K' ? 1e3 : size
+      return `${Number((value / scale).toPrecision(3))}${suffix}`
+    }
+  }
+  if (abs !== 0 && abs < 1e-3) return value.toExponential(1)
+  return String(Number(value.toPrecision(4)))
+}
+
 /**
  * Best-effort repair of the JSON slips models make in plot specs: a string
  * left open (with the object's closing braces swallowed into it), missing
@@ -369,9 +444,18 @@ export function parsePlotSpec(raw: string, options: PlotOptions = {}): PlotData 
     throw new PlotError('The plot spec must be a JSON object.')
   }
   const s = spec as Record<string, unknown>
-  const chart = (text(s.chart) || 'line').toLowerCase()
-  if (chart !== 'line' && chart !== 'scatter' && chart !== 'bar' && chart !== 'histogram') {
-    throw new PlotError('"chart" must be line, scatter, bar or histogram.')
+  let chart = (text(s.chart) || 'line').toLowerCase()
+  // Common names for the same charts, so a near-miss still draws.
+  if (chart === 'donut' || chart === 'doughnut') chart = 'pie'
+  if (chart === 'column') chart = 'bar'
+  if (
+    chart !== 'line' &&
+    chart !== 'scatter' &&
+    chart !== 'bar' &&
+    chart !== 'histogram' &&
+    chart !== 'pie'
+  ) {
+    throw new PlotError('"chart" must be line, scatter, bar, histogram or pie.')
   }
 
   const data: PlotData = {
@@ -383,21 +467,64 @@ export function parsePlotSpec(raw: string, options: PlotOptions = {}): PlotData 
     lines: [],
     markers: [],
     bars: [],
+    categories: [],
+    groups: [],
+    stacked: s.stacked === true,
+    horizontal: s.horizontal === true,
+    slices: [],
+    donut: s.donut === true || /^(donut|doughnut)$/i.test(text(s.chart)),
     xRange: [0, 1],
     yRange: [0, 1],
   }
 
-  if (chart === 'bar') {
-    const series = Array.isArray(s.series) ? (s.series[0] as Record<string, unknown> | undefined) : undefined
-    if (!series || typeof series !== 'object') {
-      throw new PlotError('A bar chart needs one series with "x" labels and "y" values.')
+  if (chart === 'pie') {
+    const { categories, groups } = categorySeries(s, 'pie')
+    const values = groups[0].values
+    if (values.some((value) => value < 0)) throw new PlotError('Pie chart values cannot be negative.')
+    if (!values.some((value) => value > 0)) throw new PlotError('A pie chart needs at least one value above 0.')
+    let slices = categories.map((label, i) => ({ label, value: values[i] })).filter((slice) => slice.value > 0)
+    if (slices.length > MAX_SLICES) {
+      // Too many slices to read: keep the largest and merge the rest.
+      const keep = new Set([...slices].sort((a, b) => b.value - a.value).slice(0, MAX_SLICES - 1))
+      const other = slices.filter((slice) => !keep.has(slice)).reduce((sum, slice) => sum + slice.value, 0)
+      slices = [...slices.filter((slice) => keep.has(slice)), { label: 'Other', value: other }]
     }
-    const ys = numbers(series.y, 'series[0].y', MAX_CATEGORIES)
-    const xs = Array.isArray(series.x) ? series.x : []
-    if (xs.length !== ys.length) throw new PlotError('Bar "x" and "y" must have the same length.')
-    data.bars = ys.map((value, i) => ({ label: String(xs[i]).slice(0, 40), value }))
-    data.yRange = extent([0, ...ys])
-    if (Math.min(...ys) >= 0) data.yRange[0] = 0
+    data.slices = slices
+    return data
+  }
+
+  if (chart === 'bar') {
+    const { categories, groups } = categorySeries(s, 'bar')
+    data.categories = categories
+    data.groups = groups
+    if (groups.length < 2) data.stacked = false
+    const values = data.stacked
+      ? categories.flatMap((_, i) => {
+          let up = 0
+          let down = 0
+          for (const group of groups) {
+            if (group.values[i] >= 0) up += group.values[i]
+            else down += group.values[i]
+          }
+          return [up, down]
+        })
+      : groups.flatMap((group) => group.values)
+    data.yRange = extent([0, ...values])
+    if (Math.min(...values) >= 0) data.yRange[0] = 0
+    if (Math.max(...values) <= 0) data.yRange[1] = 0
+    return data
+  }
+
+  // A line chart whose "x" values are text (months, names) runs over categories.
+  const firstSeries = Array.isArray(s.series) ? (s.series[0] as Record<string, unknown> | undefined) : undefined
+  const textX =
+    Array.isArray(s.categories) ||
+    (Array.isArray(firstSeries?.x) && firstSeries.x.some((item) => typeof item === 'string'))
+  if (chart === 'line' && textX && !(Array.isArray(s.equations) && s.equations.length)) {
+    const { categories, groups } = categorySeries(s, 'line')
+    data.categories = categories
+    data.groups = groups
+    data.yRange = range(s.yRange) ?? extent(groups.flatMap((group) => group.values))
     return data
   }
 
@@ -477,6 +604,12 @@ function spoken(value: number): string {
   return String(Number(value.toPrecision(4)))
 }
 
+/** A share of a total as a percentage with at most one decimal place. */
+export function percent(value: number, total: number): string {
+  if (!(total > 0)) return '0%'
+  return `${Number(((value / total) * 100).toFixed(1))}%`
+}
+
 /**
  * The graph as plain sentences, for readers who cannot see it: the window,
  * then values along each curve (or its data points), then the marked points.
@@ -484,9 +617,39 @@ function spoken(value: number): string {
  */
 export function describePlot(data: PlotData): string[] {
   const out: string[] = []
-  if (data.chart === 'bar' || data.chart === 'histogram') {
-    out.push(`${data.chart === 'bar' ? 'Bar chart' : 'Histogram'} with ${data.bars.length} bars.`)
+  if (data.chart === 'histogram') {
+    out.push(`Histogram with ${data.bars.length} bars.`)
     for (const bar of data.bars.slice(0, 40)) out.push(`${bar.label}: ${spoken(bar.value)}`)
+    return out
+  }
+  if (data.chart === 'pie') {
+    const total = data.slices.reduce((sum, slice) => sum + slice.value, 0)
+    out.push(`${data.donut ? 'Donut' : 'Pie'} chart with ${data.slices.length} slices, totalling ${spoken(total)}.`)
+    for (const slice of data.slices) {
+      out.push(`${slice.label}: ${spoken(slice.value)} (${percent(slice.value, total)})`)
+    }
+    return out
+  }
+  if (data.chart === 'bar' || isCategoryLine(data)) {
+    const single = data.groups.length === 1
+    if (data.chart === 'bar') {
+      const kind = `${data.horizontal ? 'Horizontal ' : ''}${single ? 'bar' : data.stacked ? 'stacked bar' : 'grouped bar'} chart`
+      const head = kind[0].toUpperCase() + kind.slice(1)
+      out.push(
+        single
+          ? `${head} with ${data.categories.length} bars.`
+          : `${head} with ${data.categories.length} categories and ${data.groups.length} series.`,
+      )
+    } else {
+      out.push(`Line graph over ${data.categories.length} labels${single ? '' : `, ${data.groups.length} series`}.`)
+    }
+    data.categories.forEach((category, i) => {
+      out.push(
+        single
+          ? `${category}: ${spoken(data.groups[0].values[i])}`
+          : `${category}: ${data.groups.map((group) => `${group.label} ${spoken(group.values[i])}`).join(', ')}`,
+      )
+    })
     return out
   }
 

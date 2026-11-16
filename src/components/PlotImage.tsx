@@ -2,8 +2,9 @@ import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from '
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { Loader2, TriangleAlert } from 'lucide-react'
 import { usePlotDetail } from '../hooks/usePlotDetail'
-import { compileExpression, describePlot, formatTick, niceTicks, parsePlotSpec, PlotError, sharedTicks, type PlotData } from '../lib/plotSpec'
+import { compileExpression, describePlot, formatTick, isCategoryLine, niceTicks, parsePlotSpec, PlotError, PLOT_COLORS as SERIES, sharedTicks, type PlotData } from '../lib/plotSpec'
 import { clampLabel, estimateTextWidth, insideArea, nearestOnSegment, panView, placeMarkerLabels, placeReadout, squareView, zoomView, type View } from '../lib/plotGeometry'
+import { DataChart } from './DataChart'
 
 const W = 640
 const H = 360
@@ -12,7 +13,6 @@ const H = 360
 const M = { top: 16, right: 20, bottom: 40, left: 56 }
 const IW = W - M.left - M.right
 const IH = H - M.top - M.bottom
-const SERIES = ['#86d95f', '#8fb4d9', '#e0b26a', '#d6a28c', '#5fc8b0', '#e5484d', '#c9c9cd', '#a1c96a']
 /** How close a click must land, in viewBox units, to count as hitting a curve. */
 const HIT_RADIUS = 18
 const ZOOM_SPEED = 0.0015
@@ -514,34 +514,44 @@ export const PlotImage = memo(function PlotImage({ spec, streaming = false }: { 
   }
 
   const { data } = result
-  const legend = data.lines.length > 1
-  const interactive = data.chart === 'line' || data.chart === 'scatter'
+  const categoryLine = isCategoryLine(data)
+  const dataChart = data.chart === 'bar' || data.chart === 'pie' || categoryLine
+  const interactive = !dataChart && (data.chart === 'line' || data.chart === 'scatter')
+  // Pies carry their own key beside the chart; bars and lines list their series below.
+  const legend = dataChart
+    ? data.chart !== 'pie' && data.groups.length > 1
+      ? data.groups.map((group) => group.label)
+      : []
+    : interactive && data.lines.length > 1
+      ? data.lines.map((line) => line.label)
+      : []
+  const hint = interactive
+    ? 'Scroll to zoom · drag to pan · click a curve for exact values · double-click to reset'
+    : data.chart === 'pie'
+      ? 'Click a slice to highlight it'
+      : categoryLine
+        ? 'Click a point for its exact value'
+        : 'Click a bar for its exact value'
   return (
     <figure className="plot-figure">
       {data.title && <figcaption className="plot-title">{data.title}</figcaption>}
-      <Chart data={data} detail={detail} />
+      {dataChart ? <DataChart data={data} /> : <Chart data={data} detail={detail} />}
       <ul className="sr-only" aria-label="Graph values">
         {describePlot(data).map((line, i) => (
           <li key={i}>{line}</li>
         ))}
       </ul>
-      {legend && data.chart !== 'bar' && data.chart !== 'histogram' && (
-        <ul className="plot-legend">
-          {data.lines.map((line, i) => (
+      {legend.length > 0 && (
+        <ul className={`plot-legend${data.chart === 'bar' ? ' is-blocks' : ''}`}>
+          {legend.map((label, i) => (
             <li key={i}>
               <span style={{ background: SERIES[i % SERIES.length] }} />
-              {line.label}
+              {label}
             </li>
           ))}
         </ul>
       )}
-      {interactive ? (
-        <p className="plot-hint">
-          Scroll to zoom · drag to pan · click a curve for exact values · double-click to reset
-        </p>
-      ) : (
-        <p className="plot-hint">Click a bar for its exact value</p>
-      )}
+      <p className="plot-hint">{hint}</p>
     </figure>
   )
 })

@@ -118,17 +118,31 @@ Bar chart:
 \`\`\`plot
 {"chart":"bar","title":"Quarterly revenue","yLabel":"USD (thousands)","series":[{"label":"Revenue","x":["Q1","Q2","Q3","Q4"],"y":[12,19,15,24]}]}
 \`\`\`
+Grouped bars (several series over the same labels; add "stacked":true to stack them, "horizontal":true for sideways bars):
+\`\`\`plot
+{"chart":"bar","title":"Sales by region","yLabel":"Units sold","series":[{"label":"2025","x":["North","South","East"],"y":[120,95,140]},{"label":"2026","x":["North","South","East"],"y":[135,110,128]}]}
+\`\`\`
+Line over text labels (months, years, names):
+\`\`\`plot
+{"chart":"line","title":"Website visits","xLabel":"Month","yLabel":"Visits","series":[{"label":"Visits","x":["Jan","Feb","Mar","Apr","May"],"y":[320,410,390,520,610]}]}
+\`\`\`
+Pie chart (add "donut":true for a ring):
+\`\`\`plot
+{"chart":"pie","title":"Monthly budget","series":[{"x":["Rent","Food","Transport","Savings"],"y":[900,400,150,350]}]}
+\`\`\`
 Histogram:
 \`\`\`plot
 {"chart":"histogram","title":"Test scores","xLabel":"Score","data":[55,62,62,70,71,75,81,88,91,95],"bins":5}
 \`\`\`
-- "chart": "line" (default), "scatter", "bar" or "histogram". Line and scatter need at least one of "equations", "series" or "points"; "bar" needs one "series"; "histogram" needs "data".
+- "chart": "line" (default), "scatter", "bar", "pie" or "histogram". Line and scatter need at least one of "equations", "series" or "points"; "bar" and "pie" need "series"; "histogram" needs "data".
+- Pick the chart that fits the data: bar to compare amounts across categories ("stacked":true when the parts of each total matter, "horizontal":true for long labels or more than about 8 categories); line for change over time or any ordered sequence; pie only for shares of one whole, with 2-8 non-negative slices; scatter for the relationship between two numeric variables; histogram for how one numeric variable is spread out.
+- For data analysis, chart the real numbers from the student's message, table or file, and compute totals, averages and percentages correctly. Never invent data; if you must use example figures, say they are examples. After the chart, state in one to three sentences what it shows: the largest and smallest, the trend, or the outlier.
 - "equations": [{"expr":"...","label":"..."}] draws y = f(x). Put "y =" in "label", never in "expr". "expr" uses x only: write x^2 rather than x², and 2*x rather than 2x. Allowed names: x, pi, π, e, tau, τ, sin, cos, tan, asin, acos, atan, sinh, cosh, tanh, exp, log (natural), ln, log2, log10, sqrt, abs, floor, ceil, min, max, pow. Operators: + - * / ^ (and **) with parentheses; implicit multiplication such as 2x, 3sin(x) or 2π also works. Angles are in radians.
-- "series": [{"label":"Day","x":[1,2,3],"y":[4,5,6]}] draws data. "x" and "y" must be equal-length number arrays (at most 500 each). For "bar", "x" holds up to 24 short category labels instead.
+- "series": [{"label":"Day","x":[1,2,3],"y":[4,5,6]}] draws data. For "scatter", and "line" with numeric x, "x" and "y" are equal-length number arrays (at most 500 each). For "bar", "pie" and "line" over labels, "x" holds up to 24 short text labels and every series gives exactly one "y" number per label, in the same order; give each series a "label" when there is more than one. A pie uses only its first series. "yLabel" names the values, also on horizontal bars.
 - "xRange": [min, max] (min < max) sets the visible x window for equation curves; leave a margin because readers can zoom and pan inside it. A chart made only of "series" fits the data automatically. "yRange": [min, max] is optional, mainly for tan or 1/x. Both ranges must be two numbers with min < max.
 - "points": up to 12 {"x":number,"y":number,"label":"short"} markers for roots, intercepts, vertices or intersections. Use data coordinates, never pixel positions, and compute the values correctly.
 - "histogram" takes "data" (a flat number array, at most 2000 values) and optional "bins" (4-100).
-- "title", "xLabel" and "yLabel" are short strings, and every other label should be short too. At most 6 equations, 8 series, 12 points and 24 bar categories.
+- "title", "xLabel" and "yLabel" are short strings, and every other label should be short too. At most 6 equations, 8 series, 12 points, 24 labels per bar or line chart and 12 pie slices.
 - If a detailed graph risks an error, draw a simpler valid one instead of an invalid detailed one.
 
 Diagrams: emit a fenced code block with the language "diagram" containing one JSON object.

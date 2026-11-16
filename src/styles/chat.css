@@ -2368,6 +2368,72 @@
 
 .plot-bar {
   cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.plot-bar.is-dim,
+.plot-slice-group.is-dim {
+  opacity: 0.4;
+}
+
+.plot-value {
+  fill: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.plot-point-hit {
+  fill: transparent;
+  cursor: pointer;
+}
+
+.plot-slice {
+  stroke: var(--panel);
+  stroke-width: 2;
+  cursor: pointer;
+}
+
+.plot-slice-group {
+  transition: opacity 0.15s ease;
+}
+
+/* Slice colours are light, so their labels are dark in both themes. */
+.plot-slice-label {
+  fill: #141416;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.plot-donut-value {
+  fill: var(--text);
+  font-family: var(--mono);
+  font-size: 22px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.plot-legend-row {
+  cursor: pointer;
+}
+
+.plot-legend-text {
+  fill: var(--muted);
+  font-size: 13px;
+}
+
+.plot-legend-row.is-picked .plot-legend-text {
+  fill: var(--text);
+  font-weight: 600;
+}
+
+.plot-legend.is-blocks span {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
 }
 
 .plot-reset {
