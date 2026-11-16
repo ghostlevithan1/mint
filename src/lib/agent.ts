@@ -38,9 +38,16 @@ export function parseToolCall(text: string): ToolCall | null {
   return null
 }
 
+/**
+ * Native tool-call markup some models print next to Mint's tool block, such as
+ * MiniMax's "]<]minimax[>[<tool_call>" or a bare <tool_call> tag. It means
+ * nothing to the student.
+ */
+const NATIVE_TOOL_MARKUP = /\]~?<\]minimax\[>\[|<\/?tool_calls?>|<\|tool_calls?_(?:begin|end)\|>/gi
+
 /** Hides tool blocks, including one still streaming, so the student only sees the answer. */
 export function stripToolCalls(text: string): string {
-  return text.replace(/```tool[\s\S]*?(?:```|$)/g, '').trim()
+  return text.replace(/```tool[\s\S]*?(?:```|$)/g, '').replace(NATIVE_TOOL_MARKUP, '').trim()
 }
 
 /** Exact arithmetic for the model, through the same whitelist parser as graphs. */

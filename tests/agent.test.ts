@@ -31,6 +31,14 @@ test('tool blocks are hidden from the answer, even while streaming', () => {
   assert.equal(stripToolCalls('```python\nprint(1)\n```'), '```python\nprint(1)\n```')
 })
 
+test('native tool-call markup a model prints beside the tool block is hidden too', () => {
+  const minimax = 'I’ll add the totals first.]<]minimax[>[<tool_call>\n```tool\n{"name":"calculate","expression":"1+2"}\n```'
+  assert.equal(stripToolCalls(minimax), 'I’ll add the totals first.')
+  assert.equal(stripToolCalls('Checking.<tool_call>\n```tool\n{"name":"search","query":"x"}\n```</tool_call>'), 'Checking.')
+  // Ordinary maths and code that merely look similar are left alone.
+  assert.equal(stripToolCalls('Is [1, 2] < 3? Use a[i] > b[j].'), 'Is [1, 2] < 3? Use a[i] > b[j].')
+})
+
 test('the calculator is exact and refuses code', () => {
   assert.equal(runCalculator('(3.2*10^5) / 4.8'), '(3.2*10^5) / 4.8 = 66666.6666667')
   assert.equal(runCalculator('12 × 3 ÷ 4'), '12 × 3 ÷ 4 = 9')
