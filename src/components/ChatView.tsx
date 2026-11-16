@@ -27,8 +27,11 @@ import {
   type AttachmentNeed,
 } from '../lib/modelRouting'
 import { useAttachments } from '../hooks/useAttachments'
+import { useBlock } from '../hooks/useBlock'
+import { getBlock } from '../lib/blocks'
 import { ChatMessageView } from './ChatMessage'
 import { Composer } from './Composer'
+import { LimitBanner } from './LimitBanner'
 import { ContextMeter } from './ContextMeter'
 import { ModelMenu } from './ModelMenu'
 import { ModelSwitchModal } from './ModelSwitchModal'
@@ -216,8 +219,10 @@ export function ChatView({
     textareaRef.current?.focus()
   }
 
+  const { block: pause } = useBlock()
+
   const submit = () => {
-    if (isGenerating || reading) return
+    if (isGenerating || reading || getBlock()) return
     if (draft.trim().toLowerCase() === '/compact') {
       void onCompact()
       setDraft('')
@@ -496,6 +501,7 @@ export function ChatView({
             </button>
           </div>
         )}
+        <LimitBanner />
         <Composer
           text={draft}
           onTextChange={setDraft}
@@ -503,6 +509,7 @@ export function ChatView({
           uploadError={error}
           reading={reading}
           isGenerating={isGenerating}
+          paused={Boolean(pause)}
           routingWarning={routingWarning}
           routeNotice={routeNoticeText}
           onFixRouting={() => setSwitchOpen(true)}

@@ -28,6 +28,10 @@ export type ChatMessage = {
   /** Reasoning models may stream a scratchpad before the answer. */
   reasoning?: string
   error?: string
+  /** The server's error code, when it matters to the page (a limit, a lock, a ban). */
+  errorCode?: string
+  /** Epoch ms when a limit, lock or ban on this failure ends, for its live countdown. */
+  retryAt?: number
   webSources?: WebSource[]
   /** Query used when this turn ran a web search, empty if it only read links. */
   webQuery?: string

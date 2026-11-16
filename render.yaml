@@ -13,9 +13,13 @@ services:
       # OpenRouter key for Gemma 4 31B and Inkling 2 Small.
       - key: OPEN_CODE_KEY
         sync: false
-      # Requests per minute per visitor for /api/chat (default 15).
+      # Messages per minute per device for /api/chat (default 15).
       # This is the only spending control, so keep it set.
       - key: MINT_RATE_LIMIT
         value: "15"
+      # Signs the device cookie, and the 24-hour bans written into it. Keep it
+      # fixed: if it changes, every device gets a new identity and bans are forgotten.
+      - key: MINT_DEVICE_SECRET
+        generateValue: true
       - key: NODE_VERSION
         value: "22"

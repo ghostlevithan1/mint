@@ -17,6 +17,11 @@ export type BanRecord = {
   userAgent: string
   /** A keyed hash of the address, enough to match records without storing it. */
   network: string
+  /**
+   * Set when an operator lifted the ban early. It overrides a ban still written
+   * in the device's cookie; only a ban made after this moment applies again.
+   */
+  liftedAt?: number
 }
 
 function isRecord(value: unknown): value is BanRecord {
@@ -56,7 +61,9 @@ export class BanStore {
   private load(): void {
     this.bans.clear()
     try {
-      const data = JSON.parse(readFileSync(this.file, 'utf8')) as { bans?: unknown }
+      // Some editors add a byte-order mark; JSON.parse would reject it and the list would look empty.
+      const text = readFileSync(this.file, 'utf8').replace(/^\uFEFF/, '')
+      const data = JSON.parse(text) as { bans?: unknown }
       if (Array.isArray(data.bans)) for (const item of data.bans) if (isRecord(item)) this.bans.set(item.id, item)
     } catch {
       // No file yet, or an unreadable one: start empty rather than refuse to run.
@@ -85,11 +92,16 @@ export class BanStore {
     this.stamp = this.fileStamp()
   }
 
+  /** The device's record, finished or lifted ones included. */
+  find(id: string): BanRecord | null {
+    this.refresh()
+    return this.bans.get(id) ?? null
+  }
+
   /** The device's ban if it is still running. */
   get(id: string): BanRecord | null {
-    this.refresh()
-    const record = this.bans.get(id)
-    return record && record.expiresAt > clock.now() ? record : null
+    const record = this.find(id)
+    return record && !record.liftedAt && record.expiresAt > clock.now() ? record : null
   }
 
   add(record: BanRecord): void {
@@ -97,11 +109,14 @@ export class BanStore {
     this.save()
   }
 
-  remove(id: string): boolean {
-    this.refresh()
-    const removed = this.bans.delete(id)
-    if (removed) this.save()
-    return removed
+  /** Ends a ban early. The record stays, marked as lifted, so a cookie still carrying it is overridden. */
+  lift(id: string): boolean {
+    const record = this.get(id)
+    if (!record) return false
+    const now = clock.now()
+    this.bans.set(id, { ...record, liftedAt: now, expiresAt: Math.min(record.expiresAt, now) })
+    this.save()
+    return true
   }
 
   /** Every saved ban, newest first; `activeOnly` leaves out finished ones. */
@@ -109,7 +124,7 @@ export class BanStore {
     this.refresh()
     const now = clock.now()
     return [...this.bans.values()]
-      .filter((record) => !activeOnly || record.expiresAt > now)
+      .filter((record) => !activeOnly || (record.expiresAt > now && !record.liftedAt))
       .sort((a, b) => b.bannedAt - a.bannedAt)
   }
 }

@@ -25,6 +25,9 @@ import type { ChatMessage } from '../lib/chat'
 import type { Attachment } from '../lib/files'
 import { formatBytes } from '../lib/privacy'
 import { extractImageLinks } from '../lib/imageLinks'
+import { blockKindFor, formatCountdown, type BlockKind } from '../lib/blocks'
+import { useBlock, useNow } from '../hooks/useBlock'
+import { Countdown } from './LimitBanner'
 import { Markdown } from './Markdown'
 import { LeafMark } from './Logo'
 import { ModelLogo } from './ModelLogo'
@@ -38,6 +41,67 @@ type ChatMessageProps = {
   canInspect: boolean
   onRegenerate: (id: string) => void
   onInspect: () => void
+}
+
+const PAUSE_TITLE: Record<BlockKind, string> = {
+  rate: 'Message limit reached',
+  spam: 'Sending paused: too fast',
+  ban: 'This device is blocked',
+}
+
+/**
+ * A failed request. When the failure is a limit, spam lock or ban, the time
+ * left ticks down here too, instead of a number frozen at the moment it failed.
+ */
+function ErrorCard({ message }: { message: ChatMessage }) {
+  const kind = blockKindFor(message.errorCode)
+  const until = kind && message.retryAt ? message.retryAt : 0
+  const now = useNow(until || null)
+
+  if (!kind || !until) {
+    return (
+      <div className="message-error" role="alert">
+        <AlertTriangle size={15} />
+        <div>
+          <strong>Request failed</strong>
+          <p>{message.error}</p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="message-error" role="alert">
+      <AlertTriangle size={15} />
+      <div>
+        <strong>{PAUSE_TITLE[kind]}</strong>
+        <p>
+          {until > now ? (
+            <>
+              You can try again in <Countdown until={until} />.
+            </>
+          ) : (
+            'You can try again now.'
+          )}
+        </p>
+      </div>
+    </div>
+  )
+}
+
+/** Retry stays off while a limit, lock or ban is running, and says when it comes back. */
+function RetryButton({ onRetry, busy }: { onRetry: () => void; busy: boolean }) {
+  const { block, remainingMs } = useBlock()
+  return (
+    <button
+      onClick={onRetry}
+      disabled={busy || Boolean(block)}
+      aria-label="Retry this request"
+      title={block ? `Available in ${formatCountdown(remainingMs)}` : undefined}
+    >
+      <RefreshCw size={14} /> Retry
+    </button>
+  )
 }
 
 function AttachmentGlyph({ kind }: { kind: Attachment['kind'] }) {
@@ -320,15 +384,7 @@ export const ChatMessageView = memo(
           </div>
         )}
 
-        {message.error && (
-          <div className="message-error" role="alert">
-            <AlertTriangle size={15} />
-            <div>
-              <strong>Request failed</strong>
-              <p>{message.error}</p>
-            </div>
-          </div>
-        )}
+        {message.error && <ErrorCard message={message} />}
 
         {waiting && (
           <WaitingProgress
@@ -394,13 +450,7 @@ export const ChatMessageView = memo(
 
         {message.phase === 'done' && message.error && (
           <div className="message-actions">
-            <button
-              onClick={() => onRegenerate(message.id)}
-              disabled={isGenerating}
-              aria-label="Retry this request"
-            >
-              <RefreshCw size={14} /> Retry
-            </button>
+            <RetryButton onRetry={() => onRegenerate(message.id)} busy={isGenerating} />
           </div>
         )}
 

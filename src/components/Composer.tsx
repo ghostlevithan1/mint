@@ -24,6 +24,8 @@ type ComposerProps = {
   uploadError: string
   reading: boolean
   isGenerating: boolean
+  /** Sending is paused (message limit, spam lock or a ban); see LimitBanner. */
+  paused?: boolean
   routingWarning: string
   routeNotice: string
   textareaRef: MutableRefObject<HTMLTextAreaElement | null>
@@ -49,6 +51,7 @@ export function Composer({
   uploadError,
   reading,
   isGenerating,
+  paused = false,
   routingWarning,
   routeNotice,
   textareaRef,
@@ -79,6 +82,7 @@ export function Composer({
     (text.trim().length > 0 || attachments.length > 0) &&
     !reading &&
     !isGenerating &&
+    !paused &&
     !routingWarning &&
     !unreadableImages.length
 
@@ -197,7 +201,7 @@ export function Composer({
             event.preventDefault()
             onAttachFiles(files)
           }}
-          placeholder="Message Mint…"
+          placeholder={paused ? 'Sending is paused…' : 'Message Mint…'}
           aria-label="Message"
           rows={1}
           maxLength={8000}
@@ -234,6 +238,7 @@ export function Composer({
                 onClick={submit}
                 disabled={!canSend}
                 aria-label="Send message"
+                title={paused ? 'Sending is paused' : undefined}
               >
                 <ArrowUp size={17} />
               </button>

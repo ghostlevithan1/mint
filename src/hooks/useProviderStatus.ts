@@ -1,9 +1,26 @@
 import { useCallback, useEffect, useState } from 'react'
+import { clearBlock, getBlock, startBlock } from '../lib/blocks'
 import { INITIAL_PROVIDER_STATUS, type ProviderStatus } from '../lib/provider'
 
 type StatusResponse = {
   configured?: boolean
   providers?: { nvidia?: boolean; openrouter?: boolean }
+  /** This device's standing with the server. */
+  device?: { bannedForMs?: number | null }
+}
+
+/**
+ * The server is the authority on bans. A ban it reports is shown at once; one
+ * this browser remembers but the server no longer reports (it was lifted) is
+ * dropped. Rate and spam pauses are left to run their course.
+ */
+function syncBan(device: StatusResponse['device']) {
+  const remaining = device?.bannedForMs
+  if (typeof remaining === 'number' && remaining > 0) {
+    startBlock('ban', remaining / 1000)
+  } else if (device && getBlock()?.kind === 'ban') {
+    clearBlock('ban')
+  }
 }
 
 export function useProviderStatus() {
@@ -14,6 +31,7 @@ export function useProviderStatus() {
       const response = await fetch('/api/status', { headers: { Accept: 'application/json' } })
       if (!response.ok) throw new Error(`Status request failed (${response.status}).`)
       const data = (await response.json()) as StatusResponse
+      syncBan(data.device)
       const nvidia = data.providers?.nvidia ?? data.configured === true
       const openrouter = data.providers?.openrouter === true
       const live = nvidia || openrouter

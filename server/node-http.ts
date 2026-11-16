@@ -7,6 +7,7 @@ import {
   getStatusPayload,
   type JsonRecord,
 } from './core'
+import { clock } from './clock'
 import { identifyDevice } from './device'
 import { activeBanUntil, guardApi, sendBanned } from './limits'
 import { BAN_THRESHOLD, inspectChatBody, recordCspReport, recordTamper } from './tamper'
@@ -137,7 +138,11 @@ export function handleStatusHttp(
   sendJson(res, 200, {
     ...getStatusPayload(root),
     webReaders: webReaderStatus(),
-    device: { bannedUntil: bannedUntil || null },
+    // Both forms: the page counts down from the relative one, so a wrong clock cannot skew it.
+    device: {
+      bannedUntil: bannedUntil || null,
+      bannedForMs: bannedUntil ? Math.max(0, bannedUntil - clock.now()) : null,
+    },
   })
 }
 

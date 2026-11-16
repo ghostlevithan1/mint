@@ -483,6 +483,45 @@ test('a saved ban reaches a device whose cookie lacks it, and the cookie is brou
   assert.ok(Number(device.cookie.split('.')[2]) * 1000 >= now + BAN_MS - 1_000)
 })
 
+test('lifting a ban frees the device even though its cookie still carries the ban', () => {
+  freshWorld()
+  const attacker = knownDevice()
+  const { res, headers } = fakeResponse()
+  const ban = recordTamper(attacker.request(), res, inspectChatBody({ model: 'a b' }, KNOWN))
+  attacker.take(headers)
+  assert.ok(ban)
+  assert.equal(attacker.send().status, 403)
+  const bannedCookie = attacker.cookie
+
+  advance(5 * 60_000)
+  const store = new BanStore(banFile)
+  setBanStore(store)
+  assert.equal(store.lift(ban.id), true)
+  assert.equal(store.lift(ban.id), false, 'a ban can only be lifted once')
+
+  // The old cookie says "banned", but the pardon is newer than that ban.
+  const outcome = attacker.send()
+  assert.equal(outcome.ok, true)
+  assert.equal(outcome.status, 0)
+  assert.equal(Number(attacker.cookie.split('.')[2]), 0, 'the cookie is cleaned of the ban')
+  assert.notEqual(attacker.cookie, bannedCookie)
+  assert.equal(store.list(true).length, 0)
+  assert.equal(store.list().length, 1, 'the record is kept, marked lifted')
+  assert.ok(store.find(ban.id)?.liftedAt)
+
+  // The old cookie, replayed, is still pardoned...
+  const replay = new Browser('203.0.113.60', false)
+  replay.cookie = bannedCookie
+  assert.equal(replay.send().ok, true)
+
+  // ...but a new offence after the pardon bans again.
+  advance(60_000)
+  const again = fakeResponse()
+  assert.ok(recordTamper(attacker.request(), again.res, inspectChatBody({ model: 'x y' }, KNOWN)))
+  attacker.take(again.headers)
+  assert.equal(attacker.send().status, 403)
+})
+
 test('strikes add up inside ten minutes, and fade after', () => {
   freshWorld()
   const device = knownDevice()
@@ -560,6 +599,13 @@ test('bans are read back from disk, and edits made while running are noticed', (
   utimesSync(banFile, new Date(now + 10_000), new Date(now + 10_000))
   advance(6_000)
   assert.equal(second.get('AAAAAAAAAAAAAAAAAAAAAA'), null)
+
+  // A file saved by an editor that adds a byte-order mark is still read.
+  writeFileSync(
+    banFile,
+    `\uFEFF${JSON.stringify({ version: 1, bans: [{ id: 'CCCCCCCCCCCCCCCCCCCCCC', bannedAt: now, expiresAt: now + BAN_MS, signals: ['bom'], userAgent: '', network: '' }] })}`,
+  )
+  assert.equal(new BanStore(banFile).get('CCCCCCCCCCCCCCCCCCCCCC')?.signals[0], 'bom')
 
   // Garbage on disk starts the store empty instead of crashing the server.
   writeFileSync(banFile, '{ not json')

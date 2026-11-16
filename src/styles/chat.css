@@ -2705,6 +2705,75 @@
   background: rgba(var(--red-rgb), 0.1);
 }
 
+/* Sending is paused: a live countdown above the composer. */
+.limit-banner {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0 0 8px;
+  padding: 11px 13px 13px;
+  overflow: hidden;
+  border: 1px solid rgba(var(--amber-rgb), 0.3);
+  border-radius: 12px;
+  background: rgba(var(--amber-rgb), 0.07);
+  color: var(--amber);
+  font-size: 13px;
+}
+
+.limit-banner > svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.limit-banner.is-red {
+  border-color: rgba(var(--red-rgb), 0.32);
+  background: rgba(var(--red-rgb), 0.07);
+  color: var(--red);
+}
+
+.limit-banner-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.limit-banner-copy strong {
+  font-weight: 600;
+}
+
+.limit-banner-copy > span {
+  color: var(--text-soft);
+  line-height: 1.5;
+}
+
+.countdown {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.limit-banner .countdown {
+  color: inherit;
+}
+
+.limit-banner-track {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  background: rgba(var(--wash-rgb), 0.05);
+}
+
+.limit-banner-track span {
+  display: block;
+  height: 100%;
+  background: currentColor;
+  opacity: 0.55;
+  transition: width 260ms linear;
+}
+
 .composer-error {
   margin: 2px 4px 7px;
   padding: 6px 8px;

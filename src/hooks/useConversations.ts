@@ -35,6 +35,7 @@ import {
   messageContextText,
 } from '../lib/context'
 import type { Attachment } from '../lib/files'
+import { blockKindFor, getBlock, startBlock } from '../lib/blocks'
 import { getStoredProfile, getStoredShield } from '../lib/preferences'
 import { loadConversations, persistConversations, purgeLegacyChatStorageOnce, wipePersistedStore } from '../lib/storage'
 
@@ -591,6 +592,17 @@ export function useConversations() {
         error instanceof ChatApiError
           ? error.message
           : 'Could not reach Mint. Check your connection and try again.'
+
+      // A limit, spam lock or ban pauses sending with a live countdown, on the
+      // composer and on this failed message.
+      const pause = error instanceof ChatApiError ? blockKindFor(error.code) : null
+      let retryAt: number | undefined
+      if (error instanceof ChatApiError && pause) {
+        const fallback = pause === 'spam' ? 10 : pause === 'ban' ? 24 * 60 * 60 : 60
+        startBlock(pause, error.retryAfter ?? fallback)
+        retryAt = getBlock()?.until
+      }
+
       patchMessage(input.chatId, input.assistantId, {
         content: rehydrateText(stripToolCalls(raw), activeRedactions),
         reasoning: reasoningRaw
@@ -600,6 +612,8 @@ export function useConversations() {
         activity: undefined,
         stats: currentStats(),
         error: message,
+        errorCode: pause && error instanceof ChatApiError ? error.code : undefined,
+        retryAt,
       })
       finishRun(runId)
     }
@@ -644,6 +658,8 @@ export function useConversations() {
     shieldOn,
     model,
   }: SendInput) => {
+    // While a limit, lock or ban is running the server would refuse anyway.
+    if (getBlock()) return
     const content = text.trim()
     if (!content && !attachments.length) return
 
@@ -751,7 +767,7 @@ export function useConversations() {
   }
 
   const regenerate = (assistantId: string) => {
-    if (isGenerating) return
+    if (isGenerating || getBlock()) return
     const chat = chats.find((item) => item.messages.some((message) => message.id === assistantId))
     if (!chat) return
     const index = chat.messages.findIndex((message) => message.id === assistantId)

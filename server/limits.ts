@@ -251,12 +251,19 @@ function prune(now: number): void {
  */
 export function activeBanUntil(req: IncomingMessage, res: ServerResponse, device: Device): number {
   const now = clock.now()
-  const record = device.known ? banStore().get(device.id) : null
-  const until = Math.max(device.banUntil, record?.expiresAt ?? 0)
+  const stored = device.known ? banStore().find(device.id) : null
+  const record = stored && !stored.liftedAt && stored.expiresAt > now ? stored : null
+
+  // An operator's pardon beats a ban still sitting in the cookie, if it came
+  // after that ban began. The cookie is then cleaned so it stops carrying it.
+  const pardoned = Boolean(stored?.liftedAt && stored.liftedAt > device.banUntil - BAN_MS)
+  if (pardoned && device.banUntil) setDeviceBan(req, res, device, 0)
+
+  const until = Math.max(pardoned ? 0 : device.banUntil, record?.expiresAt ?? 0)
   if (until <= now) return 0
 
   if (device.banUntil < until) setDeviceBan(req, res, device, until)
-  if (!record && device.known) {
+  if (!stored && device.known) {
     banStore().add({
       id: device.id,
       bannedAt: Math.max(0, until - BAN_MS),

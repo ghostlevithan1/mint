@@ -50,26 +50,55 @@ lock the site down later, the smallest change is a shared code checked by
 `guardApi` in `server/limits.ts`; the rate limit below is the current spending
 guard.
 
-## Rate limits
+## Usage limits, spam lock and bans
 
-- `/api/chat`: **15 requests per minute per client IP**. This is the budget that
-  keeps one visitor or script from draining a provider key.
-- `/api/web` and `/api/search`: 60 requests per minute per client IP.
-- `MINT_RATE_LIMIT=0` disables chat limiting for local testing.
+Mint has no accounts, so a **device** is a browser holding a signed cookie
+(`mint_device`) that the server issues when the page loads. Limits, locks and bans
+attach to it, so classmates on one school network do not share a budget.
 
-Visitors behind the same router share one budget, so a busy household or office
-may hit the limit together. Raise `MINT_RATE_LIMIT` if that becomes a problem.
+| Rule | What happens |
+| --- | --- |
+| **Message limit** | 15 messages a minute per device (`MINT_RATE_LIMIT`; 60 web requests). Past it, sending pauses and the page counts the time left down live (`m:ss`), above the composer and on the failed message. |
+| **Spam lock** | 1.5 messages a second sustained for 5 seconds (8 attempts in 5 s) locks sending until the device has stopped for 10 seconds. Attempts made while locked restart that quiet period. |
+| **Network ceiling** | Clearing cookies gives a fresh device, so each network also has a ceiling of 4x the device budget (`MINT_IP_RATE_LIMIT`). A client that keeps no cookie is counted per network at the device budget. |
+| **Tampering ban** | A request altered by hand (see below) bans the device for **24 hours**. The page shows the countdown, including after a reload. |
 
-**Who counts as one visitor.** A client can write anything in `X-Forwarded-For`, so
-that header is never trusted from its left end. On Render (`RENDER=true`) the
-edge-set `True-Client-IP` / `CF-Connecting-IP` identify the visitor. Elsewhere the
-socket address is used; behind your own proxy set `MINT_PROXY_HOPS=n` to take the
-n-th entry from the right of `X-Forwarded-For`, or `MINT_TRUST_PROXY_HEADERS=1` if
-that proxy sets `True-Client-IP` itself.
+**What counts as tampering.** Only the *shape* of a request, never what is typed, so
+pasting code, SQL or HTML into a question cannot get anyone banned. Clear forgeries
+that a real page cannot produce ban at once: a model id that is not a plain
+identifier (`"; DROP TABLE`, `<script>`), `__proto__`/`constructor` keys, an unknown
+message role or content type, or an image that is a web address instead of a data
+URL. Ambiguous differences (a retired model id from a stale tab, an extra field, a
+parameter out of range, a `..` in a path, a blocked inline script reported by the
+browser) are single strikes; three within ten minutes ban. Script reports count at
+most once a minute.
 
-Responses include `X-RateLimit-Limit` and `X-RateLimit-Remaining`; a limited
-request answers `429` with `Retry-After` and a readable message.
+**Where bans are kept.** Each ban is saved to `data/device-bans.json` (device id,
+time, short signal codes, user agent, and the network as a keyed hash, never the
+address or anything typed) and is also written into the banned browser's own signed
+cookie, so it survives the server restarting or losing its disk, as long as
+`MINT_DEVICE_SECRET` stays the same (set it; `render.yaml` generates one). The page
+also remembers the countdown in local storage so Send is disabled instantly, but the
+server enforces every pause on its own. Clearing cookies or using a private window
+gives a new device, which is the limit of identifying browsers without accounts.
 
+Manage them with `npm run bans` (active), `npm run bans -- --all`,
+`npm run bans -- remove <id>` (lifts one; the record stays, marked lifted, which also
+overrides the ban still in that browser's cookie) and `npm run bans -- clear`.
+A running server notices edits within seconds. On Render's free plan the disk is
+wiped on each deploy, so the file is lost, but the cookie still carries the ban.
+
+**Who counts as one visitor (the network ceiling).** A client can write anything in
+`X-Forwarded-For`, so that header is never trusted from its left end. On Render
+(`RENDER=true`) the edge-set `True-Client-IP` / `CF-Connecting-IP` identify the
+visitor. Elsewhere the socket address is used; behind your own proxy set
+`MINT_PROXY_HOPS=n` to take the n-th entry from the right of `X-Forwarded-For`, or
+`MINT_TRUST_PROXY_HEADERS=1` if that proxy sets `True-Client-IP` itself.
+`MINT_RATE_LIMIT=0` turns off chat limiting and the spam lock for local testing.
+
+Refusals answer `429` (or `403` for a ban) with `Retry-After` and a JSON body that
+includes `retryAfter` (seconds) and `retryAt`, which the page counts down from.
+`X-RateLimit-Limit` and `X-RateLimit-Remaining` describe the device budget.
 ## NVIDIA NIM setup
 
 The server reads the key at request time. Choose one of these options:
@@ -206,6 +235,9 @@ that `Esc` stops the request.
 - The PII shield is on by default and can be turned off in Settings → Privacy.
 - Provider keys live on the server. The browser only calls `/api/chat`, and the
   server attaches the right key upstream.
+- One cookie is set: `mint_device`, a random id signed by the server (HttpOnly,
+  SameSite=Lax). It carries no personal data; it exists so usage limits and bans can
+  follow a browser instead of a shared network address.
 
 Redaction is heuristic (pattern + stopword based). Review the audit view before
 relying on it for sensitive material.
@@ -220,6 +252,9 @@ The production server sets, on every response:
 - `Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Opener-Policy`
 - `X-Robots-Tag: noindex, nofollow, noarchive`
 
+The CSP also has `report-uri /api/csp-report`: a blocked inline or foreign script is
+reported there, and a repeat of that counts toward a tampering ban (see above).
+
 `public/robots.txt` disallows everything, and `index.html` carries a `noindex`
 meta tag, so a deployed instance stays out of search engines.
 
@@ -230,18 +265,26 @@ variables in the dashboard (they are `sync: false`, so they are never committed)
 
 - `NVIDIA_API_KEY` — enables the NVIDIA NIM models
 - `OPEN_CODE_KEY` — OpenRouter key for Gemma 4 31B and Inkling 2 Small
-- `MINT_RATE_LIMIT` — defaults to `15`; keep it set, it is the only spending guard
+- `MINT_RATE_LIMIT` — messages a minute per device, default `15`; keep it set, it is
+  the only spending guard
+- `MINT_DEVICE_SECRET` — signs the device cookie and the bans written into it; any
+  random string of 16+ characters. Keep it fixed (`render.yaml` generates one)
 
 Build with `npm ci --include=dev && npm run build`, start with `npm start`. The
 health check is `/healthz`. Every endpoint is public: `/api/status` only reports
-configuration, while `/api/chat`, `/api/web` and `/api/search` are limited per IP.
+configuration (and whether this device is banned), while `/api/chat`, `/api/web` and
+`/api/search` are limited per device.
 
 ## Project layout
 
 ```
 server/
   index.ts                   production HTTP server, static files, security headers
-  limits.ts                  per-IP rate limiting for chat, web and search
+  limits.ts                  per-device limits, spam lock, network ceiling, ban checks
+  device.ts                  signed device cookie (carries the ban expiry)
+  bans.ts                    saved bans (data/device-bans.json), lifts and pardons
+  tamper.ts                  spots hand-altered requests; strikes and 24h bans
+  clock.ts                   replaceable clock, so timing rules are testable
   core.ts                    model mapping, upstream SSE, fallback on 404/410
   node-http.ts               /api/chat and /api/status handlers
   web.ts                     /api/web page reader and /api/search
@@ -257,10 +300,12 @@ src/
     SettingsModal.tsx        general, privacy, storage, export, about
     PlotImage.tsx            draws the ```plot fence as an SVG graph
     PayloadModal.tsx         redacted payload audit
+    LimitBanner.tsx          live countdown when sending is paused (limit, spam, ban)
   hooks/
     useConversations.ts      chats, streaming, compacting, undo, storage errors
     useModalFocus.ts         focus trap, Escape and focus restore for dialogs
     usePlotDetail.ts         the graph detail setting, shared with every graph
+    useBlock.ts              the current pause and its live remaining time
     useProviderStatus.ts     checks /api/status for a configured key
     useAttachments.ts        25 MB / 10-file validation and local reading
   lib/

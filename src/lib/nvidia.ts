@@ -49,12 +49,15 @@ type StreamChunk = {
 export class ChatApiError extends Error {
   readonly code: string
   readonly status: number
+  /** Seconds until sending is allowed again, when the server said so. */
+  readonly retryAfter?: number
 
-  constructor(message: string, code: string, status: number) {
+  constructor(message: string, code: string, status: number, retryAfter?: number) {
     super(message)
     this.name = 'ChatApiError'
     this.code = code
     this.status = status
+    this.retryAfter = retryAfter
   }
 }
 
@@ -77,16 +80,22 @@ export async function streamNvidiaChat(request: StreamRequest, handlers: StreamH
   if (!response.ok) {
     let code = 'HTTP_ERROR'
     let message = `Inference request failed (${response.status}).`
+    // The wait comes from the body, or the Retry-After header if a proxy dropped the body.
+    const header = Number(response.headers.get('Retry-After'))
+    let retryAfter = Number.isFinite(header) && header > 0 ? header : undefined
     try {
       const data = (await response.json()) as {
-        error?: { code?: string; message?: string }
+        error?: { code?: string; message?: string; retryAfter?: number }
       }
       if (data.error?.code) code = data.error.code
       if (data.error?.message) message = data.error.message
+      if (typeof data.error?.retryAfter === 'number' && data.error.retryAfter > 0) {
+        retryAfter = data.error.retryAfter
+      }
     } catch {
       // A static host or proxy may return HTML instead of JSON.
     }
-    throw new ChatApiError(message, code, response.status)
+    throw new ChatApiError(message, code, response.status, retryAfter)
   }
 
   if (!response.body) {
