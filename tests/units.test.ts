@@ -4,6 +4,7 @@ import { buildChatTitle, type Conversation } from '../src/lib/chat'
 import { extractUrls } from '../src/lib/web'
 import {
   detectRedactions,
+  detectRedactionsAsync,
   mergeRedactions,
   redactText,
   rehydrateText,
@@ -165,6 +166,47 @@ test('real names are still found, including ones beside topics or clashing with 
       .filter((item) => item.kind === 'name')
       .map((item) => item.original)
     for (const name of expected) assert.ok(names.includes(name), `${name} missing from ${JSON.stringify(names)} in: ${text}`)
+  }
+})
+
+test('well-known historical figures reach the tutor unhidden', async () => {
+  const questions = [
+    'What did Napoleon Bonaparte do after the French Revolution?',
+    'Explain what Martin Luther King Jr. fought for.',
+    'Compare Winston Churchill and Franklin Roosevelt.',
+    'Why is Isaac Newton important? And Albert Einstein?',
+    'Who was Cleopatra and what did Julius Caesar do?',
+    'Why did William Shakespeare write Macbeth?',
+    'Tell me about Nelson Mandela and Mahatma Gandhi.',
+    // Multi-part names, found from a single detected word.
+    'How did Henry VIII change England?',
+    'Explain how Leonardo da Vinci and Michelangelo worked.',
+    'What did Plato, Aristotle and Socrates believe?',
+    // A question word in front used to be hidden along with the name.
+    'Was Joseph Stalin worse than Vladimir Lenin?',
+  ]
+  for (const text of questions) {
+    const found = await detectRedactionsAsync(text)
+    assert.deepEqual(found, [], `${text} -> ${redactText(text, found)}`)
+  }
+})
+
+test('a famous name stays hidden when it is someone the student knows', async () => {
+  const cases: Array<[string, string]> = [
+    ['Mr Newton set us homework on forces.', 'Newton'],
+    ['Ms. Curie marked my test.', 'Curie'],
+    ['My name is Albert Einstein and I need help.', 'Einstein'],
+    ['My friend Charles Darwin is in my class.', 'Darwin'],
+    ['Our coach, Napoleon Diaz, cancelled training.', 'Napoleon'],
+    // Common names left off the list on purpose, even though a figure shares them.
+    ['Muhammad Ali and Sarah Johnson are in my group.', 'Muhammad'],
+    ['Dante helped me with maths.', 'Dante'],
+    ['Priya Gandhi lent me her notes.', 'Gandhi'],
+    ['Isaac Mensah and Victoria Okafor are in my group.', 'Okafor'],
+  ]
+  for (const [text, word] of cases) {
+    const shielded = redactText(text, await detectRedactionsAsync(text))
+    assert.ok(!shielded.includes(word), `"${word}" leaked: ${shielded}`)
   }
 })
 

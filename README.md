@@ -239,6 +239,15 @@ that `Esc` stops the request.
   SameSite=Lax). It carries no personal data; it exists so usage limits and bans can
   follow a browser instead of a shared network address.
 
+**What the shield does not hide.** Topics shaped like names ("the French
+Revolution", "Cold War", "New York", "Boyle's Law") are recognised as topics
+(`src/lib/nonNames.ts`). Well-known historical and public figures ("Napoleon",
+"Marie Curie", "Martin Luther King Jr.") reach the tutor so it can teach about them
+(`src/lib/famousPeople.ts`). A figure's name is still hidden after a title or an
+introduction ("Mr Newton", "my friend Charles Darwin", "my name is…"), and names many
+living people share (Muhammad Ali, Dante, or Gandhi on its own) are left off the
+list so they always stay hidden.
+
 Redaction is heuristic (pattern + stopword based). Review the audit view before
 relying on it for sensitive material.
 

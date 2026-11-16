@@ -1,5 +1,6 @@
 import type { Redaction } from './data'
 import { MIDDLE_EASTERN_GIVEN_NAMES, NAME_PARTICLES } from './middleEasternNames'
+import { FAMOUS_FULL_NAMES, figureKey, KNOWN_PERSON_CONTEXT } from './famousPeople'
 import {
   LEADING_VERBS,
   NON_NAME_FIRST_WORDS,
@@ -253,6 +254,58 @@ function isEponym(span: string, text: string, index: number): boolean {
   return /^\s+\p{Lu}/u.test(text.slice(end + possessive.length))
 }
 
+const WORD_RE = /[\p{L}\p{M}\p{N}'’.‐–-]+/gu
+
+/**
+ * True when a name-shaped span is a well-known figure ("Napoleon", "Marie
+ * Curie"), so the tutor can talk about them. The words around each place it
+ * appears are checked too, so "Henry" inside "Henry VIII" and "Leonardo"
+ * inside "Leonardo da Vinci" count. A title or introduction in front
+ * ("Mr Newton", "my friend Charles Darwin") means someone the student knows,
+ * and then it stays hidden. Without `index`, every place it appears must read
+ * as the figure.
+ */
+export function isFamousFigure(span: string, text: string, index?: number): boolean {
+  if (!figureKey(span)) return false
+  const words = [...text.matchAll(WORD_RE)].map((match) => ({
+    start: match.index ?? 0,
+    end: (match.index ?? 0) + match[0].length,
+    key: figureKey(match[0]),
+  }))
+
+  const atPlace = (start: number): boolean => {
+    const end = start + span.length
+    const first = words.findIndex((word) => word.end > start)
+    let last = first
+    while (last + 1 < words.length && words[last + 1].start < end) last += 1
+    if (first < 0) return false
+    // Every window of nearby words that contains the whole span.
+    for (let before = 0; before <= 3; before += 1) {
+      for (let after = 0; after <= 3; after += 1) {
+        const from = first - before
+        const to = last + after
+        if (from < 0 || to >= words.length) continue
+        const key = words
+          .slice(from, to + 1)
+          .map((word) => word.key)
+          .filter(Boolean)
+          .join(' ')
+        if (FAMOUS_FULL_NAMES.has(key)) {
+          return !KNOWN_PERSON_CONTEXT.test(text.slice(Math.max(0, words[from].start - 40), words[from].start))
+        }
+      }
+    }
+    return false
+  }
+
+  if (index !== undefined) return atPlace(index)
+  const places: number[] = []
+  for (let at = text.indexOf(span); at >= 0 && places.length < 50; at = text.indexOf(span, at + span.length)) {
+    places.push(at)
+  }
+  return places.length > 0 && places.every(atPlace)
+}
+
 /** Drops greetings and instructions from the front: "Ask Priya Nair" becomes "Priya Nair". */
 function withoutLeadingWords(words: string[]): number {
   let skip = 0
@@ -380,7 +433,8 @@ export function detectRedactions(text: string, people: string[] = []): Redaction
     let offset = 0
     for (let i = 0; i < skip; i += 1) offset = match[0].indexOf(matched[i + 1], offset + matched[i].length)
     const name = words.join(' ')
-    if (looksLikeThing(name, text, (match.index ?? 0) + offset)) continue
+    const at = (match.index ?? 0) + offset
+    if (looksLikeThing(name, text, at) || isFamousFigure(name, text, at)) continue
     if (!covers(name)) pushName(name)
   }
 
@@ -422,7 +476,7 @@ export function detectRedactions(text: string, people: string[] = []): Redaction
     if (!/[A-Z\u00C0-\u024F]/.test(cleaned)) continue
     if (NAME_STOPWORDS.has(cleaned)) continue
     // The NLP model also tags "Mona Lisa" or "Cold War" as people now and then.
-    if (looksLikeThing(cleaned, text)) continue
+    if (looksLikeThing(cleaned, text) || isFamousFigure(cleaned, text)) continue
     pushName(cleaned)
   }
 
@@ -460,6 +514,7 @@ export function detectRedactions(text: string, people: string[] = []): Redaction
     }
     const span = text.slice(token.index, end).trim()
     if (!span) continue
+    if (isFamousFigure(span, text, token.index)) continue
     if (!looksLikeThing(span, text, token.index)) {
       pushName(span)
     } else if (words.length > 1 && !looksLikeThing(token.value, text, token.index)) {

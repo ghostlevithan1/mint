@@ -85,6 +85,9 @@ export const LEADING_VERBS = new Set([
   'teach', 'learn', 'read', 'study', 'practise', 'practice', 'simplify', 'prove', 'convert',
   'rewrite', 'fix', 'edit', 'correct', 'label', 'sketch', 'test', 'assess', 'remind',
   'summarise', 'summarize', 'explain', 'describe', 'share', 'show', 'give', 'list', 'find',
+  // Question openers: "Was Joseph Stalin worse…" once hid "Was" along with the name.
+  'was', 'were', 'did', 'does', 'do', 'has', 'have', 'had', 'could', 'would', 'should',
+  'might', 'must', 'shall', 'am', 'why', 'whose', 'whom', 'compared',
   'email', 'message', 'text', 'thank', 'meet', 'invite', 'tell', 'ask', 'call',
   'dear', 'hi', 'hello', 'hey', 'thanks',
 ])
