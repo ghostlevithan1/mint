@@ -2,8 +2,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import {
   HttpError,
   MAX_BODY_BYTES,
+  acceptedModelIds,
   createChatResponse,
-  getModelRoutes,
   getStatusPayload,
   type JsonRecord,
 } from './core'
@@ -206,7 +206,7 @@ export async function handleChatHttp(
     // Only the shape of the request is checked, never what was typed. A clear
     // forgery from a known device bans it; one below the threshold is let
     // through (a stale tab can send a retired model id).
-    const tamper = inspectChatBody(body, new Set(Object.keys(getModelRoutes(root))))
+    const tamper = inspectChatBody(body, acceptedModelIds(root))
     if (tamper.weight) {
       const ban = recordTamper(req, res, tamper)
       if (ban) {

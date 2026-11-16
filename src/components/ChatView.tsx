@@ -15,7 +15,7 @@ import {
   UploadCloud,
   X,
 } from 'lucide-react'
-import { MODELS, MAX_FILES, typeInfo, type Model } from '../lib/data'
+import { answerModel, MODELS, MAX_FILES, typeInfo, type Model } from '../lib/data'
 import { modelById, type Conversation } from '../lib/chat'
 import type { Attachment } from '../lib/files'
 import {
@@ -465,7 +465,9 @@ export function ChatView({
           <div className="thread">
             {chat.messages.map((message) => {
               const messageModel =
-                message.role === 'assistant' ? modelById(MODELS, message.modelId) : undefined
+                message.role === 'assistant'
+                  ? (answerModel(message.modelId) ?? modelById(MODELS, message.modelId))
+                  : undefined
               const canInspect =
                 message.role === 'assistant' && (message.redactions?.length ?? 0) > 0
               return (

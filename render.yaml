@@ -10,7 +10,7 @@ services:
     envVars:
       - key: NVIDIA_API_KEY
         sync: false
-      # OpenRouter key for Gemma 4 31B and Inkling 2 Small.
+      # OpenRouter key for Gemma 4 31B and MiniMax M3.1 Flash.
       - key: OPEN_CODE_KEY
         sync: false
       # Messages per minute per device for /api/chat (default 15).

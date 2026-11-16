@@ -787,7 +787,8 @@ export function useConversations() {
       content: '',
       createdAt: Date.now(),
       phase: 'shielding',
-      modelId: assistant.modelId,
+      // The model that will answer, which differs from the old one if that was retired.
+      modelId: model.id,
       shieldOn: assistant.shieldOn ?? true,
       redactions: assistant.redactions ?? [],
     }

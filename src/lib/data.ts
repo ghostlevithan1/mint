@@ -108,17 +108,6 @@ export const MODELS: Model[] = [
     context: '128K',
   },
   {
-    id: 'inkling-2-small',
-    type: 'normal',
-    name: 'Inkling 2 Small',
-    maker: 'Thinking Machines',
-    bestAt: 'Everyday reasoning, balanced writing, and reading images.',
-    meta: '594B A17B',
-    tps: 110,
-    context: '1M',
-    capabilities: ['image'],
-  },
-  {
     id: 'muse-glimmer',
     type: 'normal',
     name: 'Muse Glimmer 30B',
@@ -171,6 +160,28 @@ export const MODELS: Model[] = [
     context: '128K',
   },
 ]
+
+/**
+ * Models taken out of the picker. They are kept only so answers they gave in
+ * saved chats still carry their real name; nothing can be sent to them.
+ */
+export const RETIRED_MODELS: Model[] = [
+  {
+    id: 'inkling-2-small',
+    type: 'normal',
+    name: 'Inkling 2 Small',
+    maker: 'Thinking Machines',
+    bestAt: 'Retired.',
+    meta: '594B A17B',
+    tps: 110,
+    context: '1M',
+  },
+]
+
+/** The model an earlier answer came from, retired models included. */
+export function answerModel(id?: string): Model | undefined {
+  return MODELS.find((model) => model.id === id) ?? RETIRED_MODELS.find((model) => model.id === id)
+}
 
 export const DEFAULT_MODEL_ID = 'nemotron-lightning'
 

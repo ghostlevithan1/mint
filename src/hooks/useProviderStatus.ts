@@ -45,7 +45,7 @@ export function useProviderStatus() {
           : nvidia && openrouter
             ? 'Answers stream from NVIDIA NIM and OpenRouter through the server proxy.'
             : nvidia
-              ? 'Answers stream from NVIDIA NIM. Gemma 4 and Inkling need an OpenRouter key (OPEN_CODE_KEY).'
+              ? 'Answers stream from NVIDIA NIM. Gemma 4 and MiniMax need an OpenRouter key (OPEN_CODE_KEY).'
               : 'Answers stream from OpenRouter. The NVIDIA models need an NVIDIA API key.',
       })
     } catch {

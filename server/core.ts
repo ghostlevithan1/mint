@@ -51,12 +51,6 @@ const DEFAULT_MODEL_ROUTES: Record<string, ModelRoute> = {
   'nemotron-nano-omni': { provider: 'nvidia', upstream: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning' },
   'gemma-4-31b': { provider: 'openrouter', upstream: 'google/gemma-4-31b-it' },
   'laguna-xs': { provider: 'nvidia', upstream: 'poolside/laguna-xs-2.1' },
-  'inkling-2-small': {
-    provider: 'openrouter',
-    upstream: 'thinkingmachines/inkling-2-small',
-    // Its default is high, which can spend the whole reply budget thinking.
-    reasoningEffort: 'medium',
-  },
   'muse-glimmer': { provider: 'nvidia', upstream: 'meta/muse-glimmer-30b' },
   'nemotron-super-vl': { provider: 'nvidia', upstream: 'nvidia/nemotron-3.5-super-vl-120b-a12b' },
   'nemotron-ultra': { provider: 'nvidia', upstream: 'nvidia/nemotron-3-ultra-550b-a55b' },
@@ -65,11 +59,17 @@ const DEFAULT_MODEL_ROUTES: Record<string, ModelRoute> = {
   'minimax-m3-flash': { provider: 'openrouter', upstream: 'minimax/minimax-m3.1-flash' },
 }
 
+/**
+ * App model ids that were taken out of the picker. A tab opened before the
+ * removal still sends them; those requests go to the default model and are not
+ * treated as tampering.
+ */
+export const RETIRED_MODEL_IDS: ReadonlySet<string> = new Set(['inkling-2-small'])
+
 // Only these app models accept inline images. Keep in sync with src/lib/data.ts.
 const VISION_MODEL_IDS = new Set([
   'nemotron-nano-omni',
   'gemma-4-31b',
-  'inkling-2-small',
   'nemotron-super-vl',
   'minimax-m3-flash',
 ])
@@ -331,6 +331,11 @@ export function getModelRoutes(root = process.cwd()): Record<string, ModelRoute>
   }
 
   return routes
+}
+
+/** Model ids the page can legitimately send: every current route plus retired ones. */
+export function acceptedModelIds(root = process.cwd()): Set<string> {
+  return new Set([...Object.keys(getModelRoutes(root)), ...RETIRED_MODEL_IDS])
 }
 
 export function getStatusPayload(root = process.cwd()): StatusPayload {

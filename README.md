@@ -127,10 +127,14 @@ never written to logs, and never included in an error message.
 
 ## OpenRouter setup
 
-Gemma 4 31B and Inkling 2 Small run on OpenRouter. Set the OpenRouter API key as
+Gemma 4 31B and MiniMax M3.1 Flash run on OpenRouter. Set the OpenRouter API key as
 `OPEN_CODE_KEY` (in the Render dashboard, `.env`, or the shell; `OPENROUTER_API_KEY`
 also works). Without it, those two models answer with a "needs an OpenRouter key"
 error and every NVIDIA model keeps working.
+
+Inkling 2 Small was removed. A tab opened before that still sends its id; the
+server answers with the default model instead of counting it as tampering, and
+old Inkling answers in saved chats keep their label.
 
 ## Models
 
@@ -144,9 +148,10 @@ it. Override any mapping with the generated `NVIDIA_MODEL_*` or
 | Quick | Nemotron 3.5 Lightning | NVIDIA NIM | `nvidia/nemotron-3.5-lightning-30b-a3b` |
 | Quick | Nemotron 3 Nano Omni | NVIDIA NIM | `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning` |
 | Quick | Gemma 4 31B | OpenRouter | `google/gemma-4-31b-it` |
+| Quick | GPT-OSS 20B | NVIDIA NIM | `openai/gpt-oss-20b` |
 | Normal | Laguna XS 2.1 | NVIDIA NIM | `poolside/laguna-xs-2.1` |
-| Normal | Inkling 2 Small | OpenRouter | `thinkingmachines/inkling-2-small` |
 | Normal | Muse Glimmer 30B | NVIDIA NIM | `meta/muse-glimmer-30b` |
+| Normal | MiniMax M3.1 Flash | OpenRouter | `minimax/minimax-m3.1-flash` |
 | Intelligent | Nemotron 3.5 Super VL | NVIDIA NIM | `nvidia/nemotron-3.5-super-vl-120b-a12b` |
 | Intelligent | Nemotron 3 Ultra | NVIDIA NIM | `nvidia/nemotron-3-ultra-550b-a55b` |
 | Intelligent | DeepSeek V4.1 Flash | NVIDIA NIM | `deepseek-ai/deepseek-v4.1-flash` |
@@ -280,7 +285,7 @@ meta tag, so a deployed instance stays out of search engines.
 variables in the dashboard (they are `sync: false`, so they are never committed):
 
 - `NVIDIA_API_KEY` — enables the NVIDIA NIM models
-- `OPEN_CODE_KEY` — OpenRouter key for Gemma 4 31B and Inkling 2 Small
+- `OPEN_CODE_KEY` — OpenRouter key for Gemma 4 31B and MiniMax M3.1 Flash
 - `MINT_RATE_LIMIT` — messages a minute per device, default `15`; keep it set, it is
   the only spending guard
 - `MINT_DEVICE_SECRET` — signs the device cookie and the bans written into it; any
