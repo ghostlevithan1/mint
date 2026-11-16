@@ -3,9 +3,13 @@ import {
   HttpError,
   MAX_BODY_BYTES,
   createChatResponse,
+  getModelRoutes,
   getStatusPayload,
   type JsonRecord,
 } from './core'
+import { identifyDevice } from './device'
+import { activeBanUntil, guardApi, sendBanned } from './limits'
+import { BAN_THRESHOLD, inspectChatBody, recordCspReport, recordTamper } from './tamper'
 import { webReaderStatus } from './web'
 
 export function sendJson(res: ServerResponse, status: number, body: unknown) {
@@ -127,7 +131,48 @@ export function handleStatusHttp(
     return
   }
 
-  sendJson(res, 200, { ...getStatusPayload(root), webReaders: webReaderStatus() })
+  // Lets the page show a ban (with its countdown) as soon as it loads.
+  const device = identifyDevice(req, res)
+  const bannedUntil = activeBanUntil(req, res, device)
+  sendJson(res, 200, {
+    ...getStatusPayload(root),
+    webReaders: webReaderStatus(),
+    device: { bannedUntil: bannedUntil || null },
+  })
+}
+
+/** A body for a small endpoint, refused past `limit` bytes. */
+function readSmallBody(req: IncomingMessage, limit: number): Promise<unknown> {
+  return new Promise((resolveBody) => {
+    const chunks: Buffer[] = []
+    let size = 0
+    req.on('data', (chunk: Buffer) => {
+      size += chunk.length
+      if (size <= limit) chunks.push(chunk)
+    })
+    req.on('end', () => {
+      if (size > limit) return resolveBody(null)
+      try {
+        resolveBody(JSON.parse(Buffer.concat(chunks).toString('utf8')))
+      } catch {
+        resolveBody(null)
+      }
+    })
+    req.on('error', () => resolveBody(null))
+  })
+}
+
+/** Browsers post here when the page's Content-Security-Policy blocks something. */
+export async function handleCspReportHttp(req: IncomingMessage, res: ServerResponse) {
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', 'POST')
+    sendJson(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Use POST for this endpoint.' } })
+    return
+  }
+  if (!guardApi(req, res, 'report')) return
+  recordCspReport(req, res, await readSmallBody(req, 8_192))
+  res.statusCode = 204
+  res.end()
 }
 
 export async function handleChatHttp(
@@ -152,6 +197,22 @@ export async function handleChatHttp(
 
   try {
     const body = await readJsonBody(req)
+
+    // Only the shape of the request is checked, never what was typed. A clear
+    // forgery from a known device bans it; one below the threshold is let
+    // through (a stale tab can send a retired model id).
+    const tamper = inspectChatBody(body, new Set(Object.keys(getModelRoutes(root))))
+    if (tamper.weight) {
+      const ban = recordTamper(req, res, tamper)
+      if (ban) {
+        sendBanned(res, ban.expiresAt)
+        return
+      }
+      if (tamper.weight >= BAN_THRESHOLD) {
+        throw new HttpError(403, 'REQUEST_REJECTED', 'That request was not valid and was not sent.')
+      }
+    }
+
     const response = await createChatResponse(body, { root, signal: controller.signal })
     await pipeWebResponse(res, response)
   } catch (error) {

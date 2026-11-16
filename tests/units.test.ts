@@ -27,6 +27,10 @@ import { sheetLines, unescapeXml } from '../src/lib/files'
 import { CHAT_RATE_LIMIT, WEB_RATE_LIMIT, clientAddress, guardApi } from '../server/limits'
 import { cleanTitle } from '../server/web'
 
+// The limiter now issues a signed device cookie; give it a fixed secret so the
+// tests never write a secret file into the project.
+process.env.MINT_DEVICE_SECRET ??= 'unit-test-secret-0123456789abcdef'
+
 test('PII shield round-trips an email, phone, and name', () => {
   const original =
     'Jane Doe sent this to alice.johnson@example.com or called +1 415 555 0132 today.'
@@ -178,6 +182,9 @@ test('the chat rate limit answers 429 after the budget', () => {
     body: '',
     setHeader(name: string, value: string) {
       headers.set(name.toLowerCase(), value)
+    },
+    getHeader(name: string) {
+      return headers.get(name.toLowerCase())
     },
     end(chunk?: string) {
       this.writableEnded = true

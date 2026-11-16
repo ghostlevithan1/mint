@@ -4,8 +4,10 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { extname, resolve, sep } from 'node:path'
 import { brotliCompress, constants, gzip } from 'node:zlib'
 import { promisify } from 'node:util'
-import { handleChatHttp, handleStatusHttp, sendJson } from './node-http'
+import { handleChatHttp, handleCspReportHttp, handleStatusHttp, sendJson } from './node-http'
+import { identifyDevice } from './device'
 import { guardApi } from './limits'
+import { trackPathTamper } from './tamper'
 import { handleSearchHttp, handleWebHttp } from './web'
 
 const compressBrotli = promisify(brotliCompress)
@@ -74,6 +76,8 @@ const CONTENT_SECURITY_POLICY = [
   "font-src 'self' data:",
   "connect-src 'self'",
   "worker-src 'self' blob:",
+  // Blocked scripts are reported here; see tamper.ts for how repeats are treated.
+  'report-uri /api/csp-report',
 ].join('; ')
 
 function setSecurityHeaders(res: ServerResponse) {
@@ -135,6 +139,10 @@ async function serveStatic(req: IncomingMessage, res: ServerResponse) {
     sendText(res, 400, 'Bad request')
     return
   }
+
+  // The page itself carries the device cookie; hashed assets stay cookie-free so
+  // shared caches can keep serving them.
+  if (!pathname.startsWith('/assets/')) identifyDevice(req, res)
 
   const requestedPath = pathname === '/' ? '/index.html' : pathname
   const candidate = resolve(distDir, `.${requestedPath}`)
@@ -217,8 +225,16 @@ const server = createServer((req, res) => {
     return
   }
 
+  // Path probing (browsers never send "..") counts as a strike for the device.
+  if (/\.\.|%2e|%00|%5c|\\/i.test(req.url ?? '')) trackPathTamper(req, res)
+
   if (pathname === '/api/status') {
     handleStatusHttp(req, res, root)
+    return
+  }
+
+  if (pathname === '/api/csp-report') {
+    void handleCspReportHttp(req, res)
     return
   }
 
