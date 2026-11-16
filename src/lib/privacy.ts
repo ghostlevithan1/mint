@@ -1,5 +1,12 @@
 import type { Redaction } from './data'
 import { MIDDLE_EASTERN_GIVEN_NAMES, NAME_PARTICLES } from './middleEasternNames'
+import {
+  LEADING_VERBS,
+  NON_NAME_FIRST_WORDS,
+  plainWord,
+  TOPIC_DETERMINERS,
+  TOPIC_WORDS,
+} from './nonNames'
 
 const NAME_STOPWORDS = new Set([
   'A',
@@ -197,6 +204,67 @@ function isMiddleEasternName(token: string) {
   return norm.length > 1 && MIDDLE_EASTERN_GIVEN_NAMES.has(norm)
 }
 
+/** One capitalised word of a name, accents included: "Ana", "García", "O’Neil", "Al-Zahra", "Zoë". */
+const NAME_WORD = "\\p{Lu}[\\p{Ll}\\p{M}]+(?:['’-]\\p{Lu}?[\\p{Ll}\\p{M}]+)?"
+// JavaScript's \b only knows A-Z, so "Émile" or "García" need letter-aware edges.
+const NAME_EDGE_BEFORE = '(?<![\\p{L}\\p{M}])'
+const NAME_EDGE_AFTER = '(?![\\p{L}\\p{M}])'
+
+/** Whether the text right before `index` is "the", "a", "this" and so on. */
+function afterDeterminer(text: string, index: number): boolean {
+  return TOPIC_DETERMINERS.test(text.slice(Math.max(0, index - 16), index))
+}
+
+/**
+ * True when a name-shaped span is really a topic, place, event or work:
+ * "the French Revolution", "Cold War", "New York", "Ohm’s Law". `index` is
+ * where the span starts in `text`; without it, every place the span appears
+ * is checked and it counts as a thing only if each one reads as a thing.
+ */
+export function looksLikeThing(span: string, text: string, index?: number): boolean {
+  const words = span.trim().split(/\s+/).filter(Boolean)
+  if (!words.length) return true
+  if (words.some((word) => TOPIC_WORDS.has(plainWord(word)))) return true
+  if (NON_NAME_FIRST_WORDS.has(plainWord(words[0]))) return true
+  // People are never written "Ohm’s Law" or "Newton’s Laws".
+  if (words.slice(0, -1).some((word) => /['’]s$/u.test(word))) return true
+
+  // Words that end company names ("Inc", "Product") count anywhere after the first.
+  if (words.slice(1).some((word) => SECOND_WORD_STOPWORDS.has(word))) return true
+
+  const readsAsThing = (at: number) => afterDeterminer(text, at) || isEponym(span, text, at)
+  if (index !== undefined) return readsAsThing(index)
+  const places: number[] = []
+  for (let at = text.indexOf(span); at >= 0 && places.length < 50; at = text.indexOf(span, at + span.length)) {
+    places.push(at)
+  }
+  return places.length > 0 && places.every(readsAsThing)
+}
+
+/**
+ * "Pascal’s Triangle", "Boyle’s Law": a name in the possessive followed by a
+ * capitalised word is the name of a theorem or a place, not a person being
+ * talked about. "Sarah’s essay" (lowercase after) is still a person.
+ */
+function isEponym(span: string, text: string, index: number): boolean {
+  const end = index + span.length
+  const possessive = /['’]s$/u.test(span) ? '' : (/^['’]s/u.exec(text.slice(end))?.[0] ?? null)
+  if (possessive === null) return false
+  return /^\s+\p{Lu}/u.test(text.slice(end + possessive.length))
+}
+
+/** Drops greetings and instructions from the front: "Ask Priya Nair" becomes "Priya Nair". */
+function withoutLeadingWords(words: string[]): number {
+  let skip = 0
+  while (
+    skip < words.length &&
+    (NAME_STOPWORDS.has(words[skip]) || LEADING_VERBS.has(plainWord(words[skip])))
+  ) {
+    skip += 1
+  }
+  return skip
+}
+
 function escapeRegex(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
@@ -296,23 +364,38 @@ export function detectRedactions(text: string, people: string[] = []): Redaction
   }
 
   // Title-case full names first, capped at three words to avoid swallowing sentences.
-  const nameRe =
-    /\b([A-Z][a-z]+(?:['’-][A-Z]?[a-z]+)?)\s+([A-Z][a-z]+(?:['’-][A-Z]?[a-z]+)?)(?:\s+([A-Z][a-z]+(?:['’-][A-Z]?[a-z]+)?))?\b/g
+  // Accented letters count as letters: with plain [a-z], "García" matched as
+  // "Garc" and the shielded text read "[PERSON_01]ía", leaking the rest.
+  const nameRe = new RegExp(
+    `${NAME_EDGE_BEFORE}(${NAME_WORD})\\s+(${NAME_WORD})(?:\\s+(${NAME_WORD}))?${NAME_EDGE_AFTER}`,
+    'gu',
+  )
   for (const match of text.matchAll(nameRe)) {
-    const first = match[1]
-    const second = match[2]
-    const third = match[3]
-    if (!first || !second) continue
-    if (NAME_STOPWORDS.has(first) || SECOND_WORD_STOPWORDS.has(second)) continue
-    const name = third ? `${first} ${second} ${third}` : `${first} ${second}`
+    const matched = [match[1], match[2], match[3]].filter((word): word is string => Boolean(word))
+    // A sentence often opens with an instruction ("Ask Priya Nair"): skip it
+    // rather than throwing away the name that follows.
+    const skip = withoutLeadingWords(matched)
+    const words = matched.slice(skip)
+    if (words.length < 2 || SECOND_WORD_STOPWORDS.has(words[1])) continue
+    let offset = 0
+    for (let i = 0; i < skip; i += 1) offset = match[0].indexOf(matched[i + 1], offset + matched[i].length)
+    const name = words.join(' ')
+    if (looksLikeThing(name, text, (match.index ?? 0) + offset)) continue
     if (!covers(name)) pushName(name)
   }
 
   // Explicit introductions such as "my name is Ada" or "I'm Ada".
-  const introRe = /\b(?:my name is|i am|i'm|call me)\s+([A-Z][a-z]+(?:['’-][A-Z]?[a-z]+)?)\b/g
+  // The phrase is case-insensitive by hand ("I am", "My name is"); an `i` flag
+  // would also let \p{Lu} match lowercase and turn "i am tired" into a name.
+  const introRe = new RegExp(
+    `\\b(?:[Mm]y name is|[Ii] am|[Ii]['’]m|[Cc]all me)\\s+(${NAME_WORD})${NAME_EDGE_AFTER}`,
+    'gu',
+  )
   for (const match of text.matchAll(introRe)) {
     const name = match[1]
     if (!name || NAME_STOPWORDS.has(name)) continue
+    // "I'm French", "I am Year Ten": an introduction, but not of a name.
+    if (TOPIC_WORDS.has(plainWord(name)) || NON_NAME_FIRST_WORDS.has(plainWord(name))) continue
     const lower = name.toLowerCase()
     if (
       found.some(
@@ -338,6 +421,8 @@ export function detectRedactions(text: string, people: string[] = []): Redaction
     // Require at least one capitalized/name-like token to avoid junk.
     if (!/[A-Z\u00C0-\u024F]/.test(cleaned)) continue
     if (NAME_STOPWORDS.has(cleaned)) continue
+    // The NLP model also tags "Mona Lisa" or "Cold War" as people now and then.
+    if (looksLikeThing(cleaned, text)) continue
     pushName(cleaned)
   }
 
@@ -374,7 +459,13 @@ export function detectRedactions(text: string, people: string[] = []): Redaction
       }
     }
     const span = text.slice(token.index, end).trim()
-    if (span) pushName(span)
+    if (!span) continue
+    if (!looksLikeThing(span, text, token.index)) {
+      pushName(span)
+    } else if (words.length > 1 && !looksLikeThing(token.value, text, token.index)) {
+      // "Ali Mountain Road" is not a name, but the given name on its own still is.
+      pushName(token.value)
+    }
   }
 
   // Preserve stable numbering by order of first appearance in text.

@@ -113,6 +113,75 @@ test('merged redactions keep one placeholder per person', () => {
   )
 })
 
+test('school topics, places and events are not treated as people', () => {
+  const topics = [
+    'Ten questions on the French Revolution',
+    'Explain the Industrial Revolution and the Cold War.',
+    'What caused the First World War?',
+    'Compare the Roman Empire with the Ottoman Empire.',
+    'How did the Black Death spread across Western Europe?',
+    'Explain the Big Bang Theory and Natural Selection.',
+    'Revise the Periodic Table and Ohm’s Law for Year Ten.',
+    'Explain Boyle’s Law and Pascal’s Triangle.',
+    'Plan a trip to New York, South Africa and Saudi Arabia.',
+    'Is the Amazon Rainforest bigger than the Sahara Desert or the Pacific Ocean?',
+    'Our Christmas Day revision plan, plus Easter Sunday.',
+    'What is the Mona Lisa and who painted the Sistine Chapel ceiling?',
+    'Explain Mount Everest, the Nile River and Lake Victoria.',
+    'Compare Photosynthesis and Cellular Respiration.',
+    'Compare Niagara Falls and Victoria Falls.',
+    'Is BBC Bitesize better for Key Stage 3?',
+    'Explain Supply and Demand and Gross Domestic Product.',
+    'Share it on Microsoft Word.',
+  ]
+  for (const text of topics) {
+    const names = detectRedactions(text).filter((item) => item.kind === 'name')
+    assert.deepEqual(names, [], `${text} -> ${names.map((item) => item.original).join(', ')}`)
+  }
+  // An introduction that is not a name, or not capitalised as one.
+  assert.deepEqual(detectRedactions("I'm French and I am Year Ten."), [])
+  assert.deepEqual(detectRedactions('I am tired and i am stuck on question 3.'), [])
+})
+
+test('real names are still found, including ones beside topics or clashing with topic words', () => {
+  const cases: Array<[string, string[]]> = [
+    ['Mr. David Smith said my essay on the French Revolution was good.', ['David Smith']],
+    ['Mohammed Ali Khan helped with the Cold War notes.', ['Mohammed Ali Khan']],
+    // "Ask" opened the sentence and used to hide the whole name.
+    ['Ask Priya Nair and Omar Haddad about the lab report.', ['Priya Nair', 'Omar Haddad']],
+    ['Dear Sarah Johnson, here is my essay.', ['Sarah Johnson']],
+    // Surnames and given names that are also everyday words.
+    ['Doris Day, Jude Law, Dawn French and Jimin Park came.', ['Doris Day', 'Jude Law', 'Dawn French', 'Jimin Park']],
+    ['India Martin and Eve Smith helped.', ['India Martin', 'Eve Smith']],
+    // A possessive before a lowercase word is still a person.
+    ['Sarah Ahmed’s essay was great.', ['Sarah Ahmed’s']],
+    // Introductions with a capital I or M, which the old pattern missed.
+    ['I am Liam.', ['Liam']],
+    ['My name is Kenji.', ['Kenji']],
+    ['I’m Noor, hi!', ['Noor']],
+  ]
+  for (const [text, expected] of cases) {
+    const names = detectRedactions(text)
+      .filter((item) => item.kind === 'name')
+      .map((item) => item.original)
+    for (const name of expected) assert.ok(names.includes(name), `${name} missing from ${JSON.stringify(names)} in: ${text}`)
+  }
+})
+
+test('accented names are shielded whole, with no letters left over', () => {
+  const cases: Array<[string, string]> = [
+    ['Lucia García and José Martínez are in my class.', '[PERSON_01] and [PERSON_02] are in my class.'],
+    ['My name is Zoë Brontë.', 'My name is [PERSON_01].'],
+    ['I am Émile.', 'I am [PERSON_01].'],
+    ['Björn Svensson wrote it.', '[PERSON_01] wrote it.'],
+  ]
+  for (const [text, expected] of cases) {
+    const found = detectRedactions(text)
+    assert.equal(redactText(text, found), expected)
+    assert.equal(rehydrateText(redactText(text, found), found), text)
+  }
+})
+
 test('greetings and the product name are not treated as people', () => {
   assert.equal(detectRedactions('Hello Mint, say hi in one short sentence.').length, 0)
   assert.equal(detectRedactions('Hi there, summarize this file.').length, 0)
