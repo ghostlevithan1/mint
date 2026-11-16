@@ -25,6 +25,7 @@ import { formatBytes } from '../lib/privacy'
 import { getStoredProfile, PROFILE_MAX_CHARS, saveProfile } from '../lib/preferences'
 import { useModalFocus } from '../hooks/useModalFocus'
 import { usePlotDetail } from '../hooks/usePlotDetail'
+import { useShowThinking } from '../hooks/useShowThinking'
 import {
   PLOT_DETAIL_DEFAULT,
   PLOT_DETAIL_MAX,
@@ -145,6 +146,7 @@ export function SettingsModal({
   const [tab, setTab] = useState<SettingsTab>(initialTab)
   const [profile, setProfile] = useState(getStoredProfile)
   const [plotDetail, setPlotDetail] = usePlotDetail()
+  const [showThinking, setShowThinking] = useShowThinking()
   const [usage, setUsage] = useState<{ usage: number; quota: number } | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
 
@@ -306,6 +308,16 @@ export function SettingsModal({
                     label="Show generation metrics"
                     onChange={onShowMetricsChange}
                   />
+                </div>
+                <div className="setting-row">
+                  <div>
+                    <strong>Show thinking</strong>
+                    <span>
+                      The working-out a model does before it answers. When hidden, you only see
+                      &ldquo;Thinking&rdquo; until the answer starts. Applies to every chat.
+                    </span>
+                  </div>
+                  <Toggle checked={showThinking} label="Show thinking" onChange={setShowThinking} />
                 </div>
               </section>
 

@@ -92,6 +92,31 @@ export function saveProfile(text: string): void {
   }
 }
 
+const THINKING_KEY = 'mint.showThinking'
+let showThinking: boolean | null = null
+const thinkingListeners = new Set<() => void>()
+
+/** Whether the model's reasoning ("thinking") is shown with its answers. On unless turned off. */
+export function getShowThinking(): boolean {
+  if (showThinking === null) showThinking = readFlag(THINKING_KEY, true)
+  return showThinking
+}
+
+/** Saves the setting and updates every message on screen. */
+export function setShowThinking(enabled: boolean): void {
+  if (enabled === getShowThinking()) return
+  showThinking = enabled
+  saveFlag(THINKING_KEY, enabled)
+  for (const listener of thinkingListeners) listener()
+}
+
+export function subscribeShowThinking(listener: () => void): () => void {
+  thinkingListeners.add(listener)
+  return () => {
+    thinkingListeners.delete(listener)
+  }
+}
+
 const PLOT_DETAIL_KEY = 'mint.plotDetail'
 let plotDetail: number | null = null
 const plotDetailListeners = new Set<() => void>()

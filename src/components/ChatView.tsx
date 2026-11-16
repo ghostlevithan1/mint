@@ -28,6 +28,7 @@ import {
 } from '../lib/modelRouting'
 import { useAttachments } from '../hooks/useAttachments'
 import { useBlock } from '../hooks/useBlock'
+import { useShowThinking } from '../hooks/useShowThinking'
 import { getBlock } from '../lib/blocks'
 import { ChatMessageView } from './ChatMessage'
 import { Composer } from './Composer'
@@ -120,6 +121,7 @@ export function ChatView({
   // In-thread search matches whole messages, which keeps it cheap and works
   // with rendered Markdown. Enter / Shift+Enter (or the arrows) jump between
   // hits and the target message is outlined in the thread.
+  const [showThinking] = useShowThinking()
   const hits = useMemo(() => {
     const query = findQuery.trim().toLowerCase()
     if (!query) return []
@@ -127,7 +129,7 @@ export function ChatView({
     chat.messages.forEach((message, index) => {
       const haystack = [
         message.content,
-        message.reasoning ?? '',
+        showThinking ? (message.reasoning ?? '') : '',
         message.attachments?.map((file) => file.name).join(' ') ?? '',
       ]
         .join(' ')
@@ -135,7 +137,7 @@ export function ChatView({
       if (haystack.includes(query)) found.push(index)
     })
     return found
-  }, [chat.messages, findQuery])
+  }, [chat.messages, findQuery, showThinking])
 
   useEffect(() => {
     setHitIndex(0)

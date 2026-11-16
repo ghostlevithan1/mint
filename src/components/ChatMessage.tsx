@@ -27,6 +27,7 @@ import { formatBytes } from '../lib/privacy'
 import { extractImageLinks } from '../lib/imageLinks'
 import { blockKindFor, formatCountdown, type BlockKind } from '../lib/blocks'
 import { useBlock, useNow } from '../hooks/useBlock'
+import { useShowThinking } from '../hooks/useShowThinking'
 import { Countdown } from './LimitBanner'
 import { Markdown } from './Markdown'
 import { LeafMark } from './Logo'
@@ -146,11 +147,14 @@ function WaitingProgress({
   startedAt,
   detail,
   activity,
+  reasoning = false,
 }: {
   routing: boolean
   startedAt: number
   detail: string
   activity?: string
+  /** The model is already reasoning, but the student has hidden its thinking. */
+  reasoning?: boolean
 }) {
   const [now, setNow] = useState(() => Date.now())
 
@@ -162,14 +166,16 @@ function WaitingProgress({
   const seconds = Math.max(0, Math.floor((now - startedAt) / 1000))
   const title = activity
     ? activity
-    : routing
+    : routing || reasoning
     ? seconds >= 20
       ? 'Still thinking'
       : 'Thinking'
     : 'Reading your question'
   const hint = activity
     ? 'Esc stops it.'
-    : !routing && seconds < 4
+    : reasoning
+      ? 'The answer appears once it has thought it through. Esc stops it.'
+      : !routing && seconds < 4
       ? detail
       : seconds >= 30
         ? 'This model is very slow to start. Press Esc to stop, or keep waiting.'
@@ -182,7 +188,7 @@ function WaitingProgress({
   return (
     <div className="thinking" role="status" aria-live="polite">
       <span className="thinking-orb">
-        {activity ? (activity.startsWith('Calculating') ? <Calculator size={15} /> : <Globe size={15} />) : routing ? <Zap size={15} /> : <BookOpen size={15} />}
+        {activity ? (activity.startsWith('Calculating') ? <Calculator size={15} /> : <Globe size={15} />) : reasoning ? <Brain size={15} /> : routing ? <Zap size={15} /> : <BookOpen size={15} />}
       </span>
       <span className="thinking-copy">
         <strong>
@@ -236,6 +242,7 @@ export const ChatMessageView = memo(
   onInspect,
 }: ChatMessageProps) {
   const [copied, setCopied] = useState(false)
+  const [showThinking] = useShowThinking()
 
   if (message.role === 'system') {
     // While /compact runs, the streamed summary is shown live instead of the
@@ -397,9 +404,20 @@ export const ChatMessageView = memo(
           />
         )}
 
-        {message.reasoning && (
-          <ReasoningPanel text={message.reasoning} live={streaming && !message.content} />
-        )}
+        {message.reasoning &&
+          (showThinking ? (
+            <ReasoningPanel text={message.reasoning} live={streaming && !message.content} />
+          ) : (
+            streaming &&
+            !message.content && (
+              <WaitingProgress
+                routing
+                reasoning
+                startedAt={message.createdAt}
+                detail={PHASE_COPY.routing.detail}
+              />
+            )
+          ))}
 
         {!waiting && message.content && (
           <div className={`assistant-text ${streaming ? 'is-streaming' : ''}`}>
