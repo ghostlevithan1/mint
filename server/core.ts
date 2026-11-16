@@ -61,6 +61,13 @@ const DEFAULT_MODEL_ROUTES: Record<string, ModelRoute> = {
   'nemotron-super-vl': { provider: 'nvidia', upstream: 'nvidia/nemotron-3.5-super-vl-120b-a12b' },
   'nemotron-ultra': { provider: 'nvidia', upstream: 'nvidia/nemotron-3-ultra-550b-a55b' },
   'deepseek-flash': { provider: 'nvidia', upstream: 'deepseek-ai/deepseek-v4.1-flash' },
+  // TEMPORARY: candidates being tested live; the ones that do not work are removed.
+  'cand-gpt-oss-20b': { provider: 'nvidia', upstream: 'openai/gpt-oss-20b' },
+  'cand-glm-flash': { provider: 'nvidia', upstream: 'z-ai/glm-5.3-flash' },
+  'cand-minimax-nv': { provider: 'nvidia', upstream: 'minimaxai/minimax-m3.1-flash' },
+  'cand-minimax-or': { provider: 'openrouter', upstream: 'minimax/minimax-m3.1-flash' },
+  'cand-mistral-large': { provider: 'nvidia', upstream: 'mistralai/mistral-large-4-1t-a52b' },
+  'cand-qwen4-max': { provider: 'openrouter', upstream: 'qwen/qwen4-max' },
 }
 
 // Only these app models accept inline images. Keep in sync with src/lib/data.ts.
