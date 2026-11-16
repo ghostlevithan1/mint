@@ -10,6 +10,9 @@ const LOGO_COLORS: Record<string, string> = {
   Google: '#4285F4',
   'Thinking Machines': '#E8E3D6',
   Poolside: '#59B8FF',
+  OpenAI: '#E8E8E8',
+  MiniMax: '#F23F5D',
+  Mistral: '#FA520F',
 }
 
 function LogoMark({ maker }: { maker: string }) {

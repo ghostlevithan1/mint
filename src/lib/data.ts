@@ -88,6 +88,16 @@ export const MODELS: Model[] = [
     capabilities: ['image'],
   },
   {
+    id: 'gpt-oss-20b',
+    type: 'quick',
+    name: 'GPT-OSS 20B',
+    maker: 'OpenAI',
+    bestAt: 'Fast step-by-step answers to maths, science, and homework questions.',
+    meta: '21B A3.6B',
+    tps: 120,
+    context: '128K',
+  },
+  {
     id: 'laguna-xs',
     type: 'normal',
     name: 'Laguna XS 2.1',
@@ -117,6 +127,16 @@ export const MODELS: Model[] = [
     meta: '30B',
     tps: 114,
     context: '128K',
+  },
+  {
+    id: 'minimax-m3-flash',
+    type: 'normal',
+    name: 'MiniMax M3.1 Flash',
+    maker: 'MiniMax',
+    bestAt: 'Very quick, well-organised everyday answers and long documents.',
+    meta: 'M3.1 Flash',
+    tps: 150,
+    context: '1M',
   },
   {
     id: 'nemotron-super-vl',

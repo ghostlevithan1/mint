@@ -61,13 +61,11 @@ const DEFAULT_MODEL_ROUTES: Record<string, ModelRoute> = {
   'nemotron-super-vl': { provider: 'nvidia', upstream: 'nvidia/nemotron-3.5-super-vl-120b-a12b' },
   'nemotron-ultra': { provider: 'nvidia', upstream: 'nvidia/nemotron-3-ultra-550b-a55b' },
   'deepseek-flash': { provider: 'nvidia', upstream: 'deepseek-ai/deepseek-v4.1-flash' },
-  // TEMPORARY: candidates being tested live; the ones that do not work are removed.
-  'cand-gpt-oss-20b': { provider: 'nvidia', upstream: 'openai/gpt-oss-20b' },
-  'cand-glm-flash': { provider: 'nvidia', upstream: 'z-ai/glm-5.3-flash' },
-  'cand-minimax-nv': { provider: 'nvidia', upstream: 'minimaxai/minimax-m3.1-flash' },
-  'cand-minimax-or': { provider: 'openrouter', upstream: 'minimax/minimax-m3.1-flash' },
-  'cand-mistral-large': { provider: 'nvidia', upstream: 'mistralai/mistral-large-4-1t-a52b' },
-  'cand-qwen4-max': { provider: 'openrouter', upstream: 'qwen/qwen4-max' },
+  'gpt-oss-20b': { provider: 'nvidia', upstream: 'openai/gpt-oss-20b' },
+  'minimax-m3-flash': { provider: 'openrouter', upstream: 'minimax/minimax-m3.1-flash' },
+  // TEMPORARY: Intelligent-tier candidates being tested live; the loser is removed.
+  'cand-step-5': { provider: 'nvidia', upstream: 'stepfun-ai/step-5-preview' },
+  'cand-hy4': { provider: 'openrouter', upstream: 'tencent/hy4' },
 }
 
 // Only these app models accept inline images. Keep in sync with src/lib/data.ts.
@@ -76,6 +74,9 @@ const VISION_MODEL_IDS = new Set([
   'gemma-4-31b',
   'inkling-2-small',
   'nemotron-super-vl',
+  // TEMPORARY: allowed only so image reading can be tested live; kept only if it works.
+  'minimax-m3-flash',
+  'cand-hy4',
 ])
 
 export type StatusPayload = {
