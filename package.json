@@ -5,9 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && vite build --config vite.server.config.ts && node scripts/precompress.mjs",
     "preview": "vite preview",
-    "start": "tsx server/index.ts",
+    "start": "node --max-old-space-size=320 dist-server/index.js",
+    "start:source": "tsx server/index.ts",
     "test": "tsx --test tests/*.test.ts",
     "gh": "node scripts/gh.mjs",
     "bans": "node scripts/bans.mjs"

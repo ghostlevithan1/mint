@@ -194,14 +194,38 @@ export class HttpError extends Error {
   }
 }
 
-function readEnvFile(path: string): Record<string, string> {
-  const values: Record<string, string> = {}
-  let raw = ''
+/**
+ * Local .env and key files, read once per file. Keys and model routes are
+ * looked up on every request, and re-reading the files each time (on Render,
+ * failing reads, since the files do not exist there) blocked the event loop.
+ * Restart the server after editing them; process.env is still read live.
+ */
+const fileCache = new Map<string, string | null>()
+
+function readCachedFile(path: string): string | null {
+  if (fileCache.has(path)) return fileCache.get(path) ?? null
+  let raw: string | null = null
   try {
     raw = readFileSync(path, 'utf8')
   } catch {
-    return values
+    raw = null
   }
+  fileCache.set(path, raw)
+  return raw
+}
+
+const envCache = new Map<string, Readonly<Record<string, string>>>()
+
+function readEnvFile(path: string): Readonly<Record<string, string>> {
+  const cached = envCache.get(path)
+  if (cached) return cached
+  const values = parseEnvFile(readCachedFile(path) ?? '')
+  envCache.set(path, values)
+  return values
+}
+
+function parseEnvFile(raw: string): Record<string, string> {
+  const values: Record<string, string> = {}
 
   for (const line of raw.split(/\r?\n/)) {
     const trimmed = line.trim()
@@ -260,11 +284,8 @@ export function loadServerKey(root = process.cwd()): string {
     if (fromEnv) return fromEnv
   }
 
-  try {
-    return extractKey(readFileSync(resolve(root, 'key'), 'utf8'))
-  } catch {
-    return ''
-  }
+  const keyFile = readCachedFile(resolve(root, 'key'))
+  return keyFile === null ? '' : extractKey(keyFile)
 }
 
 /** OpenRouter key, set as OPEN_CODE_KEY on the server (OPENROUTER_API_KEY also works). */

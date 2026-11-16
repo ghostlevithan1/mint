@@ -38,7 +38,12 @@ npm start
 ```
 
 `npm start` runs the production server on `PORT` (default `3000`; Render injects
-`10000`). `npm run preview` still works for a quick static check.
+`10000`). `npm run build` compiles the server to plain JavaScript
+(`dist-server/index.js`) and writes Brotli and gzip copies of the app, so the
+server starts on bare Node, holds the whole app in memory and never compresses
+at request time. `npm run start:source` runs the TypeScript server directly
+through tsx, for trying server changes without a build. `npm run preview` still
+works for a quick static check.
 
 ## Access
 
@@ -151,7 +156,9 @@ default model and marks the answer with `X-Mint-Fallback`; the UI shows a
 `FALLBACK MODEL` tag instead of failing the turn.
 
 Settings → About shows whether the server has a key, with a **Recheck** button
-after you add one. The server reads the file at runtime, so no restart is required.
+after you add one. The server reads `.env`, `.env.local` and `key` once and keeps
+them in memory, so restart it after editing those files. Environment variables
+set in the shell or on Render are read live.
 
 Some NVIDIA Build models have very long time-to-first-token. The waiting card
 counts elapsed seconds, explains that 20–30 s warm-ups happen, and reminds you

@@ -1,17 +1,14 @@
-import { readFile, stat } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { readdir, readFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { extname, resolve, sep } from 'node:path'
-import { brotliCompress, constants, gzip } from 'node:zlib'
-import { promisify } from 'node:util'
+import { extname, join, relative, resolve, sep } from 'node:path'
+import { brotliCompressSync, constants, gzipSync } from 'node:zlib'
 import { handleChatHttp, handleCspReportHttp, handleStatusHttp, sendJson } from './node-http'
 import { identifyDevice } from './device'
 import { guardApi } from './limits'
 import { trackPathTamper } from './tamper'
 import { handleSearchHttp, handleWebHttp } from './web'
-
-const compressBrotli = promisify(brotliCompress)
-const compressGzip = promisify(gzip)
 
 const COMPRESSIBLE_EXTENSIONS = new Set([
   '.html',
@@ -22,42 +19,81 @@ const COMPRESSIBLE_EXTENSIONS = new Set([
   '.svg',
   '.txt',
   '.map',
+  '.ttf',
 ])
 const COMPRESS_MIN_BYTES = 1024
-
-// Compressed copies are kept in memory so each asset is only compressed once
-// per deploy. The whole dist folder is only a few megabytes.
-const compressedCache = new Map<string, { stamp: string; body: Buffer }>()
-
-async function compressedBody(
-  filePath: string,
-  stamp: string,
-  encoding: 'br' | 'gzip',
-  data: Buffer,
-): Promise<Buffer> {
-  const key = `${filePath}\0${encoding}`
-  const cached = compressedCache.get(key)
-  if (cached?.stamp === stamp) return cached.body
-
-  const body =
-    encoding === 'br'
-      ? await compressBrotli(data, {
-          params: { [constants.BROTLI_PARAM_QUALITY]: 5 },
-        })
-      : await compressGzip(data, { level: 6 })
-
-  compressedCache.set(key, { stamp, body })
-  if (compressedCache.size > 96) {
-    const oldest = compressedCache.keys().next().value
-    if (oldest) compressedCache.delete(oldest)
-  }
-  return body
-}
 
 const root = process.cwd()
 const distDir = resolve(root, 'dist')
 const port = Number(process.env.PORT ?? 3000)
 const host = process.env.HOST ?? '0.0.0.0'
+
+/** One built file, held in memory with its compressed copies. */
+type Asset = {
+  body: Buffer
+  br: Buffer | null
+  gzip: Buffer | null
+  type: string
+  etag: string
+  immutable: boolean
+  compressible: boolean
+}
+
+/**
+ * The whole built app (a few megabytes), keyed by URL path. It is read once at
+ * startup, so a page load costs no disk reads, and the compressed copies made
+ * by `npm run build` (scripts/precompress.mjs) are served as they are, so the
+ * small Render instance never spends CPU compressing. Only listed paths can be
+ * served, which also rules out path traversal.
+ */
+const assets = new Map<string, Asset>()
+
+async function listFiles(dir: string): Promise<string[]> {
+  const entries = await readdir(dir, { withFileTypes: true }).catch(() => [])
+  const nested = await Promise.all(
+    entries.map((entry) => {
+      const path = join(dir, entry.name)
+      return entry.isDirectory() ? listFiles(path) : Promise.resolve(entry.isFile() ? [path] : [])
+    }),
+  )
+  return nested.flat()
+}
+
+async function loadAssets(): Promise<void> {
+  const files = await listFiles(distDir)
+  const present = new Set(files)
+  await Promise.all(
+    files
+      .filter((file) => !file.endsWith('.br') && !file.endsWith('.gz'))
+      .map(async (file) => {
+        const body = await readFile(file)
+        const extension = extname(file).toLowerCase()
+        const compressible = COMPRESSIBLE_EXTENSIONS.has(extension) && body.byteLength >= COMPRESS_MIN_BYTES
+        const sibling = (suffix: string) => (present.has(file + suffix) ? readFile(file + suffix) : null)
+        const [br, gzip] = compressible ? await Promise.all([sibling('.br'), sibling('.gz')]) : [null, null]
+        const urlPath = `/${relative(distDir, file).split(sep).join('/')}`
+        assets.set(urlPath, {
+          body,
+          br,
+          gzip,
+          type: MIME_TYPES[extension] ?? 'application/octet-stream',
+          etag: `"${createHash('sha1').update(body).digest('base64url').slice(0, 22)}"`,
+          immutable: urlPath.startsWith('/assets/'),
+          compressible,
+        })
+      }),
+  )
+}
+
+/** Fallback for a build made without the precompress step: compress once, then keep it. */
+function encodedBody(asset: Asset, encoding: 'br' | 'gzip'): Buffer {
+  if (encoding === 'br') {
+    asset.br ??= brotliCompressSync(asset.body, { params: { [constants.BROTLI_PARAM_QUALITY]: 5 } })
+    return asset.br
+  }
+  asset.gzip ??= gzipSync(asset.body, { level: 6 })
+  return asset.gzip
+}
 
 // Locked down because the app handles private text. Everything it needs is
 // same-origin: bundled fonts, Vite JS/CSS, and data: URLs for local previews.
@@ -144,71 +180,51 @@ async function serveStatic(req: IncomingMessage, res: ServerResponse) {
   // shared caches can keep serving them.
   if (!pathname.startsWith('/assets/')) identifyDevice(req, res)
 
-  const requestedPath = pathname === '/' ? '/index.html' : pathname
-  const candidate = resolve(distDir, `.${requestedPath}`)
-  if (candidate !== distDir && !candidate.startsWith(distDir + sep)) {
-    sendText(res, 403, 'Forbidden')
-    return
-  }
-
-  let filePath = candidate
-  let info = await stat(filePath).catch(() => null)
-
-  // Single-page app fallback: extensionless routes return index.html.
-  if (!info?.isFile()) {
+  let asset = assets.get(pathname === '/' ? '/index.html' : pathname)
+  if (!asset) {
+    // Single-page app fallback: extensionless routes return index.html.
     if (extname(pathname)) {
       sendText(res, 404, 'Not found')
       return
     }
-    filePath = resolve(distDir, 'index.html')
-    info = await stat(filePath).catch(() => null)
-    if (!info?.isFile()) {
+    asset = assets.get('/index.html')
+    if (!asset) {
       sendText(res, 500, 'Build not found. Run npm run build first.')
       return
     }
   }
 
-  const data = await readFile(filePath)
-  const extension = extname(filePath).toLowerCase()
-  const isHashedAsset = filePath.includes(`${sep}assets${sep}`)
-  const accepts = String(req.headers['accept-encoding'] ?? '')
-  const encoding: 'br' | 'gzip' | '' = accepts.includes('br')
-    ? 'br'
-    : accepts.includes('gzip')
-      ? 'gzip'
-      : ''
-
-  let payload = data
-  const compressible = COMPRESSIBLE_EXTENSIONS.has(extension)
-  if (compressible) {
-    // Caches must not serve an encoded copy to a client that asked for plain
-    // bytes (or the reverse), even when this response is sent uncompressed.
-    res.setHeader('Vary', 'Accept-Encoding')
-  }
-  if (
-    encoding &&
-    compressible &&
-    data.byteLength >= COMPRESS_MIN_BYTES
-  ) {
-    payload = await compressedBody(
-      filePath,
-      `${info?.mtimeMs ?? 0}:${info?.size ?? data.byteLength}`,
-      encoding,
-      data,
-    )
-    res.setHeader('Content-Encoding', encoding)
-  }
-
-  res.statusCode = 200
-  res.setHeader('Content-Type', MIME_TYPES[extension] ?? 'application/octet-stream')
-  res.setHeader('Content-Length', payload.byteLength)
+  res.setHeader('Content-Type', asset.type)
   res.setHeader('X-Content-Type-Options', 'nosniff')
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin')
-  res.setHeader(
-    'Cache-Control',
-    isHashedAsset ? 'public, max-age=31536000, immutable' : 'no-cache',
-  )
+  res.setHeader('Cache-Control', asset.immutable ? 'public, max-age=31536000, immutable' : 'no-cache')
+  res.setHeader('ETag', asset.etag)
+  // Caches must not serve an encoded copy to a client that asked for plain
+  // bytes (or the reverse), even when this response is sent uncompressed.
+  if (asset.compressible) res.setHeader('Vary', 'Accept-Encoding')
 
+  // A returning visitor revalidates the page (no-cache) and gets a bodyless 304
+  // when nothing changed since their copy.
+  const known = String(req.headers['if-none-match'] ?? '')
+  if (known && known.split(',').some((tag) => tag.trim().replace(/^W\//, '') === asset.etag)) {
+    res.statusCode = 304
+    res.end()
+    return
+  }
+
+  const accepts = String(req.headers['accept-encoding'] ?? '')
+  const encoding: 'br' | 'gzip' | '' = !asset.compressible
+    ? ''
+    : accepts.includes('br')
+      ? 'br'
+      : accepts.includes('gzip')
+        ? 'gzip'
+        : ''
+  const payload = encoding ? encodedBody(asset, encoding) : asset.body
+  if (encoding) res.setHeader('Content-Encoding', encoding)
+
+  res.statusCode = 200
+  res.setHeader('Content-Length', payload.byteLength)
   if (req.method === 'HEAD') {
     res.end()
     return
@@ -272,13 +288,26 @@ const server = createServer((req, res) => {
   })
 })
 
+// Render's proxy reuses connections to the app. Node's 5-second idle timeout
+// can close one just as the proxy sends on it, which surfaces as a random 502,
+// so idle connections are kept a little longer than the proxy keeps them.
+server.keepAliveTimeout = 65_000
+server.headersTimeout = 66_000
+
+const started = performance.now()
+await loadAssets()
 server.listen(port, host, () => {
-  console.log(`Mint listening on http://${host}:${port}`)
+  console.log(
+    `Mint listening on http://${host}:${port} (${assets.size} files in memory, ready in ${Math.round(performance.now() - started)} ms)`,
+  )
 })
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => {
+    // Stop taking new connections, drop idle ones now, and give answers that
+    // are still streaming up to 10 seconds to finish.
     server.close(() => process.exit(0))
+    server.closeIdleConnections()
     setTimeout(() => process.exit(1), 10_000).unref()
   })
 }
