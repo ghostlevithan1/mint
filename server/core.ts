@@ -63,9 +63,6 @@ const DEFAULT_MODEL_ROUTES: Record<string, ModelRoute> = {
   'deepseek-flash': { provider: 'nvidia', upstream: 'deepseek-ai/deepseek-v4.1-flash' },
   'gpt-oss-20b': { provider: 'nvidia', upstream: 'openai/gpt-oss-20b' },
   'minimax-m3-flash': { provider: 'openrouter', upstream: 'minimax/minimax-m3.1-flash' },
-  // TEMPORARY: Intelligent-tier candidates being tested live; the loser is removed.
-  'cand-step-5': { provider: 'nvidia', upstream: 'stepfun-ai/step-5-preview' },
-  'cand-hy4': { provider: 'openrouter', upstream: 'tencent/hy4' },
 }
 
 // Only these app models accept inline images. Keep in sync with src/lib/data.ts.
@@ -74,9 +71,7 @@ const VISION_MODEL_IDS = new Set([
   'gemma-4-31b',
   'inkling-2-small',
   'nemotron-super-vl',
-  // TEMPORARY: allowed only so image reading can be tested live; kept only if it works.
   'minimax-m3-flash',
-  'cand-hy4',
 ])
 
 export type StatusPayload = {

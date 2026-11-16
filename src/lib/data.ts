@@ -133,10 +133,11 @@ export const MODELS: Model[] = [
     type: 'normal',
     name: 'MiniMax M3.1 Flash',
     maker: 'MiniMax',
-    bestAt: 'Very quick, well-organised everyday answers and long documents.',
+    bestAt: 'Very quick, well-organised everyday answers, long documents, and photos.',
     meta: 'M3.1 Flash',
     tps: 150,
     context: '1M',
+    capabilities: ['image'],
   },
   {
     id: 'nemotron-super-vl',
