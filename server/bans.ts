@@ -6,6 +6,8 @@ import { dataDir } from './device'
 export const BAN_MS = 24 * 60 * 60 * 1000
 /** Finished bans stay on file this long, as a record of who was banned. */
 const KEEP_FINISHED_MS = 7 * 24 * 60 * 60 * 1000
+/** The most ban records kept on file. */
+export const MAX_RECORDS = 5_000
 
 export type BanRecord = {
   /** The device cookie's random id. */
@@ -45,7 +47,10 @@ export class BanStore {
   private stamp = ''
   private checkedAt = 0
 
-  constructor(readonly file: string) {
+  constructor(
+    readonly file: string,
+    private readonly maxRecords = MAX_RECORDS,
+  ) {
     this.load()
   }
 
@@ -79,12 +84,24 @@ export class BanStore {
   }
 
   private save(): void {
-    const cutoff = clock.now() - KEEP_FINISHED_MS
+    const now = clock.now()
+    const cutoff = now - KEEP_FINISHED_MS
     for (const [id, record] of this.bans) if (record.expiresAt < cutoff) this.bans.delete(id)
+    if (this.bans.size > this.maxRecords) {
+      // Anyone can mint fresh device ids, so the file is capped. Finished bans
+      // go first, then the oldest; a dropped ban still lives in its cookie.
+      const active = (record: BanRecord) => !record.liftedAt && record.expiresAt > now
+      const keep = [...this.bans.values()]
+        .sort((a, b) => Number(active(b)) - Number(active(a)) || b.bannedAt - a.bannedAt)
+        .slice(0, this.maxRecords)
+      this.bans = new Map(keep.map((record) => [record.id, record]))
+    }
     try {
       mkdirSync(dirname(this.file), { recursive: true })
       const temporary = `${this.file}.tmp`
-      writeFileSync(temporary, JSON.stringify({ version: 1, bans: [...this.bans.values()] }, null, 2))
+      // Compact once it is large; small files stay readable by hand.
+      const records = [...this.bans.values()]
+      writeFileSync(temporary, JSON.stringify({ version: 1, bans: records }, null, records.length > 200 ? 0 : 2))
       renameSync(temporary, this.file)
     } catch {
       // A read-only disk must not stop enforcement; the ban still lives in memory and the cookie.

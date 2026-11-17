@@ -65,7 +65,7 @@ attach to it, so classmates on one school network do not share a budget.
 | --- | --- |
 | **Message limit** | 15 messages a minute per device (`MINT_RATE_LIMIT`; 60 web requests). Past it, sending pauses and the page counts the time left down live (`m:ss`), above the composer and on the failed message. |
 | **Spam lock** | 1.5 messages a second sustained for 5 seconds (8 attempts in 5 s) locks sending until the device has stopped for 10 seconds. Attempts made while locked restart that quiet period. |
-| **Network ceiling** | Clearing cookies gives a fresh device, so each network also has a ceiling of 4x the device budget (`MINT_IP_RATE_LIMIT`). A client that keeps no cookie is counted per network at the device budget. |
+| **Network ceiling** | Clearing cookies gives a fresh device, so each network also has a ceiling of 4x the device budget (`MINT_IP_RATE_LIMIT`). A client that keeps no cookie is counted per network at the device budget. IPv6 is counted per /64, since one subscriber usually holds a whole /64. |
 | **Tampering ban** | A request altered by hand (see below) bans the device for **24 hours**. The page shows the countdown, including after a reload. |
 
 **What counts as tampering.** Only the *shape* of a request, never what is typed, so
@@ -78,7 +78,8 @@ parameter out of range, a `..` in a path, a blocked inline script reported by th
 browser) are single strikes; three within ten minutes ban. Script reports count at
 most once a minute.
 
-**Where bans are kept.** Each ban is saved to `data/device-bans.json` (device id,
+**Where bans are kept.** Each ban is saved to `data/device-bans.json` (at most 5,000
+records; finished bans are dropped first) (device id,
 time, short signal codes, user agent, and the network as a keyed hash, never the
 address or anything typed) and is also written into the banned browser's own signed
 cookie, so it survives the server restarting or losing its disk, as long as
@@ -305,6 +306,22 @@ The production server sets, on every response:
 
 The CSP also has `report-uri /api/csp-report`: a blocked inline or foreign script is
 reported there, and a repeat of that counts toward a tampering ban (see above).
+
+The API only accepts JSON posts from Mint's own page. A `text/plain` post (the
+kind another site can send without a CORS check), a `Sec-Fetch-Site: cross-site`
+request or a foreign `Origin` is refused, so other sites cannot spend the provider
+budget through their visitors' browsers. Bodies over the limit (16 KB for
+`/api/web` and `/api/search`) are refused before they are read, a malformed request
+path gets a 400 instead of reaching the router, and the page reader has one 12-second
+deadline covering every redirect and the whole body.
+
+HTML from the web and attached documents are parsed in linear time
+(`stripHtml` in `server/web.ts`, `src/lib/xmlScan.ts`). A crafted page or file full of
+unclosed tags cannot freeze the server or the tab. `tests/security.test.ts` holds
+regression tests for each of these.
+
+If you set `CRAWL4AI_URL`, run that crawler where it cannot reach private networks
+or cloud metadata: it follows redirects on its own, outside Mint's address checks.
 
 `public/robots.txt` disallows everything, and `index.html` carries a `noindex`
 meta tag, so a deployed instance stays out of search engines.

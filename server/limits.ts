@@ -151,6 +151,24 @@ export function clientAddress(req: IncomingMessage): string {
   return req.socket?.remoteAddress ?? 'unknown'
 }
 
+/**
+ * The unit a network budget is counted on. One IPv6 subscriber usually holds a
+ * whole /64 (18 quintillion addresses), so IPv6 is counted per /64 prefix;
+ * IPv4 and IPv4-mapped addresses are counted per address.
+ */
+export function networkOf(address: string): string {
+  const lower = address.toLowerCase().split('%')[0]
+  if (isIP(lower) !== 6) return address
+  if (lower.startsWith('::ffff:') && isIP(lower.slice(7)) === 4) return lower.slice(7)
+  const compressed = lower.includes('::')
+  const [head, tail = ''] = lower.split('::')
+  const headParts = head ? head.split(':') : []
+  const tailParts = compressed && tail ? tail.split(':') : []
+  const fill = compressed ? Array<string>(Math.max(0, 8 - headParts.length - tailParts.length)).fill('0') : []
+  const groups = [...headParts, ...fill, ...tailParts].slice(0, 4).map((group) => group.replace(/^0+(?=.)/, ''))
+  return `${groups.join(':')}::/64`
+}
+
 /** A keyed hash of the requester's network, for saved ban records. */
 export function networkFingerprint(req: IncomingMessage): string {
   return fingerprint(clientAddress(req))
@@ -288,11 +306,55 @@ export function sendBanned(res: ServerResponse, until: number): false {
   )
 }
 
+function hostOf(origin: string): string {
+  try {
+    return new URL(origin).host.toLowerCase()
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * Only Mint's own page may call the API. Another site could otherwise make its
+ * visitors' browsers post here (a "simple" text/plain request needs no CORS
+ * preflight) and spend the provider budget from each visitor's address.
+ * Requiring JSON forces that preflight, which fails without CORS headers;
+ * Sec-Fetch-Site and Origin catch the rest. These are refused, never counted
+ * as tampering: the visitor's browser sent them, not the visitor.
+ */
+export function crossSiteRefusal(req: IncomingMessage): { status: number; code: string; message: string } | null {
+  if (req.method !== 'POST') return null
+  const type = String(req.headers['content-type'] ?? '').toLowerCase()
+  if (!type.startsWith('application/json')) {
+    return { status: 415, code: 'UNSUPPORTED_MEDIA_TYPE', message: 'Send the request as JSON.' }
+  }
+  const site = String(req.headers['sec-fetch-site'] ?? '').toLowerCase()
+  if (site && site !== 'same-origin' && site !== 'none') {
+    return { status: 403, code: 'CROSS_SITE', message: 'Requests from other sites are not accepted.' }
+  }
+  const origin = req.headers.origin
+  if (origin) {
+    const host = String(req.headers.host ?? '').trim().toLowerCase()
+    if (!host || hostOf(origin) !== host) {
+      return { status: 403, code: 'CROSS_SITE', message: 'Requests from other sites are not accepted.' }
+    }
+  }
+  return null
+}
+
 /**
  * Enforces the budgets. Returns true when the caller may continue; otherwise
  * the response is already written.
  */
 export function guardApi(req: IncomingMessage, res: ServerResponse, kind: ApiKind): boolean {
+  if (kind !== 'report') {
+    const refusal = crossSiteRefusal(req)
+    if (refusal) {
+      writeJson(res, refusal.status, { error: { code: refusal.code, message: refusal.message } })
+      return false
+    }
+  }
+
   const now = clock.now()
   const device = identifyDevice(req, res)
 
@@ -307,7 +369,7 @@ export function guardApi(req: IncomingMessage, res: ServerResponse, kind: ApiKin
     return true
   }
 
-  const address = clientAddress(req)
+  const address = networkOf(clientAddress(req))
   const deviceKey = device.known ? `${kind}:dev:${device.id}` : `${kind}:anon:${address}`
 
   if (kind === 'chat') {

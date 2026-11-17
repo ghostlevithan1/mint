@@ -162,10 +162,9 @@ async function serveStatic(req: IncomingMessage, res: ServerResponse) {
     return
   }
 
-  const url = new URL(req.url ?? '/', 'http://localhost')
   let pathname = ''
   try {
-    pathname = decodeURIComponent(url.pathname)
+    pathname = decodeURIComponent(requestPath(req) ?? '')
   } catch {
     sendText(res, 400, 'Bad request')
     return
@@ -232,9 +231,32 @@ async function serveStatic(req: IncomingMessage, res: ServerResponse) {
   res.end(payload)
 }
 
+/** The request path, or null for a target the URL parser rejects (such as "//["). */
+function requestPath(req: IncomingMessage): string | null {
+  try {
+    return new URL(req.url ?? '/', 'http://localhost').pathname
+  } catch {
+    return null
+  }
+}
+
 const server = createServer((req, res) => {
+  try {
+    route(req, res)
+  } catch {
+    // A request must never take the whole server down.
+    if (!res.headersSent) sendText(res, 500, 'Internal server error')
+    else if (!res.writableEnded) res.end()
+  }
+})
+
+function route(req: IncomingMessage, res: ServerResponse) {
   setSecurityHeaders(res)
-  const pathname = new URL(req.url ?? '/', 'http://localhost').pathname
+  const pathname = requestPath(req)
+  if (pathname === null) {
+    sendText(res, 400, 'Bad request')
+    return
+  }
 
   if (pathname === '/healthz') {
     sendText(res, 200, 'ok')
@@ -286,13 +308,16 @@ const server = createServer((req, res) => {
     }
     sendText(res, 500, 'Internal server error')
   })
-})
+}
 
 // Render's proxy reuses connections to the app. Node's 5-second idle timeout
 // can close one just as the proxy sends on it, which surfaces as a random 502,
 // so idle connections are kept a little longer than the proxy keeps them.
 server.keepAliveTimeout = 65_000
 server.headersTimeout = 66_000
+// Receiving one request (not streaming the answer) may take at most this long;
+// enough for a 12 MB photo on a slow phone link, short of Node's 5 minutes.
+server.requestTimeout = 120_000
 
 const started = performance.now()
 await loadAssets()

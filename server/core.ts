@@ -472,7 +472,8 @@ function numberIn(value: unknown, min: number, max: number, fallback: number) {
 }
 
 function sanitizeError(text: string, key: string) {
-  let clean = text
+  // Only the start is shown, so only the start is cleaned (bounded work).
+  let clean = text.slice(0, 4000)
   if (key) clean = clean.split(key).join('[redacted]')
   return clean
     .replace(/<[^>]*>/g, ' ')
@@ -677,11 +678,12 @@ export async function createChatResponse(
       return new Response(null, { status: 499 })
     }
 
-    const detail = sanitizeError(error instanceof Error ? error.message : '', key)
+    // Socket errors can name internal addresses; they go to the log, not the page.
+    console.warn(`[chat] ${provider.name} unreachable: ${sanitizeError(error instanceof Error ? error.message : '', key)}`)
     return jsonResponse(502, {
       error: {
         code: 'UPSTREAM_UNREACHABLE',
-        message: `Could not reach ${provider.name}${detail ? `: ${detail}` : '.'}`,
+        message: `Could not reach ${provider.name}. Try again in a moment.`,
       },
     })
   }

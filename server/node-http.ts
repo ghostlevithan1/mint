@@ -21,27 +21,51 @@ export function sendJson(res: ServerResponse, status: number, body: unknown) {
   res.end(JSON.stringify(body))
 }
 
-export function readJsonBody(req: IncomingMessage): Promise<JsonRecord> {
+/**
+ * Reads a JSON body of at most `limit` bytes. Past the limit it answers at once
+ * instead of reading on, and the connection is closed after the reply, so an
+ * oversized upload cannot keep a socket busy.
+ */
+export function readJsonBody(
+  req: IncomingMessage,
+  res?: ServerResponse,
+  limit = MAX_BODY_BYTES,
+): Promise<JsonRecord> {
   return new Promise((resolveBody, reject) => {
     const chunks: Buffer[] = []
     let size = 0
     let tooLarge = false
 
+    const declared = Number(req.headers['content-length'])
+    if (Number.isFinite(declared) && declared > limit) tooLarge = true
+
+    const refuse = () => {
+      req.removeAllListeners('data')
+      req.pause()
+      if (res) {
+        res.setHeader('Connection', 'close')
+        res.once('finish', () => req.destroy())
+      }
+      reject(new HttpError(413, 'PAYLOAD_TOO_LARGE', 'Request body is too large.'))
+    }
+    if (tooLarge) {
+      refuse()
+      return
+    }
+
     req.on('data', (chunk: Buffer) => {
       size += chunk.length
-      if (size > MAX_BODY_BYTES) {
+      if (size > limit) {
         tooLarge = true
         chunks.length = 0
+        refuse()
         return
       }
-      if (!tooLarge) chunks.push(chunk)
+      chunks.push(chunk)
     })
 
     req.on('end', () => {
-      if (tooLarge) {
-        reject(new HttpError(413, 'PAYLOAD_TOO_LARGE', 'Request body is too large.'))
-        return
-      }
+      if (tooLarge) return
       try {
         const raw = Buffer.concat(chunks).toString('utf8')
         const parsed = raw ? (JSON.parse(raw) as unknown) : {}
@@ -201,7 +225,7 @@ export async function handleChatHttp(
   res.on('close', abort)
 
   try {
-    const body = await readJsonBody(req)
+    const body = await readJsonBody(req, res)
 
     // Only the shape of the request is checked, never what was typed. A clear
     // forgery from a known device bans it; one below the threshold is let

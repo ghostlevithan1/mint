@@ -6,9 +6,12 @@ import { BlockedAddressError, fetchGuarded, isBlockedIp } from './safe-fetch'
 import { readJsonBody, sendJson } from './node-http'
 
 const MAX_URL_CHARS = 2048
+/** A link or a search query fits easily; anything bigger is refused early. */
+const SMALL_BODY_BYTES = 16_384
 const MAX_BYTES = 1_500_000
 const MAX_TEXT_CHARS = 48_000
-const FETCH_TIMEOUT_MS = 8_000
+/** The most time one page read may take, redirects and body included. */
+const PAGE_DEADLINE_MS = 12_000
 const MAX_REDIRECTS = 3
 
 const BLOCKED_HOSTS = new Set([
@@ -97,15 +100,88 @@ function decodeEntities(text: string): string {
   })
 }
 
+const SKIPPED_TAGS = new Set(['head', 'script', 'style', 'noscript', 'svg', 'iframe', 'template', 'canvas'])
+const LINE_BREAK_CLOSERS = new Set(['p', 'div', 'section', 'article', 'li', 'tr', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote'])
+const TAG_NAME = /^<(\/?)([a-zA-Z][a-zA-Z0-9-]*)/
+
+/**
+ * Turns HTML into text in one pass. Hostile pages are the input here, and the
+ * lazy `<x>[\s\S]*?</x>` / `<[^>]+>` regexes this replaces take quadratic time
+ * on a page full of unclosed tags, which would freeze the whole server.
+ */
+export function stripHtml(html: string, lineBreaks = true): string {
+  const lower = html.toLowerCase()
+  let out = ''
+  let pos = 0
+  // Where the next '>' is, remembered so a run of '<' with none stays linear.
+  let nextGt = -1
+  while (pos < html.length) {
+    const lt = html.indexOf('<', pos)
+    if (lt < 0) {
+      out += html.slice(pos)
+      break
+    }
+    out += html.slice(pos, lt)
+
+    if (html.startsWith('<!--', lt)) {
+      const end = html.indexOf('-->', lt + 4)
+      pos = end < 0 ? html.length : end + 3
+      out += ' '
+      continue
+    }
+    if (nextGt !== Infinity && nextGt < lt) {
+      const found = html.indexOf('>', lt)
+      nextGt = found < 0 ? Infinity : found
+    }
+    const tag = nextGt === Infinity ? null : TAG_NAME.exec(html.slice(lt, lt + 40))
+    if (!tag) {
+      // Not a tag: a stray '<' is ordinary text.
+      out += '<'
+      pos = lt + 1
+      continue
+    }
+    pos = nextGt + 1
+    const closing = tag[1] === '/'
+    const name = tag[2].toLowerCase()
+
+    if (!closing && SKIPPED_TAGS.has(name)) {
+      // Jump straight to the closing tag: script and style text may contain
+      // '<' that is not markup. HTML lets </head> be left out, so <body> also
+      // ends the head.
+      const close = lower.indexOf(`</${name}`, pos)
+      const body = name === 'head' ? lower.indexOf('<body', pos) : -1
+      out += ' '
+      if (body >= 0 && (close < 0 || body < close)) {
+        pos = body
+      } else if (close >= 0) {
+        const end = html.indexOf('>', close)
+        pos = end < 0 ? html.length : end + 1
+      } else {
+        pos = html.length
+      }
+    } else if (lineBreaks && ((closing && LINE_BREAK_CLOSERS.has(name)) || (!closing && name === 'br'))) {
+      out += '\n'
+    } else if (lineBreaks && !closing && name === 'li') {
+      out += '\n• '
+    } else {
+      out += ' '
+    }
+  }
+  return out
+}
+
+/** The text inside the first <tag>…</tag>, found with indexOf (linear), capped at `max` characters. */
+function firstElementText(html: string, lower: string, tag: string, max: number): string {
+  const open = lower.indexOf(`<${tag}`)
+  if (open < 0) return ''
+  const start = html.indexOf('>', open)
+  if (start < 0) return ''
+  const end = lower.indexOf(`</${tag}`, start)
+  return html.slice(start + 1, end < 0 ? start + 1 + max : Math.min(end, start + 1 + max))
+}
+
 function htmlToText(html: string): string {
-  const withoutHead = html.replace(/<head[\s\S]*?<\/head>/gi, ' ')
-  const cleaned = withoutHead
-    .replace(/<!--[\s\S]*?-->/g, ' ')
-    .replace(/<(script|style|noscript|svg|iframe|template|canvas)[\s\S]*?<\/\1>/gi, ' ')
-    .replace(/<(br|\/p|\/div|\/section|\/article|\/li|\/tr|\/h[1-6]|\/blockquote)\b[^>]*>/gi, '\n')
-    .replace(/<li\b[^>]*>/gi, '\n• ')
-    .replace(/<[^>]+>/g, ' ')
-  const decoded = decodeEntities(cleaned)
+  const decoded = decodeEntities(stripHtml(html))
 
   const lines: string[] = []
   for (const rawLine of decoded.split('\n')) {
@@ -120,10 +196,9 @@ function htmlToText(html: string): string {
 }
 
 function pageTitle(html: string, fallback: string): string {
-  const match = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)
-  const heading = /<h1[^>]*>([\s\S]*?)<\/h1>/i.exec(html)
-  const raw = match?.[1] ?? heading?.[1] ?? ''
-  const title = decodeEntities(raw.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim()
+  const lower = html.toLowerCase()
+  const raw = firstElementText(html, lower, 'title', 2000) || firstElementText(html, lower, 'h1', 2000)
+  const title = decodeEntities(stripHtml(raw, false)).replace(/\s+/g, ' ').trim()
   return cleanTitle(title, fallback)
 }
 
@@ -161,19 +236,33 @@ async function readLimited(response: Response): Promise<string> {
   return new TextDecoder('utf-8').decode(merged)
 }
 
-async function readBuiltinPage(rawUrl: string, budget: number): Promise<Page> {
+async function readBuiltinPage(rawUrl: string, budget: number, signal?: AbortSignal): Promise<Page> {
+  // One deadline covers every redirect and the whole body, so a server that
+  // sends headers and then drips the page a byte at a time is cut off too.
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), PAGE_DEADLINE_MS)
+  const onCallerAbort = () => controller.abort()
+  signal?.addEventListener('abort', onCallerAbort, { once: true })
+  try {
+    return await readBuiltinPageWithin(rawUrl, budget, controller.signal)
+  } finally {
+    clearTimeout(timer)
+    signal?.removeEventListener('abort', onCallerAbort)
+  }
+}
+
+async function readBuiltinPageWithin(rawUrl: string, budget: number, signal: AbortSignal): Promise<Page> {
   let url = await assertSafeUrl(rawUrl)
   const original = url.toString()
 
   for (let redirect = 0; redirect <= MAX_REDIRECTS; redirect += 1) {
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
+    if (signal.aborted) throw new HttpError(504, 'FETCH_TIMEOUT', 'That page took too long to load.')
     let response: Response
     try {
       // Redirects are followed by this loop, so each hop is re-checked; the
       // address itself is validated at connect time (see safe-fetch.ts).
       response = await fetchGuarded(url, {
-        signal: controller.signal,
+        signal,
         headers: {
           accept: 'text/html,application/xhtml+xml,text/plain,application/json;q=0.8,*/*;q=0.1',
           'user-agent': 'MintWebReader/1.0',
@@ -183,9 +272,8 @@ async function readBuiltinPage(rawUrl: string, budget: number): Promise<Page> {
       if (error instanceof BlockedAddressError) {
         throw new HttpError(403, 'BLOCKED_HOST', 'That host is not available to the web reader.')
       }
+      if (signal.aborted) throw new HttpError(504, 'FETCH_TIMEOUT', 'That page took too long to load.')
       throw new HttpError(502, 'FETCH_FAILED', 'That page could not be reached.')
-    } finally {
-      clearTimeout(timer)
     }
 
     if ([301, 302, 303, 307, 308].includes(response.status)) {
@@ -207,7 +295,13 @@ async function readBuiltinPage(rawUrl: string, budget: number): Promise<Page> {
       throw new HttpError(415, 'UNSUPPORTED_TYPE', 'That link is not a text or HTML page.')
     }
 
-    const body = await readLimited(response)
+    let body: string
+    try {
+      body = await readLimited(response)
+    } catch (error) {
+      if (error instanceof HttpError) throw error
+      throw new HttpError(504, 'FETCH_TIMEOUT', 'That page took too long to load.')
+    }
     const fallbackTitle = url.hostname.replace(/^www\./, '')
     const title = contentType.includes('html') || /<html|<body|<p[\s>]/i.test(body)
       ? pageTitle(body, fallbackTitle)
@@ -385,6 +479,12 @@ async function readCrawl4aiCloudPage(url: URL, budget: number): Promise<Page> {
   return pageFromMarkdown(url, markdown, budget)
 }
 
+/**
+ * Security: Mint checks only the first address here. crawl4ai then follows
+ * redirects and resolves names itself, so a hostile link can redirect it to an
+ * internal address. Run it only where it has no route to private networks or
+ * cloud metadata (an egress firewall), or leave CRAWL4AI_URL unset.
+ */
 async function readCrawl4aiSelfHostedPage(url: URL, budget: number): Promise<Page> {
   const base = (process.env.CRAWL4AI_URL ?? '').trim().replace(/\/+$/, '')
   if (!base) throw new ReaderSkip('no CRAWL4AI_URL configured')
@@ -442,12 +542,12 @@ function interstitialDestination(markdown: string): string | null {
  * that returns usable text wins; the built-in reader is never benched.
  * `depth` allows exactly one interstitial follow.
  */
-async function fetchPage(raw: string, budget: number, depth = 0): Promise<Page> {
+async function fetchPage(raw: string, budget: number, depth = 0, signal?: AbortSignal): Promise<Page> {
   const url = await assertSafeUrl(raw)
   const chain: Array<{ id: string; read: (url: URL, budget: number) => Promise<Page> }> = [
     { id: 'crawl4ai-cloud', read: readCrawl4aiCloudPage },
     { id: 'crawl4ai-selfhosted', read: readCrawl4aiSelfHostedPage },
-    { id: 'builtin', read: (safe, cap) => readBuiltinPage(safe.toString(), cap) },
+    { id: 'builtin', read: (safe, cap) => readBuiltinPage(safe.toString(), cap, signal) },
   ]
   const failures: string[] = []
   for (const reader of chain) {
@@ -465,7 +565,7 @@ async function fetchPage(raw: string, budget: number, depth = 0): Promise<Page> 
         const destination = interstitialDestination(page.text)
         if (destination && destination !== url.toString()) {
           try {
-            const followed = await fetchPage(destination, budget, depth + 1)
+            const followed = await fetchPage(destination, budget, depth + 1, signal)
             if (followed.text.trim()) return followed
           } catch {
             // The destination refused; keep the interstitial page instead.
@@ -477,7 +577,11 @@ async function fetchPage(raw: string, budget: number, depth = 0): Promise<Page> 
       failures.push(`${reader.id}: ${error instanceof ReaderSkip ? error.message : String(error)}`)
     }
   }
-  throw new HttpError(502, 'FETCH_FAILED', `That page could not be read (${failures.join('; ')}).`)
+  // Reader details (quotas, internal errors) stay in the server log.
+  console.warn(`[web] page read failed: ${failures.join('; ').slice(0, 1000)}`)
+  const last = failures[failures.length - 1] ?? ''
+  if (last.includes('took too long')) throw new HttpError(504, 'FETCH_TIMEOUT', 'That page took too long to load.')
+  throw new HttpError(502, 'FETCH_FAILED', 'That page could not be read.')
 }
 
 /** Cloud /search backend for handleSearchHttp; benches like the page readers. */
@@ -585,7 +689,7 @@ function decodeSearchHref(raw: string): string {
 
 /** Strips tags/entities from an HTML fragment into plain one-line text. */
 function plainFragment(html: string): string {
-  return decodeEntities(html.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim()
+  return decodeEntities(stripHtml(html, false)).replace(/\s+/g, ' ').trim()
 }
 
 /**
@@ -595,7 +699,8 @@ function plainFragment(html: string): string {
  * *leading* hash is dropped, so a title such as "C# Guide" survives intact.
  */
 export function cleanTitle(raw: string, fallback = ''): string {
-  const source = typeof raw === 'string' ? decodeEntities(raw) : ''
+  // Titles are short; capping first keeps the markup clean-up cheap on any input.
+  const source = typeof raw === 'string' ? decodeEntities(raw.slice(0, 1000)) : ''
   const title = source
     .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
     .replace(/\*\*([^*]+)\*\*/g, '$1')
@@ -716,7 +821,7 @@ export async function handleSearchHttp(req: IncomingMessage, res: ServerResponse
   }
 
   try {
-    const body = await readJsonBody(req)
+    const body = await readJsonBody(req, res, SMALL_BODY_BYTES)
     const query = typeof body.query === 'string' ? body.query.replace(/\s+/g, ' ').trim() : ''
     if (!query || query.length > MAX_QUERY_CHARS) {
       throw new HttpError(400, 'BAD_QUERY', 'Send a search query of 1-300 characters.')
@@ -745,20 +850,28 @@ export async function handleWebHttp(req: IncomingMessage, res: ServerResponse) {
     return
   }
 
+  // Stop reading the page when the visitor goes away.
+  const controller = new AbortController()
+  const abort = () => {
+    if (!res.writableEnded) controller.abort()
+  }
+  res.on('close', abort)
+
   try {
-    const body = await readJsonBody(req)
+    const body = await readJsonBody(req, res, SMALL_BODY_BYTES)
     const raw = typeof body.url === 'string' ? body.url.trim() : ''
     if (!raw || raw.length > MAX_URL_CHARS) {
       throw new HttpError(400, 'BAD_URL', 'Send one http or https link to read.')
     }
     const rawBudget = typeof body.pageBudget === 'number' ? body.pageBudget : Number.NaN
     const budget = Number.isFinite(rawBudget) ? rawBudget : MAX_TEXT_CHARS
-    const page = await fetchPage(raw, budget)
+    const page = await fetchPage(raw, budget, 0, controller.signal)
     if (!page.text.trim()) {
       throw new HttpError(422, 'EMPTY_PAGE', 'That page had no readable text.')
     }
     sendJson(res, 200, page)
   } catch (error) {
+    if (res.writableEnded || res.destroyed) return
     if (error instanceof HttpError) {
       sendJson(res, error.status, {
         error: { code: error.code, message: error.message },
@@ -768,5 +881,7 @@ export async function handleWebHttp(req: IncomingMessage, res: ServerResponse) {
     sendJson(res, 500, {
       error: { code: 'WEB_ERROR', message: 'Could not read that page.' },
     })
+  } finally {
+    res.off('close', abort)
   }
 }

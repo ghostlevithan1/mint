@@ -77,23 +77,33 @@ function wrap(value: string, font: Font, size: number, width: number): number[][
       lines.push([])
       continue
     }
+    // Widths are added up as we go, so each character is measured once.
+    const space = measure([32], font, size)
     let current: number[] = []
+    let currentWidth = 0
     for (const word of words) {
-      let codes = encode(word)
-      const candidate = current.length ? [...current, 32, ...codes] : codes
-      if (measure(candidate, font, size) <= width) {
-        current = candidate
+      const codes = encode(word)
+      const wordWidth = measure(codes, font, size)
+      const joined = current.length ? currentWidth + space + wordWidth : wordWidth
+      if (joined <= width) {
+        if (current.length) current.push(32)
+        current.push(...codes)
+        currentWidth = joined
         continue
       }
       if (current.length) lines.push(current)
       current = []
-      while (measure(codes, font, size) > width && codes.length > 1) {
-        let cut = codes.length - 1
-        while (cut > 1 && measure(codes.slice(0, cut), font, size) > width) cut -= 1
-        lines.push(codes.slice(0, cut))
-        codes = codes.slice(cut)
+      currentWidth = 0
+      for (const code of codes) {
+        const charWidthNow = (charWidth(code, font) * size) / 1000
+        if (current.length && currentWidth + charWidthNow > width) {
+          lines.push(current)
+          current = []
+          currentWidth = 0
+        }
+        current.push(code)
+        currentWidth += charWidthNow
       }
-      current = codes
     }
     lines.push(current)
   }

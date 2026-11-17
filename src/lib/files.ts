@@ -1,5 +1,6 @@
 import { FILE_LIMIT, MAX_FILES } from './data'
-import { DOCUMENT_EXTENSIONS, documentToMarkdown, readZipEntries, unescapeXml } from './documents'
+import { DOCUMENT_EXTENSIONS, documentToMarkdown, readZipEntries } from './documents'
+import { attr, find, outermost, parseXml, textOf, unescapeXml } from './xmlScan'
 
 import {
   decodeText,
@@ -342,21 +343,19 @@ function readXlsxEntries(bytes: Uint8Array): Promise<Map<string, string>> {
  */
 export function sheetLines(xml: string, sharedStrings: string[]): string[] {
   const lines: string[] = []
-  for (const row of xml.matchAll(/<row[^>]*>([\s\S]*?)<\/row>/g)) {
+  for (const row of outermost(parseXml(xml), new Set(['row']))) {
     const cells: string[] = []
-    for (const cell of row[1].matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
-      const attrs = cell[1]
-      const body = cell[2] ?? ''
-      const valueMatch = body.match(/<v[^>]*>([\s\S]*?)<\/v>/)
-      const inlineMatch = body.match(/<t[^>]*>([\s\S]*?)<\/t>/)
+    for (const cell of outermost(row, new Set(['c']))) {
+      const valueNode = find(cell, 'v')
+      const inlineNode = find(cell, 't')
       let value = ''
-      if (/t\s*=\s*"s"/.test(attrs)) {
-        const index = Number(valueMatch?.[1])
-        value = Number.isFinite(index) ? sharedStrings[index] ?? '' : ''
-      } else if (inlineMatch) {
-        value = unescapeXml(inlineMatch[1])
-      } else if (valueMatch) {
-        value = unescapeXml(valueMatch[1])
+      if (attr(cell, 't') === 's') {
+        const index = valueNode ? Number(textOf(valueNode, () => undefined, true)) : Number.NaN
+        value = Number.isInteger(index) ? sharedStrings[index] ?? '' : ''
+      } else if (inlineNode) {
+        value = textOf(inlineNode, () => undefined, true)
+      } else if (valueNode) {
+        value = textOf(valueNode, () => undefined, true)
       }
       cells.push(value)
     }
@@ -377,13 +376,10 @@ async function extractXlsxText(file: File): Promise<string | undefined> {
     const sharedRaw = entries.get('xl/sharedStrings.xml') ?? ''
     const sharedStrings: string[] = []
     if (sharedRaw) {
-      for (const match of sharedRaw.matchAll(/<si[^>]*>([\s\S]*?)<\/si>/g)) {
-        const text = unescapeXml(
-          [...match[1].matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)]
-            .map((part) => part[1])
-            .join(''),
-        ).replace(/\s+/g, ' ')
-        sharedStrings.push(text)
+      for (const item of outermost(parseXml(sharedRaw), new Set(['si']))) {
+        // Phonetic guides (rPh) repeat the text as a reading hint.
+        const text = textOf(item, (name) => (name === 't' ? 'text' : name === 'rPh' ? 'skip' : undefined))
+        sharedStrings.push(text.replace(/\s+/g, ' '))
       }
     }
 

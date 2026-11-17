@@ -209,6 +209,10 @@ export function recordTamper(
 
 /** Path probing from a real browser (one with a device cookie). */
 export function trackPathTamper(req: IncomingMessage, res: ServerResponse): void {
+  // A link on another site can send a visitor to such a path; that is not the
+  // visitor probing, and must not get them banned.
+  const site = String(req.headers['sec-fetch-site'] ?? '').toLowerCase()
+  if (site === 'cross-site' || site === 'same-site') return
   const result = inspectPath(req.url ?? '/')
   if (result.weight) recordTamper(req, res, result)
 }

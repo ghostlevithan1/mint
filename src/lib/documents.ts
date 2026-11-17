@@ -5,24 +5,16 @@
  * DecompressionStream, so there is no parsing library and no upload.
  */
 
-const ENTRY_LIMIT = 40_000_000
-const TOTAL_LIMIT = 120_000_000
+import { attr, child, find, outermost, parseXml, textOf, unescapeXml, visit, type TextRule, type XmlElement } from './xmlScan'
+
+export { unescapeXml }
+
+const ENTRY_LIMIT = 16_000_000
+const TOTAL_LIMIT = 48_000_000
 
 /** A character reference, or nothing when it is not a valid code point. */
 function codePointChar(value: number): string {
   return Number.isInteger(value) && value > 0 && value <= 0x10ffff ? String.fromCodePoint(value) : ''
-}
-
-export function unescapeXml(text: string): string {
-  return text
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'")
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => codePointChar(Number.parseInt(hex, 16)))
-    .replace(/&#(\d+);/g, (_, dec) => codePointChar(Number.parseInt(dec, 10)))
-    .replace(/&amp;/g, '&')
 }
 
 /** Inflates raw deflate data, giving up if it grows past `limit` bytes (a zip bomb). */
@@ -127,7 +119,8 @@ export async function readZipEntries(
   return entries
 }
 
-const tidy = (value: string) => unescapeXml(value).replace(/[ \t\r\n]+/g, ' ').trim()
+const tidy = (value: string) => value.replace(/[ \t\r\n]+/g, ' ').trim()
+const names = (...list: string[]) => new Set(list)
 
 function escapeCell(cell: string) {
   return cell.replace(/\|/g, '\\|')
@@ -136,7 +129,8 @@ function escapeCell(cell: string) {
 export function tableToMarkdown(rows: string[][]): string {
   const filled = rows.filter((row) => row.some(Boolean))
   if (!filled.length) return ''
-  const columns = Math.max(...filled.map((row) => row.length))
+  let columns = 0
+  for (const row of filled) columns = Math.max(columns, row.length)
   // A one-column table is a callout box, not data.
   if (columns === 1) return filled.map((row) => row[0]).filter(Boolean).join('\n\n')
   const padded = filled.map((row) => Array.from({ length: columns }, (_, index) => escapeCell(row[index] ?? '')))
@@ -144,53 +138,41 @@ export function tableToMarkdown(rows: string[][]): string {
   return [line(padded[0]), line(Array(columns).fill('---')), ...padded.slice(1).map(line)].join('\n')
 }
 
-/** Pulls the `\u0000TABLE n\u0000` placeholders out so tables are handled apart from running text. */
-function extractBlocks(xml: string, pattern: RegExp): { rest: string; blocks: string[] } {
-  const blocks: string[] = []
-  const rest = xml.replace(pattern, (match) => {
-    blocks.push(match)
-    return `\u0000TABLE${blocks.length - 1}\u0000`
-  })
-  return { rest, blocks }
-}
-
-const joinBlocks = (parts: string[]) => parts.filter(Boolean).join('\n\n').replace(/(^\s*- .*)\n\n(?=\s*- )/gm, '$1\n')
+const joinBlocks = (parts: string[]) => parts.filter(Boolean).join('\n\n').replace(/(^ *- .*)\n\n(?= *- )/gm, '$1\n')
 
 /* ------------------------------------------------------------------ docx */
 
-function wordText(paragraph: string): string {
-  let out = ''
-  for (const match of paragraph.matchAll(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>|<w:tab\s*\/>|<w:(?:br|cr)\s*\/>/g)) {
-    out += match[1] === undefined ? (match[0].startsWith('<w:tab') ? ' ' : '\n') : match[1]
-  }
-  return unescapeXml(out).replace(/[ \t]+/g, ' ').replace(/ ?\n ?/g, ' ').trim()
-}
+const wordRule = (name: string): TextRule =>
+  name === 'w:t' ? 'text' : name === 'w:tab' || name === 'w:br' || name === 'w:cr' ? 'space' : undefined
 
-function wordTable(xml: string): string {
-  const rows = [...xml.matchAll(/<w:tr[\s>][\s\S]*?<\/w:tr>/g)].map((row) =>
-    [...row[0].matchAll(/<w:tc[\s>][\s\S]*?<\/w:tc>/g)].map((cell) =>
-      [...cell[0].matchAll(/<w:p[\s>][\s\S]*?<\/w:p>/g)].map((p) => wordText(p[0])).filter(Boolean).join(' '),
+const wordText = (paragraph: XmlElement) => tidy(textOf(paragraph, wordRule))
+
+function wordTable(table: XmlElement): string {
+  const rows = outermost(table, names('w:tr')).map((row) =>
+    outermost(row, names('w:tc')).map((cell) =>
+      outermost(cell, names('w:p')).map(wordText).filter(Boolean).join(' '),
     ),
   )
   return tableToMarkdown(rows)
 }
 
 export function docxToMarkdown(documentXml: string): string {
-  const { rest, blocks } = extractBlocks(documentXml, /<w:tbl>[\s\S]*?<\/w:tbl>/g)
   const out: string[] = []
-  for (const match of rest.matchAll(/<w:p[\s>][\s\S]*?<\/w:p>|\u0000TABLE(\d+)\u0000/g)) {
-    if (match[1] !== undefined) {
-      out.push(wordTable(blocks[Number(match[1])]))
+  for (const block of outermost(parseXml(documentXml), names('w:p', 'w:tbl'))) {
+    if (block.name === 'w:tbl') {
+      out.push(wordTable(block))
       continue
     }
-    const text = wordText(match[0])
+    const text = wordText(block)
     if (!text) continue
-    const style = /<w:pStyle\s+w:val="([^"]*)"/.exec(match[0])?.[1] ?? ''
+    const properties = child(block, 'w:pPr')
+    const style = attr(child(properties, 'w:pStyle'), 'w:val') ?? ''
+    const numbering = child(properties, 'w:numPr')
     const heading = /^heading\s*(\d)/i.exec(style)
     if (/^title$/i.test(style)) out.push(`# ${text}`)
     else if (heading) out.push(`${'#'.repeat(Math.min(6, Number(heading[1])))} ${text}`)
-    else if (/<w:numPr>/.test(match[0]) || /^list/i.test(style)) {
-      const level = Number(/<w:ilvl\s+w:val="(\d+)"/.exec(match[0])?.[1] ?? 0)
+    else if (numbering || /^list/i.test(style)) {
+      const level = Number(attr(child(numbering, 'w:ilvl'), 'w:val') ?? 0) || 0
       out.push(`${'  '.repeat(Math.min(level, 6))}- ${text}`)
     } else out.push(text)
   }
@@ -199,45 +181,45 @@ export function docxToMarkdown(documentXml: string): string {
 
 /* ------------------------------------------------------------------ pptx */
 
-function slideParagraphs(xml: string): { text: string; level: number }[] {
-  const out: { text: string; level: number }[] = []
-  for (const match of xml.replace(/<a:fld\b[\s\S]*?<\/a:fld>/g, '').matchAll(/<a:p[\s>][\s\S]*?<\/a:p>/g)) {
-    let text = ''
-    for (const part of match[0].matchAll(/<a:t(?:\s[^>]*)?>([\s\S]*?)<\/a:t>|<a:br(?:\s[^>]*)?\/?>/g)) {
-      text += part[1] === undefined ? ' ' : part[1]
-    }
-    text = tidy(text)
-    if (text) out.push({ text, level: Number(/<a:pPr[^>]*\blvl="(\d)"/.exec(match[0])?.[1] ?? 0) })
-  }
-  return out
+const slideRule = (name: string): TextRule =>
+  name === 'a:t' ? 'text' : name === 'a:br' ? 'space' : name === 'a:fld' ? 'skip' : undefined
+
+function slideParagraphs(element: XmlElement): { text: string; level: number }[] {
+  return outermost(element, names('a:p')).flatMap((paragraph) => {
+    const text = tidy(textOf(paragraph, slideRule))
+    const level = Number(attr(child(paragraph, 'a:pPr'), 'lvl') ?? 0) || 0
+    return text ? [{ text, level }] : []
+  })
 }
 
+const placeholderType = (shape: XmlElement) => attr(find(shape, 'p:ph'), 'type') ?? ''
+
 function slideToMarkdown(xml: string, notesXml: string, number: number): string {
-  const { rest, blocks } = extractBlocks(xml, /<a:tbl>[\s\S]*?<\/a:tbl>/g)
   let title = ''
   const body: string[] = []
-  for (const shape of rest.matchAll(/<p:sp>[\s\S]*?<\/p:sp>|\u0000TABLE(\d+)\u0000/g)) {
-    if (shape[1] !== undefined) {
-      const rows = [...blocks[Number(shape[1])].matchAll(/<a:tr[\s>][\s\S]*?<\/a:tr>/g)].map((row) =>
-        [...row[0].matchAll(/<a:tc[\s>][\s\S]*?<\/a:tc>/g)].map((cell) =>
-          slideParagraphs(cell[0]).map((p) => p.text).join(' '),
-        ),
+  for (const shape of outermost(parseXml(xml), names('p:sp', 'a:tbl'))) {
+    if (shape.name === 'a:tbl') {
+      const rows = outermost(shape, names('a:tr')).map((row) =>
+        outermost(row, names('a:tc')).map((cell) => slideParagraphs(cell).map((p) => p.text).join(' ')),
       )
       body.push(tableToMarkdown(rows))
       continue
     }
-    const paragraphs = slideParagraphs(shape[0])
+    const paragraphs = slideParagraphs(shape)
     if (!paragraphs.length) continue
-    if (/<p:ph\b[^>]*type="(?:title|ctrTitle)"/.test(shape[0])) {
-      title = title ? `${title} ${paragraphs.map((p) => p.text).join(' ')}` : paragraphs.map((p) => p.text).join(' ')
+    if (/^(?:title|ctrTitle)$/.test(placeholderType(shape))) {
+      const text = paragraphs.map((p) => p.text).join(' ')
+      title = title ? `${title} ${text}` : text
     } else {
       body.push(paragraphs.map((p) => `${'  '.repeat(Math.min(p.level, 6))}- ${p.text}`).join('\n'))
     }
   }
 
-  const notes = [...notesXml.matchAll(/<p:sp>[\s\S]*?<\/p:sp>/g)]
-    .filter((shape) => /<p:ph\b[^>]*type="body"/.test(shape[0]))
-    .flatMap((shape) => slideParagraphs(shape[0]).map((p) => p.text))
+  const notes = notesXml
+    ? outermost(parseXml(notesXml), names('p:sp'))
+        .filter((shape) => placeholderType(shape) === 'body')
+        .flatMap((shape) => slideParagraphs(shape).map((p) => p.text))
+    : []
   return joinBlocks([
     `## Slide ${number}${title ? `: ${title}` : ''}`,
     ...body,
@@ -253,7 +235,7 @@ export function pptxToMarkdown(files: Map<string, string>): string {
     slides.map((name, index) => {
       const slideFile = name.slice(name.lastIndexOf('/') + 1)
       const rels = files.get(`ppt/slides/_rels/${slideFile}.rels`) ?? ''
-      const target = /Target="\.\.\/notesSlides\/(notesSlide\d+\.xml)"/.exec(rels)?.[1]
+      const target = /Target="\.\.\/notesSlides\/(notesSlide\d{1,6}\.xml)"/.exec(rels)?.[1]
       return slideToMarkdown(files.get(name) ?? '', target ? (files.get(`ppt/notesSlides/${target}`) ?? '') : '', index + 1)
     }),
   )
@@ -261,22 +243,17 @@ export function pptxToMarkdown(files: Map<string, string>): string {
 
 /* ------------------------------------------------------- OpenDocument */
 
-function odfInline(xml: string): string {
-  return tidy(
-    xml
-      .replace(/<text:s\b[^>]*\/>/g, ' ')
-      .replace(/<text:(?:tab|line-break)\b[^>]*\/>/g, ' ')
-      .replace(/<text:note\b[\s\S]*?<\/text:note>/g, '')
-      .replace(/<[^>]+>/g, ''),
-  )
-}
+const odfRule = (name: string): TextRule =>
+  name === 'text:s' || name === 'text:tab' || name === 'text:line-break' ? 'space' : name === 'text:note' ? 'skip' : undefined
 
-function odfTable(xml: string): string {
-  const rows = [...xml.matchAll(/<table:table-row(?=[\s>])[\s\S]*?<\/table:table-row>/g)].map((row) => {
+const odfInline = (element: XmlElement) => tidy(textOf(element, odfRule, true))
+
+function odfTable(table: XmlElement): string {
+  const rows = outermost(table, names('table:table-row')).map((row) => {
     const cells: string[] = []
-    for (const cell of row[0].matchAll(/<table:(?:table-cell|covered-table-cell)(?=[\s>/])([^>]*?)(?:\/>|>([\s\S]*?)<\/table:(?:table-cell|covered-table-cell)>)/g)) {
-      const repeat = Number(/table:number-columns-repeated="(\d+)"/.exec(cell[1])?.[1] ?? 1)
-      const text = cell[2] ? [...cell[2].matchAll(/<text:p\b[\s\S]*?<\/text:p>/g)].map((p) => odfInline(p[0])).filter(Boolean).join(' ') : ''
+    for (const cell of outermost(row, names('table:table-cell', 'table:covered-table-cell'))) {
+      const repeat = Number(attr(cell, 'table:number-columns-repeated') ?? 1) || 1
+      const text = outermost(cell, names('text:p', 'text:h')).map(odfInline).filter(Boolean).join(' ')
       for (let count = 0; count < Math.min(repeat, text ? 1 : 50); count += 1) cells.push(text)
     }
     while (cells.length && !cells[cells.length - 1]) cells.pop()
@@ -286,49 +263,69 @@ function odfTable(xml: string): string {
 }
 
 export function odfToMarkdown(contentXml: string, kind: 'odt' | 'odp' | 'ods'): string {
-  const { rest, blocks } = extractBlocks(contentXml, /<table:table(?=[\s>])[\s\S]*?<\/table:table>/g)
   const out: string[] = []
   let listDepth = 0
   let slide = 0
-  const token =
-    /<text:h\b[\s\S]*?<\/text:h>|<text:p\b[^>]*?(?:\/>|>[\s\S]*?<\/text:p>)|<text:list-item\b[^>]*>|<\/text:list-item>|<draw:page\b[^>]*>|\u0000TABLE(\d+)\u0000/g
-  for (const match of rest.matchAll(token)) {
-    const piece = match[0]
-    if (match[1] !== undefined) {
-      const table = blocks[Number(match[1])]
-      const name = kind === 'ods' ? /table:name="([^"]*)"/.exec(table)?.[1] : ''
-      if (name) out.push(`## ${unescapeXml(name)}`)
-      out.push(odfTable(table))
-    } else if (piece.startsWith('<text:list-item')) listDepth += 1
-    else if (piece.startsWith('</text:list-item')) listDepth = Math.max(0, listDepth - 1)
-    else if (piece.startsWith('<draw:page')) {
-      slide += 1
-      const name = /draw:name="([^"]*)"/.exec(piece)?.[1]
-      out.push(`## Slide ${slide}${name && !/^page\d+$/i.test(name) ? `: ${unescapeXml(name)}` : ''}`)
-    } else if (piece.startsWith('<text:h')) {
-      const level = Number(/text:outline-level="(\d+)"/.exec(piece)?.[1] ?? 1)
-      const text = odfInline(piece)
-      if (text) out.push(`${'#'.repeat(Math.min(6, Math.max(1, level)))} ${text}`)
-    } else {
-      const text = odfInline(piece)
-      if (text) out.push(listDepth ? `${'  '.repeat(Math.min(listDepth - 1, 6))}- ${text}` : text)
-    }
-  }
+  visit(parseXml(contentXml), {
+    enter(element) {
+      if (element.name === 'table:table') {
+        const name = kind === 'ods' ? attr(element, 'table:name') : ''
+        if (name) out.push(`## ${name}`)
+        out.push(odfTable(element))
+        return false
+      }
+      if (element.name === 'text:list-item') listDepth += 1
+      else if (element.name === 'draw:page') {
+        slide += 1
+        const name = attr(element, 'draw:name')
+        out.push(`## Slide ${slide}${name && !/^page\d+$/i.test(name) ? `: ${name}` : ''}`)
+      } else if (element.name === 'text:h') {
+        const level = Number(attr(element, 'text:outline-level') ?? 1) || 1
+        const text = odfInline(element)
+        if (text) out.push(`${'#'.repeat(Math.min(6, Math.max(1, level)))} ${text}`)
+        return false
+      } else if (element.name === 'text:p') {
+        const text = odfInline(element)
+        if (text) out.push(listDepth ? `${'  '.repeat(Math.min(listDepth - 1, 6))}- ${text}` : text)
+        return false
+      }
+    },
+    exit(element) {
+      if (element.name === 'text:list-item') listDepth = Math.max(0, listDepth - 1)
+    },
+  })
   return joinBlocks(out)
 }
 
 /* ------------------------------------------------------------------ epub */
 
+const HTML_SKIP = names('script', 'style', 'head', 'title', 'svg', 'math')
+const HTML_BLOCK = names('p', 'div', 'tr', 'ul', 'ol', 'blockquote', 'section', 'article', 'table', 'pre')
+
 function htmlToMarkdown(html: string): string {
-  const text = html
-    .replace(/<(script|style|head)\b[\s\S]*?<\/\1>/gi, '')
-    .replace(/<h([1-6])\b[^>]*>([\s\S]*?)<\/h\1>/gi, (_, level: string, inner: string) => `\n\n${'#'.repeat(Number(level))} ${tidy(inner.replace(/<[^>]+>/g, ''))}\n\n`)
-    .replace(/<li\b[^>]*>/gi, '\n- ')
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/(p|div|tr|ul|ol|blockquote|section|table)>/gi, '\n\n')
-    .replace(/<\/t[dh]>/gi, ' | ')
-    .replace(/<[^>]+>/g, '')
-  return unescapeXml(text)
+  let out = ''
+  visit(parseXml(html), {
+    enter(element) {
+      const name = element.name.toLowerCase()
+      if (HTML_SKIP.has(name)) return false
+      const heading = /^h([1-6])$/.exec(name)
+      if (heading) {
+        out += `\n\n${'#'.repeat(Number(heading[1]))} ${tidy(textOf(element, () => undefined, true))}\n\n`
+        return false
+      }
+      if (name === 'li') out += '\n- '
+      else if (name === 'br') out += '\n'
+    },
+    exit(element) {
+      const name = element.name.toLowerCase()
+      if (HTML_BLOCK.has(name)) out += '\n\n'
+      else if (name === 'td' || name === 'th') out += ' | '
+    },
+    text(raw) {
+      out += unescapeXml(raw)
+    },
+  })
+  return out
     .split('\n')
     .map((line) => line.replace(/[ \t]+/g, ' ').trim())
     .join('\n')
@@ -346,19 +343,38 @@ function resolvePath(base: string, href: string): string {
   return out.join('/')
 }
 
+function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
+  }
+}
+
+const localName = (name: string) => name.slice(name.indexOf(':') + 1)
+
 export function epubToMarkdown(files: Map<string, string>): string {
-  const container = files.get('META-INF/container.xml') ?? ''
-  const opfPath = /full-path="([^"]+)"/.exec(container)?.[1] ?? ''
-  const opf = files.get(opfPath) ?? ''
+  const container = parseXml(files.get('META-INF/container.xml') ?? '')
+  const rootfile = outermost(container, names('rootfile'))[0]
+  const opfPath = attr(rootfile, 'full-path') ?? ''
   const base = opfPath.includes('/') ? opfPath.slice(0, opfPath.lastIndexOf('/') + 1) : ''
   const manifest = new Map<string, string>()
-  for (const item of opf.matchAll(/<item\b[^>]*>/g)) {
-    const id = /\bid="([^"]*)"/.exec(item[0])?.[1]
-    const href = /\bhref="([^"]*)"/.exec(item[0])?.[1]
-    if (id && href) manifest.set(id, decodeURIComponent(href.split('#')[0]))
-  }
-  let order = [...opf.matchAll(/<itemref\b[^>]*\bidref="([^"]*)"/g)]
-    .map((ref) => manifest.get(ref[1]))
+  const spine: string[] = []
+  visit(parseXml(files.get(opfPath) ?? ''), {
+    enter(element) {
+      const name = localName(element.name)
+      if (name === 'item') {
+        const id = attr(element, 'id')
+        const href = attr(element, 'href')
+        if (id && href) manifest.set(id, safeDecode(href.split('#')[0]))
+      } else if (name === 'itemref') {
+        const idref = attr(element, 'idref')
+        if (idref) spine.push(idref)
+      }
+    },
+  })
+  let order = spine
+    .map((id) => manifest.get(id))
     .filter((href): href is string => Boolean(href))
     .map((href) => resolvePath(base, href))
   if (!order.length) {
