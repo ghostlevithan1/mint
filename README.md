@@ -198,11 +198,27 @@ that `Esc` stops the request.
   the same length on both axes, so shapes are never stretched. Scroll to zoom, drag
   to pan, and click a curve for exact values. Specs are
   validated and equations go through a whitelist parser, so the model never runs
-  code. No server or Python is involved. Equations use the variable `x`; constants
-  `pi`/`π`, `e`, `tau`/`τ`; operators `+ - * / ^` (and `**`), parentheses, and
-  implicit multiplication (`2x`, `3sin(x)`, `2π`); and the functions `sin cos tan
-  asin acos atan sinh cosh tanh exp log ln log2 log10 sqrt abs floor ceil min max
-  pow`. Angles are in radians. Charts are `line`, `scatter`, `bar` or `histogram`.
+  code. No server or Python is involved. Equations use `x`, and `y` on the plane,
+  `z` in a complex graph, `i` for the imaginary unit, and `n` in a sequence;
+  constants `pi`/`π`, `e`, `tau`/`τ`; operators `+ - * / ^` (and `**`), parentheses,
+  and implicit multiplication (`2x`, `xy`, `3sin(x)`, `2π`); and the functions
+  `sin cos tan asin acos atan sinh cosh tanh exp log ln log2 log10 sqrt cbrt abs
+  floor ceil round sign fract min max pow atan2 mod re im conj arg`. Angles are in
+  radians. Named constants can be given in `"params"`.
+  Charts are `line`, `scatter`, `bar`, `histogram`, `pie`, `cobweb`, `sequence`,
+  `complex` and `fractal`:
+  - **Equations in x and y**, such as `x^2 + y^2 = 1` or `y > x^2`, are traced over
+    the window on screen and stay sharp when zoomed. An inequality shades the region
+    where it holds (`src/lib/implicit.ts`).
+  - **Iteration**: `cobweb` draws x(n+1) = f(x) as a staircase from `x0` with the
+    line y = x; `sequence` plots the values at each step, or x(n) = f(n) when the
+    rule uses `n` (including two-term rules such as Fibonacci with `x1`).
+  - **Complex**: a `complex` chart colours the plane by f(z), showing the angle of
+    f(z) as a hue and its size as brightness (zeros dark, poles white); a complex
+    `f(x)` in a line chart draws its real and imaginary parts as two curves.
+  - **Fractals**: `fractal` with `mode` mandelbrot, julia or newton, an `expr`, the
+    Julia constant `c` and `maxIterations`. They zoom 4096×; a wheel zoom paints in
+    slices so the page stays responsive (`src/lib/complexField.ts`).
   **Graph detail** (Settings → General → Graphs) sets how many points are worked out
   along each equation curve before they are joined with straight lines (20 to 2,000;
   default 600). Graphs already on screen redraw when it changes. Each graph also
@@ -390,6 +406,9 @@ src/
     storage.ts               IndexedDB persistence and usage estimate
     nvidia.ts                browser-side SSE parser for /api/chat
     plotSpec.ts              plot spec validation and the safe equation parser
+    mathExpr.ts              the equation parser and its real and complex evaluators
+    implicit.ts              marching squares: curves and shaded regions in x and y
+    complexField.ts          domain colouring, Mandelbrot, Julia and Newton pictures
     pdfSpec.ts               pdf spec validation (blocks, safe file name)
     pdfWriter.ts             lays out and writes the PDF bytes in the browser
     exportChat.ts            answer and chat export (Markdown, PDF), Markdown to PDF blocks

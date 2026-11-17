@@ -19,6 +19,7 @@ import {
   sharedTicks,
   ticksBetween,
 } from '../src/lib/plotSpec.ts'
+import { compileReal, parseMath } from '../src/lib/mathExpr.ts'
 import { parseDiagramSpec, wrapLabel } from '../src/lib/diagramSpec.ts'
 import { SYSTEM_PROMPT, withSystemPrompt } from '../server/core.ts'
 
@@ -81,11 +82,17 @@ test('every plot example in the system prompt is valid', () => {
   const examples = [...SYSTEM_PROMPT.matchAll(/```plot\n([\s\S]*?)```/g)].map(
     (match) => match[1],
   )
-  assert.equal(examples.length, 7, 'the prompt carries one example per chart shape')
+  assert.equal(examples.length, 12, 'the prompt carries one example per chart shape')
   assert.deepEqual(
     examples.map((code) => parsePlotSpec(code).chart),
-    ['line', 'scatter', 'bar', 'bar', 'line', 'pie', 'histogram'],
+    ['line', 'scatter', 'bar', 'bar', 'line', 'pie', 'histogram', 'line', 'cobweb', 'sequence', 'complex', 'fractal'],
   )
+  // The new examples draw what they say: a circle, a staircase, a sequence, a picture.
+  assert.equal(parsePlotSpec(examples[7]).implicit.length, 1)
+  assert.equal(parsePlotSpec(examples[8]).lines.length, 3)
+  assert.ok(parsePlotSpec(examples[9]).lines[0].points.length > 5)
+  assert.equal(parsePlotSpec(examples[10]).field?.spec.kind, 'domain')
+  assert.equal(parsePlotSpec(examples[11]).field?.spec.kind, 'julia')
 
   const line = parsePlotSpec(examples[0])
   assert.equal(line.markers.length, 3)
@@ -100,6 +107,12 @@ test('every plot example in the system prompt is valid', () => {
     const spec = JSON.parse(code) as { equations?: Array<{ expr: string }> }
     for (const equation of spec.equations ?? []) {
       assert.match(equation.expr, /^[\x20-\x7e]+$/, 'equation expressions stay ASCII')
+    }
+  }
+  // A chart on the plane writes the relation itself; a plain line chart keeps "y =" in the label.
+  for (const code of examples.slice(0, 7)) {
+    const spec = JSON.parse(code) as { equations?: Array<{ expr: string }> }
+    for (const equation of spec.equations ?? []) {
       assert.doesNotMatch(equation.expr, /\by\s*=/, 'labels hold "y =", not expr')
     }
   }
@@ -108,11 +121,25 @@ test('every plot example in the system prompt is valid', () => {
 test('every equation name the prompt allows is supported by the parser', () => {
   const listed = SYSTEM_PROMPT.match(/Allowed names: ([^.]+)\./)?.[1]
   assert.ok(listed, 'the prompt lists the equation names')
+  // Names that take more than one value, so the check calls them correctly.
+  const arity: Record<string, number> = { min: 2, max: 2, pow: 2, atan2: 2, mod: 2 }
+  // Inputs are checked where they are meaningful: y only exists on the plane, z in a complex graph.
+  const varsFor: Record<string, string[]> = { y: ['x', 'y'], z: ['z', 'x', 'y'], n: ['n', 'x'], i: ['i', 'z'] }
   const constants = new Set(['x', 'pi', 'π', 'e', 'tau', 'τ'])
   for (const item of listed.split(',')) {
     const name = item.replace(/\s*\(.*\)$/, '').trim()
-    const expr = constants.has(name) ? name : `${name}(x)`
-    assert.doesNotThrow(() => compileExpression(expr), `${name} is documented but not supported`)
+    const vars = varsFor[name] ?? ['x']
+    const args = Array.from({ length: arity[name] ?? 1 }, () => 'x').join(', ')
+    // A bare input (x, y, z, n, i) is used as it is; a function is called.
+    const expr = constants.has(name) || varsFor[name] ? name : `${name}(${args})`
+    assert.doesNotThrow(
+      () => compileReal(parseMath(expr, vars), vars),
+      `${name} is documented but not supported`,
+    )
+  }
+  // The prompt's own list of inputs is exactly what the parser accepts.
+  for (const name of ['x', 'y', 'z', 'n', 'i']) {
+    assert.match(listed, new RegExp(`(^|, )${name}(,| \\(|$)`), `${name} is used by the prompt but missing from its list`)
   }
 })
 

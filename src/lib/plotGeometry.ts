@@ -8,6 +8,8 @@ export type Point = { x: number; y: number }
 
 /** Zooming in stops at 64x; zooming out stops at the original frame. */
 export const MAX_ZOOM = 64
+/** A fractal rewards going deeper. */
+export const FRACTAL_MAX_ZOOM = 4096
 
 function clamp(value: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, value))
@@ -21,9 +23,10 @@ function zoomAxis(
   factor: number,
   boundLo: number,
   boundHi: number,
+  maxZoom: number,
 ): [number, number] {
   const boundSpan = Math.max(boundHi - boundLo, Number.EPSILON)
-  const span = clamp((hi - lo) * factor, boundSpan / MAX_ZOOM, boundSpan)
+  const span = clamp((hi - lo) * factor, boundSpan / maxZoom, boundSpan)
   const fraction = clamp((focus - lo) / (hi - lo), 0, 1)
   let start = focus - fraction * span
   if (start < boundLo) start = boundLo
@@ -35,9 +38,9 @@ function zoomAxis(
  * Zooms around a data-space focus, as when the wheel is used. The point under
  * the cursor stays under the cursor, and the view never leaves `bounds`.
  */
-export function zoomView(view: View, focus: Point, factor: number, bounds: View): View {
-  const [x0, x1] = zoomAxis(view.x0, view.x1, focus.x, factor, bounds.x0, bounds.x1)
-  const [y0, y1] = zoomAxis(view.y0, view.y1, focus.y, factor, bounds.y0, bounds.y1)
+export function zoomView(view: View, focus: Point, factor: number, bounds: View, maxZoom = MAX_ZOOM): View {
+  const [x0, x1] = zoomAxis(view.x0, view.x1, focus.x, factor, bounds.x0, bounds.x1, maxZoom)
+  const [y0, y1] = zoomAxis(view.y0, view.y1, focus.y, factor, bounds.y0, bounds.y1, maxZoom)
   return { x0, x1, y0, y1 }
 }
 

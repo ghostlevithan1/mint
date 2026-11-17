@@ -5,8 +5,20 @@
  */
 
 import { estimateTextWidth } from './plotGeometry'
+import {
+  compileComplex,
+  compileReal,
+  isComplexTree,
+  parseMath,
+  RESERVED_NAMES,
+  usesVar,
+} from './mathExpr'
+import { createFieldPainter, DEFAULT_ITERATIONS, MAX_ITERATIONS, MIN_ITERATIONS, type FieldSpec } from './complexField'
+import { traceImplicit, type Relation } from './implicit'
+import { PlotError } from './plotError'
 
-const MAX_EXPR_CHARS = 300
+export { PlotError }
+
 const DEFAULT_SAMPLES = 400
 const MAX_SAMPLES = 2000
 
@@ -54,7 +66,26 @@ export type Line = {
   mode: 'line' | 'scatter'
   /** Set for equation curves so they can be resampled for a wider view. */
   expr?: string
+  /** Which part of a complex-valued f(x) this curve draws. */
+  part?: 're' | 'im'
+  /** Named constants from the spec, needed to resample the curve. */
+  params?: Record<string, number>
+  /** A helper line, such as y = x in a cobweb: kept out of the legend and the readout. */
+  quiet?: boolean
+  /** Dash pattern, so a cobweb's staircase stays readable against the curve. */
+  style?: 'dashed' | 'soft'
 }
+
+/** An equation that is drawn by tracing f(x, y) = 0, or shading where it holds. */
+export type ImplicitEquation = {
+  label: string
+  expr: string
+  relation: Relation
+  params: Record<string, number>
+}
+
+/** A complex or fractal picture: its spec, and the window it starts from. */
+export type FieldDrawing = { spec: FieldSpec; params: Record<string, number> }
 export type Marker = { x: number; y: number; label: string }
 export type Bar = { label: string; value: number }
 /** One data series over the shared category labels of a bar or category line chart. */
@@ -62,7 +93,7 @@ export type Group = { label: string; values: number[] }
 export type Slice = { label: string; value: number }
 
 export type PlotData = {
-  chart: 'line' | 'scatter' | 'bar' | 'histogram' | 'pie'
+  chart: 'line' | 'scatter' | 'bar' | 'histogram' | 'pie' | 'cobweb' | 'sequence' | 'complex' | 'fractal'
   title: string
   xLabel: string
   yLabel: string
@@ -83,6 +114,10 @@ export type PlotData = {
   donut: boolean
   xRange: [number, number]
   yRange: [number, number]
+  /** Equations in x and y, traced over whatever window is on screen. */
+  implicit: ImplicitEquation[]
+  /** The domain colouring or fractal to draw, if any. */
+  field?: FieldDrawing
 }
 
 const MAX_SLICES = 12
@@ -98,147 +133,96 @@ export function isCategoryLine(data: PlotData): boolean {
   return data.chart === 'line' && data.categories.length > 0
 }
 
-export class PlotError extends Error {}
+// ---------- expressions ----------
 
-// ---------- expression parser ----------
-
-type Fn = (x: number) => number
-
-const FUNCTIONS: Record<string, (...args: number[]) => number> = {
-  sin: Math.sin, cos: Math.cos, tan: Math.tan,
-  asin: Math.asin, acos: Math.acos, atan: Math.atan,
-  sinh: Math.sinh, cosh: Math.cosh, tanh: Math.tanh,
-  exp: Math.exp, log: Math.log, ln: Math.log, log2: Math.log2, log10: Math.log10,
-  sqrt: Math.sqrt, abs: Math.abs, floor: Math.floor, ceil: Math.ceil,
-  min: Math.min, max: Math.max, pow: Math.pow,
-}
-const CONSTANTS: Record<string, number> = { pi: Math.PI, e: Math.E, tau: 2 * Math.PI }
-
-/** Unicode maths the model or a student may paste in, mapped to the parser's names. */
-const SYMBOLS: Record<string, string> = {
-  'π': ' pi ',
-  'τ': ' tau ',
-  '−': ' - ',
-  '–': ' - ',
-  '—': ' - ',
-  '×': ' * ',
-  '·': ' * ',
-  '⋅': ' * ',
-  '÷': ' / ',
+/** The original entry point: an equation in x only, for the calculator and older callers. */
+export function compileExpression(expr: string): (x: number) => number {
+  const fn = compileReal(parseMath(expr, ['x']), ['x'])
+  return (x) => fn([x])
 }
 
-function normalizeExpression(expr: string): string {
-  return expr.replace(/[πτ−–—×·⋅÷]/g, (symbol) => SYMBOLS[symbol] ?? symbol)
-}
+// ---------- equations in more than one variable ----------
 
-function tokenize(expr: string): string[] {
-  const tokens = normalizeExpression(expr).trim().replace(/\*\*/g, '^').match(/\d*\.?\d+(?:e[+-]?\d+)?|[a-z_][a-z0-9_]*|[-+*/^(),]|\S/gi)
-  return tokens ?? []
-}
+export type EquationClass =
+  /** y = f(x), or a bare f(x). */
+  | { kind: 'explicit'; expr: string }
+  /** f(x, y) = 0, drawn as a curve. */
+  | { kind: 'implicit'; expr: string; relation: Relation }
+  /** A complex-valued f(x): curves for its real and imaginary parts. */
+  | { kind: 'complex'; expr: string }
+  /** A recurrence x(n+1) = f(x): the value at each step. */
+  | { kind: 'sequence'; expr: string; recurrence: boolean; secondOrder: boolean }
 
-/** Compiles an equation in x to a function. Throws PlotError on anything outside the whitelist. */
-export function compileExpression(expr: string): Fn {
-  const tokens = tokenize(expr.trim())
-  let pos = 0
-  const peek = () => tokens[pos]
-  const take = () => tokens[pos++]
-  const expect = (token: string) => {
-    if (take() !== token) throw new PlotError('The equation is not valid math syntax.')
-  }
-  const startsPrimary = (token: string | undefined) =>
-    token !== undefined && (token === '(' || /^[\d.a-z_]/i.test(token))
-
-  function expression(): Fn {
-    let left = term()
-    while (peek() === '+' || peek() === '-') {
-      const op = take()
-      const a = left
-      const b = term()
-      left = op === '+' ? (x) => a(x) + b(x) : (x) => a(x) - b(x)
-    }
-    return left
-  }
-
-  function term(): Fn {
-    let left = unary()
-    for (;;) {
-      const token = peek()
-      if (token === '*' || token === '/') {
-        take()
-        const a = left
-        const b = unary()
-        left = token === '*' ? (x) => a(x) * b(x) : (x) => a(x) / b(x)
-      } else if (startsPrimary(token)) {
-        // Implicit multiplication, as in 2x or 3sin(x).
-        const a = left
-        const b = power()
-        left = (x) => a(x) * b(x)
-      } else {
-        return left
+/** Splits "a = b" or "y > x^2" at its top-level relation sign, ignoring anything in brackets. */
+function splitRelation(raw: string): { left: string; right: string; relation: Relation } | null {
+  let depth = 0
+  for (let index = 0; index < raw.length; index += 1) {
+    const char = raw[index]
+    if (char === '(') depth += 1
+    else if (char === ')') depth = Math.max(0, depth - 1)
+    else if (depth === 0) {
+      if (char === '=') return { left: raw.slice(0, index), right: raw.slice(index + 1), relation: '=' }
+      if (char === '<' || char === '>') {
+        const relation = (raw[index + 1] === '=' ? `${char}=` : char) as Relation
+        return { left: raw.slice(0, index), right: raw.slice(index + relation.length), relation }
       }
     }
   }
+  return null
+}
 
-  function unary(): Fn {
-    if (peek() === '-') {
-      take()
-      const a = unary()
-      return (x) => -a(x)
-    }
-    if (peek() === '+') {
-      take()
-      return unary()
-    }
-    return power()
+function classifyEquation(expr: string, params: Record<string, number> = {}): EquationClass {
+  const parts = splitRelation(expr)
+  const plane = ['x', 'y']
+  if (parts) {
+    const left = parts.left.trim()
+    const right = parts.right.trim()
+    const backwards = parts.relation === '<' || parts.relation === '<='
+    if (parts.relation !== '=') return { kind: 'implicit', expr: `(${left})-(${right})`, relation: backwards ? '>=' : '<=' }
+    // One parse of both sides, so a side that is just "y" still counts as using y.
+    const usesY = usesVar(parseMath(`(${left})+(${right})`, plane, params), 'y')
+    if (!left) return { kind: 'explicit', expr: right }
+    if (!right) return { kind: 'explicit', expr: left }
+    // "y = f(x)" (or "f(x) = y") is a plain y coordinate; a y inside f(x) needs the plane.
+    if (left === 'y' && !usesVar(parseMath(right, ['x'], params), 'y')) return { kind: 'explicit', expr: right }
+    if (right === 'y' && !usesVar(parseMath(left, ['x'], params), 'y')) return { kind: 'explicit', expr: left }
+    if (usesY) return { kind: 'implicit', expr: `(${left})-(${right})`, relation: '=' }
+    // f(x) = g(x): a y coordinate, not a curve in two variables.
+    return { kind: 'explicit', expr: `(${left})-(${right})` }
   }
+  if (usesVar(parseMath(expr, plane, params), 'y')) return { kind: 'implicit', expr, relation: '=' }
+  return { kind: 'explicit', expr }
+}
 
-  function power(): Fn {
-    const base = primary()
-    if (peek() !== '^') return base
-    take()
-    const exponent = unary()
-    return (x) => Math.pow(base(x), exponent(x))
-  }
+function samplePart(expr: string, params: Record<string, number>, part: 're' | 'im', x: number): number {
+  const fn = compileComplex(parseMath(expr, ['x'], params), ['x'])
+  const out = fn([{ re: x, im: 0 }])
+  return part === 're' ? out.re : out.im
+}
 
-  function primary(): Fn {
-    const token = take()
-    if (token === undefined) throw new PlotError('The equation ends too early.')
-    if (token === '(') {
-      const inner = expression()
-      expect(')')
-      return inner
+/** y values of an explicit equation, sampled over [lo, hi], or of one part when it is complex. */
+export function sampleCurve(
+  expr: string,
+  params: Record<string, number>,
+  samples: number,
+  lo: number,
+  hi: number,
+  part?: 're' | 'im',
+): [number, number][] {
+  const points: [number, number][] = []
+  if (part) {
+    for (let index = 0; index < samples; index += 1) {
+      const x = lo + ((hi - lo) * index) / (samples - 1)
+      points.push([x, samplePart(expr, params, part, x)])
     }
-    if (/^\d|^\./.test(token)) {
-      const value = Number(token)
-      if (!Number.isFinite(value)) throw new PlotError('Numbers in equations must be finite.')
-      return () => value
-    }
-    const name = token.toLowerCase()
-    if (name === 'x') return (x) => x
-    if (Object.hasOwn(CONSTANTS, name)) {
-      const value = CONSTANTS[name]
-      return () => value
-    }
-    if (Object.hasOwn(FUNCTIONS, name) && peek() === '(') {
-      take()
-      const args: Fn[] = [expression()]
-      while (peek() === ',') {
-        take()
-        args.push(expression())
-      }
-      expect(')')
-      const fn = FUNCTIONS[name]
-      return (x) => fn(...args.map((arg) => arg(x)))
-    }
-    throw new PlotError(`Unknown name "${token}" in the equation.`)
+    return points
   }
-
-  if (!tokens.length || expr.length > MAX_EXPR_CHARS) {
-    throw new PlotError(`Equations must be 1-${MAX_EXPR_CHARS} characters.`)
+  const fn = compileReal(parseMath(expr, ['x'], params), ['x'])
+  for (let index = 0; index < samples; index += 1) {
+    const x = lo + ((hi - lo) * index) / (samples - 1)
+    points.push([x, fn([x])])
   }
-  const compiled = expression()
-  if (pos < tokens.length) throw new PlotError('The equation is not valid math syntax.')
-  return compiled
+  return points
 }
 
 // ---------- spec validation ----------
@@ -448,18 +432,20 @@ export function parsePlotSpec(raw: string, options: PlotOptions = {}): PlotData 
   // Common names for the same charts, so a near-miss still draws.
   if (chart === 'donut' || chart === 'doughnut') chart = 'pie'
   if (chart === 'column') chart = 'bar'
-  if (
-    chart !== 'line' &&
-    chart !== 'scatter' &&
-    chart !== 'bar' &&
-    chart !== 'histogram' &&
-    chart !== 'pie'
-  ) {
-    throw new PlotError('"chart" must be line, scatter, bar, histogram or pie.')
+  if (chart === 'iterative' || chart === 'iteration' || chart === 'cobweb') chart = 'cobweb'
+  if (chart === 'recurrence' || chart === 'iterates' || chart === 'orbit') chart = 'sequence'
+  if (chart === 'domain' || chart === 'domain-coloring' || chart === 'complex-plane') chart = 'complex'
+  if (chart === 'mandelbrot' || chart === 'julia' || chart === 'newton') {
+    s.mode = chart
+    chart = 'fractal'
+  }
+  const charts = ['line', 'scatter', 'bar', 'histogram', 'pie', 'cobweb', 'sequence', 'complex', 'fractal']
+  if (!charts.includes(chart)) {
+    throw new PlotError('"chart" must be line, scatter, bar, histogram, pie, cobweb, sequence, complex or fractal.')
   }
 
   const data: PlotData = {
-    chart,
+    chart: chart as PlotData['chart'],
     title: text(s.title),
     xLabel: text(s.xLabel),
     yLabel: text(s.yLabel),
@@ -475,7 +461,13 @@ export function parsePlotSpec(raw: string, options: PlotOptions = {}): PlotData 
     donut: s.donut === true || /^(donut|doughnut)$/i.test(text(s.chart)),
     xRange: [0, 1],
     yRange: [0, 1],
+    implicit: [],
   }
+  const params = specParams(s.params)
+  if (chart === 'complex') return parseComplex(s, data, params)
+  if (chart === 'fractal') return parseFractal(s, data, params)
+  if (chart === 'cobweb') return parseCobweb(s, data, params, options)
+  if (chart === 'sequence') return parseSequence(s, data, params)
 
   if (chart === 'pie') {
     const { categories, groups } = categorySeries(s, 'pie')
@@ -553,17 +545,50 @@ export function parsePlotSpec(raw: string, options: PlotOptions = {}): PlotData 
   const equations = Array.isArray(s.equations) ? s.equations : []
   if (equations.length > MAX_EQUATIONS) throw new PlotError(`At most ${MAX_EQUATIONS} equations can be plotted.`)
   for (const item of equations) {
-    const expr = item && typeof item === 'object' ? (item as Record<string, unknown>).expr : undefined
-    if (typeof expr !== 'string') throw new PlotError('Each equation needs an "expr" string.')
-    const fn = compileExpression(expr)
-    const points: [number, number][] = []
-    for (let i = 0; i < samples; i += 1) {
-      const x = xRange[0] + ((xRange[1] - xRange[0]) * i) / (samples - 1)
-      const y = fn(x)
-      points.push([x, y])
-      ys.push(y)
+    const record = item && typeof item === 'object' ? (item as Record<string, unknown>) : {}
+    const expr = typeof record.expr === 'string' ? record.expr.trim() : ''
+    if (!expr) throw new PlotError('Each equation needs an "expr" string.')
+    const label = text(record.label) || expr
+    const equation = classifyEquation(expr, params)
+    if (equation.kind === 'implicit') {
+      data.implicit.push({ label, expr: equation.expr, relation: equation.relation, params })
+      continue
     }
-    data.lines.push({ label: text((item as Record<string, unknown>).label) || expr, points, mode, expr })
+    // `sqrt(x) + i` is explicit in shape but complex in value, so it is split too.
+    if (equation.kind === 'explicit' && isComplexTree(parseMath(equation.expr, ['x'], params))) {
+      for (const part of ['re', 'im'] as const) {
+        const points = sampleCurve(equation.expr, params, samples, xRange[0], xRange[1], part)
+        ys.push(...points.map(([, y]) => y))
+        data.lines.push({
+          label: part === 'im' ? `Im ${label}` : `Re ${label}`,
+          points,
+          mode,
+          expr: equation.expr,
+          part,
+          params,
+        })
+      }
+      continue
+    }
+    if (equation.kind === 'complex') {
+      for (const part of ['re', 'im'] as const) {
+        const points = sampleCurve(equation.expr, params, samples, xRange[0], xRange[1], part)
+        ys.push(...points.map(([, y]) => y))
+        data.lines.push({
+          label: part === 'im' ? `Im ${label}` : `Re ${label}`,
+          points,
+          mode,
+          expr: equation.expr,
+          part,
+          params,
+        })
+      }
+      continue
+    }
+    if (equation.kind === 'sequence') throw new PlotError('Use the "sequence" chart for a recurrence in n.')
+    const points = sampleCurve(equation.expr, params, samples, xRange[0], xRange[1])
+    ys.push(...points.map(([, y]) => y))
+    data.lines.push({ label, points, mode, expr: equation.expr, params })
   }
 
   const series = Array.isArray(s.series) ? s.series : []
@@ -591,12 +616,220 @@ export function parsePlotSpec(raw: string, options: PlotOptions = {}): PlotData 
     ys.push(record.y)
   }
 
-  if (!data.lines.length && !data.markers.length) {
+  if (!data.lines.length && !data.markers.length && !data.implicit.length) {
     throw new PlotError('Nothing to plot: add "equations", "series" or "points".')
   }
 
-  data.xRange = equations.length || !seriesX.length ? xRange : extent(seriesX)
-  data.yRange = range(s.yRange) ?? (equations.length ? curveExtent(ys) : extent(ys))
+  // A circle or an ellipse spans the same distance on both axes.
+  const implicitOnly = !data.lines.length && !data.markers.length
+  const implicitX = range(s.xRange) ?? [-5, 5]
+  data.xRange = data.lines.length || data.markers.length ? (equations.length || !seriesX.length ? xRange : extent(seriesX)) : implicitX
+  data.yRange =
+    range(s.yRange) ??
+    (data.lines.length || data.markers.length
+      ? equations.length
+        ? curveExtent(ys)
+        : extent(ys)
+      : implicitOnly
+        ? implicitX
+        : xRange)
+  return data
+}
+
+// ---------- the new chart types ----------
+
+function specParams(value: unknown): Record<string, number> {
+  if (value === undefined || value === null) return {}
+  if (typeof value !== 'object' || Array.isArray(value)) throw new PlotError('"params" must be an object of numbers.')
+  const params: Record<string, number> = {}
+  for (const [name, raw] of Object.entries(value as Record<string, unknown>)) {
+    const key = name.trim().toLowerCase()
+    if (!/^[a-z][a-z0-9]{0,15}$/.test(key) || RESERVED_NAMES.has(key)) {
+      throw new PlotError(`"${name}" cannot be used as a parameter name.`)
+    }
+    if (!finite(raw)) throw new PlotError(`Parameter "${name}" must be a number.`)
+    params[key] = raw
+  }
+  return params
+}
+
+function equationText(s: Record<string, unknown>): string {
+  if (typeof s.expr === 'string' && s.expr.trim()) return s.expr.trim()
+  const first = Array.isArray(s.equations) ? (s.equations[0] as Record<string, unknown> | undefined) : undefined
+  return typeof first?.expr === 'string' ? first.expr.trim() : ''
+}
+
+function count(value: unknown, field: string, lo: number, hi: number, fallback: number): number {
+  if (value === undefined || value === null) return fallback
+  if (!finite(value) || value < lo || value > hi) {
+    throw new PlotError(`"${field}" must be between ${lo} and ${hi}.`)
+  }
+  return Math.round(value)
+}
+
+/** A start value for an iteration: x0, or the first of "start". */
+function startValue(s: Record<string, unknown>): number {
+  if (Array.isArray(s.start) && finite(s.start[0])) return s.start[0]
+  return finite(s.x0) ? s.x0 : 0.5
+}
+
+/** The window an iteration starts in, kept square by default so the cobweb reads correctly. */
+function iterationWindow(data: PlotData, s: Record<string, unknown>) {
+  const x = range(s.xRange) ?? [-1, 3.2]
+  data.xRange = x
+  data.yRange = range(s.yRange) ?? x
+}
+
+/** x(n+1) = f(x): the curve, the line y = x, and the staircase from x0. */
+function parseCobweb(s: Record<string, unknown>, data: PlotData, params: Record<string, number>, options: PlotOptions): PlotData {
+  const expr = equationText(s)
+  if (!expr) throw new PlotError('A cobweb needs "expr": the rule x(n+1) = f(x).')
+  const steps = count(s.steps, 'steps', 1, 200, 20)
+  const start = startValue(s)
+  const tree = parseMath(expr, ['x'], params)
+  if (!usesVar(tree, 'x')) throw new PlotError('A cobweb rule has to use x, such as x^2 - 1.')
+  const fn = compileReal(tree, ['x'])
+  const samples =
+    options.samples !== undefined
+      ? clampPlotDetail(options.samples)
+      : Math.round(Math.min(MAX_SAMPLES, Math.max(32, finite(s.samples) ? s.samples : DEFAULT_SAMPLES)))
+
+  iterationWindow(data, s)
+  const curve = sampleCurve(expr, params, samples, data.xRange[0], data.xRange[1])
+  data.lines.push({ label: `y = ${expr}`, points: curve, mode: 'line', expr, params })
+  data.lines.push({
+    label: 'y = x',
+    points: [[data.xRange[0], data.xRange[0]], [data.xRange[1], data.xRange[1]]],
+    mode: 'line',
+    quiet: true,
+    style: 'soft',
+  })
+
+  // The staircase: up to the curve, across to y = x, and repeat.
+  const path: [number, number][] = [[start, 0], [start, start]]
+  let x = start
+  for (let step = 0; step < steps; step += 1) {
+    const next = fn([x])
+    if (!Number.isFinite(next) || Math.abs(next) > MAX_COORD) break
+    path.push([x, next], [next, next])
+    x = next
+  }
+  data.lines.push({ label: `from x0 = ${spoken(start)}`, points: path, mode: 'line', quiet: true, style: 'dashed' })
+  data.markers.push({ x: start, y: 0, label: `x0 = ${spoken(start)}` })
+  return data
+}
+
+/** x(n+1) = f(x), or x(n) = f(n) when the rule uses n: the values at each step. */
+function parseSequence(s: Record<string, unknown>, data: PlotData, params: Record<string, number>): PlotData {
+  const expr = equationText(s)
+  if (!expr) throw new PlotError('A sequence needs "expr": a rule in n or x.')
+  const terms = count(s.terms, 'terms', 1, 400, 20)
+  const tree = parseMath(expr, ['n', 'x', 'x1'], params)
+  const indexed = usesVar(tree, 'n') && !usesVar(tree, 'x')
+  const values: number[] = []
+
+  if (indexed) {
+    const fn = compileReal(tree, ['n'])
+    for (let n = 0; n < terms; n += 1) values.push(fn([n]))
+  } else if (usesVar(tree, 'x1')) {
+    // A two-term rule such as x(n+1) = x(n) + x(n-1) (Fibonacci) needs both starts.
+    const second = compileReal(tree, ['x', 'x1'])
+    if (!finite(s.x1)) throw new PlotError('A two-term recurrence needs "x1" as its second start value.')
+    let a = startValue(s)
+    let b = s.x1
+    values.push(a, b)
+    for (let step = 2; step < terms; step += 1) {
+      const next = second([b, a])
+      if (!Number.isFinite(next)) break
+      values.push(next)
+      a = b
+      b = next
+    }
+  } else {
+    const firstOrder = compileReal(tree, ['x'])
+    let x = startValue(s)
+    values.push(x)
+    for (let step = 1; step < terms; step += 1) {
+      x = firstOrder([x])
+      if (!Number.isFinite(x)) break
+      values.push(x)
+    }
+  }
+
+  const points = values.map((y, n): [number, number] => [n, y])
+  data.lines.push({
+    label: expr,
+    points,
+    mode: s.join === true ? 'line' : 'scatter',
+    params,
+  })
+  data.xRange = range(s.xRange) ?? [0, Math.max(1, points.length - 1)]
+  data.yRange = range(s.yRange) ?? extent(values)
+  data.xLabel = data.xLabel || 'n'
+  return data
+}
+
+function fieldWindow(data: PlotData, s: Record<string, unknown>, fallback: [number, number], squareFallback = true) {
+  const x = range(s.xRange) ?? fallback
+  data.xRange = x
+  const y = range(s.yRange) ?? (squareFallback ? x : fallback)
+  data.yRange = y
+}
+
+/** Domain colouring of f(z). */
+function parseComplex(s: Record<string, unknown>, data: PlotData, params: Record<string, number>): PlotData {
+  const expr = equationText(s)
+  if (!expr) throw new PlotError('A complex graph needs "expr": a function of z.')
+  const tree = parseMath(expr, ['z', 'x', 'y'], params)
+  if (!isComplexTree(tree) && !usesVar(tree, 'z')) {
+    throw new PlotError('A complex graph needs a function of z, such as z^2 + 1.')
+  }
+  const spec: FieldSpec = { kind: 'domain', expr }
+  createFieldPainter(spec, params)
+  data.field = { spec, params }
+  fieldWindow(data, s, [-2.2, 2.2])
+  data.xLabel = data.xLabel || 'Re z'
+  data.yLabel = data.yLabel || 'Im z'
+  return data
+}
+
+const FRACTAL_WINDOWS: Record<string, [number, number]> = {
+  mandelbrot: [-2.2, 1],
+  julia: [-1.8, 1.8],
+  newton: [-1.8, 1.8],
+}
+
+function parseFractal(s: Record<string, unknown>, data: PlotData, params: Record<string, number>): PlotData {
+  const mode = text(s.mode).toLowerCase() || 'mandelbrot'
+  if (mode !== 'mandelbrot' && mode !== 'julia' && mode !== 'newton') {
+    throw new PlotError('A fractal "mode" must be mandelbrot, julia or newton.')
+  }
+  // The usual rule for each picture; "expr" may replace it.
+  const fallback = mode === 'mandelbrot' ? 'z^2 + c' : mode === 'julia' ? 'z^2 + c' : 'z^3 - 1'
+  const expr = equationText(s) || fallback
+  const maxIter = count(s.maxIterations ?? s.iterations, 'iterations', MIN_ITERATIONS, MAX_ITERATIONS, DEFAULT_ITERATIONS)
+  const usesC = usesVar(parseMath(expr, ['z', 'c'], params), 'c')
+  if (mode === 'julia' && !usesC) throw new PlotError('A Julia set needs c in its rule, such as z^2 + c.')
+  if (mode === 'newton' && !usesVar(parseMath(expr, ['z'], params), 'z')) {
+    throw new PlotError('A Newton fractal needs a polynomial in z, such as z^3 - 1.')
+  }
+
+  const rawC = s.c
+  let c: [number, number]
+  if (Array.isArray(rawC) && finite(rawC[0]) && finite(rawC[1])) c = [rawC[0], rawC[1]]
+  else if (rawC && typeof rawC === 'object') {
+    const record = rawC as Record<string, unknown>
+    c = [finite(record.re) ? record.re : finite(record.real) ? (record.real as number) : -0.8, finite(record.im) ? record.im : finite(record.imaginary) ? (record.imaginary as number) : 0.156]
+  } else c = [-0.8, 0.156]
+
+  const spec: FieldSpec = { kind: mode, expr, c, maxIter }
+  createFieldPainter(spec, params)
+  data.field = { spec, params }
+  // Each picture has its own classic window; a Julia or Newton picture is square.
+  data.xRange = range(s.xRange) ?? (mode === 'mandelbrot' ? [-2.2, 1] : FRACTAL_WINDOWS[mode])
+  data.yRange = range(s.yRange) ?? (mode === 'mandelbrot' ? [-1.4, 1.4] : data.xRange)
+  data.xLabel = data.xLabel || 'Re'
+  data.yLabel = data.yLabel || 'Im'
   return data
 }
 
@@ -615,8 +848,22 @@ export function percent(value: number, total: number): string {
  * then values along each curve (or its data points), then the marked points.
  * The drawing's own click-for-values needs a pointer; this does not.
  */
+const RELATION_WORDS: Record<Relation, string> = { '=': '= 0', '<': '< 0', '<=': '≤ 0', '>': '> 0', '>=': '≥ 0' }
+
 export function describePlot(data: PlotData): string[] {
   const out: string[] = []
+  if (data.field) {
+    const { spec } = data.field
+    if (spec.kind === 'domain') {
+      out.push(`Domain colouring of f(z) = ${spec.expr}, from x ${spoken(data.xRange[0])} to ${spoken(data.xRange[1])} and y ${spoken(data.yRange[0])} to ${spoken(data.yRange[1])}.`)
+      out.push('The angle of f(z) sets the colour; zeros are dark and poles bright.')
+    } else {
+      const name = spec.kind === 'mandelbrot' ? 'Mandelbrot' : spec.kind === 'julia' ? 'Julia' : 'Newton'
+      out.push(`${name} fractal of ${spec.expr} in the window x ${spoken(data.xRange[0])} to ${spoken(data.xRange[1])}, y ${spoken(data.yRange[0])} to ${spoken(data.yRange[1])}.`)
+      out.push(spec.kind === 'newton' ? 'Each colour is a root the iteration settles on; darker points take longer.' : `Points escape, or stay bounded after ${spec.maxIter} steps (dark).`)
+    }
+    return out
+  }
   if (data.chart === 'histogram') {
     out.push(`Histogram with ${data.bars.length} bars.`)
     for (const bar of data.bars.slice(0, 40)) out.push(`${bar.label}: ${spoken(bar.value)}`)
@@ -674,10 +921,34 @@ export function describePlot(data: PlotData): string[] {
       out.push(`${line.label}: ${shown.join(' ')}${more}`)
     }
   }
+  for (const curve of data.implicit) {
+    // A few points on the curve, found where the traced pieces cross the view.
+    const points = sampledCurvePoints(curve, data)
+    out.push(`${curve.label}: ${curve.expr} ${RELATION_WORDS[curve.relation]}${points.length ? `, through ${points.join(', ')}` : ''}`)
+  }
   for (const marker of data.markers) {
     out.push(`Marked point${marker.label ? ` ${marker.label}` : ''} at (${spoken(marker.x)}, ${spoken(marker.y)})`)
   }
   return out
+}
+
+/** Points on an implicit curve, for the spoken description: its leftmost, middle and rightmost. */
+function sampledCurvePoints(curve: ImplicitEquation, data: PlotData): string[] {
+  try {
+    const traced = traceImplicit(implicitFunction(curve), { x0: data.xRange[0], x1: data.xRange[1], y0: data.yRange[0], y1: data.yRange[1] }, curve.relation)
+    const count = traced.segments.length / 4
+    if (!count) return []
+    const picks = [0, Math.floor(count / 2), count - 1]
+    return picks.map((index) => `(${spoken(traced.segments[index * 4])}, ${spoken(traced.segments[index * 4 + 1])})`)
+  } catch {
+    return []
+  }
+}
+
+/** f(x, y) for an implicit equation, compiled once per call. */
+export function implicitFunction(curve: ImplicitEquation): (x: number, y: number) => number {
+  const fn = compileReal(parseMath(curve.expr, ['x', 'y'], curve.params), ['x', 'y'])
+  return (x, y) => fn([x, y])
 }
 
 /** The "nice" step (1, 2, 5 × 10^n) closest to a requested spacing. */

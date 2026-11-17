@@ -2393,6 +2393,46 @@
   position: relative;
 }
 
+/* The complex or fractal picture, aligned with the graph area behind the SVG. */
+.plot-field-hit {
+  position: absolute;
+  pointer-events: none;
+}
+
+.plot-field,
+.plot-field canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.plot-field canvas {
+  border-radius: 2px;
+}
+
+/* A shaded inequality region sits under the curves. */
+.plot-shade {
+  fill-opacity: 0.17;
+  stroke: none;
+}
+
+/* On a picture, axes and frame are drawn over the colours. */
+.plot-canvas .plot-grid {
+  stroke: rgba(255, 255, 255, 0.1);
+}
+
+/* Helper lines: y = x in a cobweb, and its staircase. */
+.plot-line.is-soft {
+  stroke-opacity: 0.35;
+  stroke-width: 1.5;
+}
+
+.plot-line.is-dashed {
+  stroke-width: 1.75;
+  stroke-dasharray: 4 3;
+  stroke-opacity: 0.85;
+}
+
 .plot-hit {
   fill: transparent;
   cursor: grab;
