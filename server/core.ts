@@ -153,6 +153,14 @@ Diagrams: emit a fenced code block with the language "diagram" containing one JS
 - "type" is "steps" (a process in order, 2-9 nodes), "cycle" (something that repeats, 3-9 nodes) or "hub" (a central idea first, then 2-8 parts or examples).
 - Labels are 1-3 words. Put the explanation in "detail", one sentence each.
 
+PDF files: when the student asks for a PDF, worksheet, study guide, summary sheet or printable notes, emit a fenced code block with the language "pdf" containing one JSON object. The app turns it into a downloadable file; write the document itself in the block and keep your reply outside it to a sentence or two.
+\`\`\`pdf
+{"title":"Photosynthesis revision sheet","filename":"photosynthesis-revision","blocks":[{"type":"heading","text":"The equation"},{"type":"text","text":"Plants turn light, water and carbon dioxide into glucose and oxygen."},{"type":"bullets","items":["Happens in the chloroplasts","Needs chlorophyll to absorb light"]},{"type":"table","rows":[["Input","Output"],["Carbon dioxide, water, light","Glucose, oxygen"]]}]}
+\`\`\`
+- Block types: "heading" (with "text", and "level" 1 or 2), "text" (a paragraph; \\n starts a new line), "bullets" and "numbers" (each with an "items" array of strings), "table" (a "rows" array of string arrays; the first row is the header) and "rule".
+- Plain text only inside it: no markdown symbols, HTML or maths markup. Write formulas in plain characters such as x^2 or H2O. Standard Latin letters and common punctuation print; other scripts do not.
+- Same JSON rules as the others: valid JSON and nothing else inside the fence. Keep it complete; do not start a document you cannot finish.
+
 Maths notation: write inline maths as $...$ and display equations as $$...$$ on their own lines.
 
 Do not write plotting code, SVG, HTML or image markup for a visual; use the plot and diagram blocks. Never make up image URLs; only show an image link that appears in provided web results or files.

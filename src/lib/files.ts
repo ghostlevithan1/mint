@@ -1,4 +1,16 @@
 import { FILE_LIMIT, MAX_FILES } from './data'
+import { DOCUMENT_EXTENSIONS, documentToMarkdown, readZipEntries, unescapeXml } from './documents'
+
+import {
+  decodeText,
+  extensionOfName,
+  isCodeExtension,
+  isTextExtension,
+  looksLikeText,
+  notebookToMarkdown,
+} from './sourceFiles'
+
+export { unescapeXml }
 
 export type AttachmentKind = 'text' | 'document' | 'sheet' | 'image' | 'code' | 'other'
 
@@ -23,35 +35,13 @@ export type ReadAttachmentOptions = {
   convertImagesToJpeg?: boolean
 }
 
-const TEXT_EXTENSIONS = new Set([
-  'txt',
-  'md',
-  'markdown',
-  'csv',
-  'json',
-  'log',
-  'html',
-  'css',
-  'js',
-  'jsx',
-  'ts',
-  'tsx',
-  'py',
-  'yml',
-  'yaml',
-  'xml',
-  'sql',
-  'sh',
-  'env',
-  'svg',
-])
+const TEXT_EXTENSIONS = { has: (extension: string) => extension === 'csv' || isTextExtension(extension) }
 
-const CODE_EXTENSIONS = new Set(['js', 'jsx', 'ts', 'tsx', 'py', 'css', 'html', 'json', 'sh', 'svg'])
-const SHEET_EXTENSIONS = new Set(['csv', 'xls', 'xlsx', 'numbers'])
+const SHEET_EXTENSIONS = new Set(['csv', 'xls', 'xlsx', 'numbers', 'ods'])
 const XLSX_EXTENSIONS = new Set(['xlsx', 'xlsm', 'xltx'])
 
 /** Binary formats that cannot be read client-side at all. */
-const UNREADABLE_DOCUMENT_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'rtf', 'pages', 'numbers', 'xls'])
+const UNREADABLE_DOCUMENT_EXTENSIONS = new Set(['doc', 'ppt', 'pages', 'numbers', 'xls'])
 const IMAGE_EXTENSIONS = new Set([
   'png',
   'jpg',
@@ -98,16 +88,15 @@ const MIME_BY_EXTENSION: Record<string, string> = {
 const SCALE_STEPS = [IMAGE_MAX_EDGE, 1280, 1024, 816, 640, 480, 360, 256]
 
 export function extensionOf(name: string) {
-  const parts = name.split('.')
-  return parts.length > 1 ? parts.pop()!.toLowerCase() : ''
+  return extensionOfName(name)
 }
 
 export function kindOf(extension: string, mime = ''): AttachmentKind {
   if (IMAGE_EXTENSIONS.has(extension)) return 'image'
   if (SHEET_EXTENSIONS.has(extension)) return 'sheet'
-  if (CODE_EXTENSIONS.has(extension)) return 'code'
+  if (isCodeExtension(extension)) return 'code'
   if (TEXT_EXTENSIONS.has(extension)) return 'text'
-  if (['pdf', 'doc', 'docx', 'rtf', 'pages'].includes(extension)) return 'document'
+  if (['pdf', 'doc', 'docx', 'rtf', 'pages', 'pptx', 'ppt', 'odt', 'odp', 'epub'].includes(extension)) return 'document'
   // Android pickers can return a display name without an extension. Trust the
   // MIME type so gallery photos still reach the vision path.
   if (mime.toLowerCase().startsWith('image/')) return 'image'
@@ -341,101 +330,9 @@ async function isAnimatedGif(file: File, extension: string): Promise<boolean> {
   }
 }
 
-async function inflateRaw(bytes: Uint8Array): Promise<Uint8Array> {
-  const stream = new Blob([bytes as unknown as BlobPart])
-    .stream()
-    .pipeThrough(new DecompressionStream('deflate-raw'))
-  return new Uint8Array(await new Response(stream).arrayBuffer())
-}
-
-function findEndOfCentralDirectory(bytes: Uint8Array): number {
-  // EOCD signature PK\x05\x06; scan backwards from the end.
-  for (let offset = bytes.length - 22; offset >= Math.max(0, bytes.length - 65557); offset -= 1) {
-    if (
-      bytes[offset] === 0x50 &&
-      bytes[offset + 1] === 0x4b &&
-      bytes[offset + 2] === 0x05 &&
-      bytes[offset + 3] === 0x06
-    ) {
-      return offset
-    }
-  }
-  return -1
-}
-
-/**
- * Lists and inflates the useful parts of an OOXML (.xlsx) archive with the
- * platform's ZIP format and DecompressionStream — no parsing library and no
- * added bundle weight.
- */
-async function readXlsxEntries(bytes: Uint8Array): Promise<Map<string, string>> {
-  const entries = new Map<string, string>()
-  try {
-    const eocd = findEndOfCentralDirectory(bytes)
-    if (eocd < 0) return entries
-    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
-    const entryCount = view.getUint16(eocd + 10, true)
-    let offset = view.getUint32(eocd + 16, true)
-    const textDecoder = new TextDecoder()
-
-    for (let index = 0; index < entryCount; index += 1) {
-      if (
-        bytes[offset] !== 0x50 ||
-        bytes[offset + 1] !== 0x4b ||
-        bytes[offset + 2] !== 0x01 ||
-        bytes[offset + 3] !== 0x02
-      ) {
-        break
-      }
-      const method = view.getUint16(offset + 10, true)
-      const compressedSize = view.getUint32(offset + 20, true)
-      const uncompressedSize = view.getUint32(offset + 24, true)
-      const nameLength = view.getUint16(offset + 28, true)
-      const extraLength = view.getUint16(offset + 30, true)
-      const commentLength = view.getUint16(offset + 32, true)
-      const localHeaderOffset = view.getUint32(offset + 42, true)
-      const name = textDecoder.decode(bytes.subarray(offset + 46, offset + 46 + nameLength))
-      offset += 46 + nameLength + extraLength + commentLength
-
-      const isText =
-        name === 'xl/sharedStrings.xml' ||
-        /^xl\/worksheets\/sheet\d+\.xml$/.test(name)
-      if (!isText) continue
-
-      const localNameLength = view.getUint16(localHeaderOffset + 26, true)
-      const localExtraLength = view.getUint16(localHeaderOffset + 28, true)
-      const dataStart = localHeaderOffset + 30 + localNameLength + localExtraLength
-      const compressed = bytes.subarray(dataStart, dataStart + compressedSize)
-      try {
-        if (method === 0) {
-          entries.set(name, textDecoder.decode(compressed))
-        } else if (method === 8 && uncompressedSize) {
-          entries.set(name, textDecoder.decode(await inflateRaw(compressed)))
-        }
-      } catch {
-        // Skip unreadable entries; partial text is better than none.
-      }
-    }
-  } catch {
-    // Malformed archive: fall through with whatever was read.
-  }
-  return entries
-}
-
-/** A character reference, or nothing when it is not a valid code point. */
-function codePointChar(value: number): string {
-  return Number.isInteger(value) && value > 0 && value <= 0x10ffff ? String.fromCodePoint(value) : ''
-}
-
-export function unescapeXml(text: string): string {
-  return text
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'")
-    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => codePointChar(Number.parseInt(hex, 16)))
-    .replace(/&#(\d+);/g, (_, dec) => codePointChar(Number.parseInt(dec, 10)))
-    .replace(/&amp;/g, '&')
+/** Inflates the worksheet and shared-string parts of an .xlsx archive. */
+function readXlsxEntries(bytes: Uint8Array): Promise<Map<string, string>> {
+  return readZipEntries(bytes, (name) => name === 'xl/sharedStrings.xml' || /^xl\/worksheets\/sheet\d+\.xml$/.test(name))
 }
 
 /**
@@ -539,16 +436,30 @@ async function readRawImage(
   })
 }
 
+const TEXT_READ_BYTES = 600_000
+const TEXT_MAX_CHARS = 200_000
+const NOTEBOOK_READ_BYTES = 8_000_000
+
+/** Source, config or plain text as the model should see it, with a note when it is cut short. */
+async function readTextFile(file: File, extension: string): Promise<string> {
+  const limit = extension === 'ipynb' ? NOTEBOOK_READ_BYTES : TEXT_READ_BYTES
+  const raw = decodeText(new Uint8Array(await file.slice(0, limit).arrayBuffer()))
+  const notebook = extension === 'ipynb' ? notebookToMarkdown(raw) : undefined
+  const full = notebook ?? raw
+  const cut = file.size > limit || full.length > TEXT_MAX_CHARS
+  return cut ? `${full.slice(0, TEXT_MAX_CHARS)}\n\n[This file is longer than ${TEXT_MAX_CHARS.toLocaleString()} characters; the rest was cut off.]` : full
+}
+
 export async function readAttachment(
   file: File,
   options: ReadAttachmentOptions = {},
 ): Promise<Attachment> {
   const extension = extensionOf(file.name)
-  const kind = kindOf(extension, file.type)
+  let kind = kindOf(extension, file.type)
   let text = ''
   if (TEXT_EXTENSIONS.has(extension)) {
     try {
-      text = (await file.slice(0, 200_000).text()).slice(0, 200_000)
+      text = await readTextFile(file, extension)
     } catch {
       text = ''
     }
@@ -557,10 +468,45 @@ export async function readAttachment(
     if (!text) {
       text = `[Spreadsheet "${file.name}": could not be read as an Office .xlsx file. Export it as .csv or .txt and attach that, or convert sheets to images.]`
     }
+  } else if (extension === 'pdf') {
+    // The models only take text and images, so every PDF is converted to
+    // Markdown here, on this device, and sent as text.
+    try {
+      const { pdfToMarkdown, PDF_MAX_CHARS, PDF_MAX_PAGES } = await import('./pdfToMarkdown')
+      const result = await pdfToMarkdown(new Uint8Array(await file.arrayBuffer()))
+      text = result.markdown.slice(0, PDF_MAX_CHARS)
+      if (result.truncated) text += `\n\n[Only the first ${PDF_MAX_PAGES} of ${result.pages} pages were read.]`
+      else if (result.markdown.length > PDF_MAX_CHARS) text += '\n\n[The rest of this PDF was cut off for length.]'
+    } catch (error) {
+      const reason = error instanceof Error && error.name === 'PdfReadError' ? error.message : 'This PDF could not be read.'
+      text = `[PDF "${file.name}": ${reason} Paste the text, or attach pages as images.]`
+    }
+  } else if (DOCUMENT_EXTENSIONS.has(extension) && !XLSX_EXTENSIONS.has(extension)) {
+    // Word, PowerPoint, OpenDocument, EPUB and RTF files become Markdown on
+    // this device, the same way PDFs do.
+    text = (await documentToMarkdown(new Uint8Array(await file.arrayBuffer()), extension)) ?? ''
+    if (!text) {
+      text = `[Document "${file.name}": no readable text was found in this .${extension} file (it may be empty, protected or damaged). Paste the text, or attach pages as images.]`
+    }
   } else if (kind === 'document' || (kind === 'sheet' && UNREADABLE_DOCUMENT_EXTENSIONS.has(extension))) {
     // No trustworthy client-side extractor for these. Say so in the context
     // instead of silently attaching a filename the model can't use.
-    text = `[Document "${file.name}": the contents of this file cannot be sent to the model. Export the text as .txt, the spreadsheet as .csv or .xlsx, or convert pages to images.]`
+    text = `[Document "${file.name}": this older or proprietary format cannot be read here. Save it as .docx, .pptx, .xlsx or .pdf (or export .txt / .csv), or convert pages to images.]`
+  } else if (kind === 'other') {
+    // An unfamiliar extension can still be source code or text. Read it when
+    // the content says so; otherwise tell the model it is binary.
+    try {
+      const head = new Uint8Array(await file.slice(0, TEXT_READ_BYTES).arrayBuffer())
+      if (looksLikeText(head)) {
+        text = await readTextFile(file, extension)
+        kind = 'text'
+      }
+    } catch {
+      text = ''
+    }
+    if (!text) {
+      text = `[File "${file.name}": this looks like a binary file, so its contents cannot be read.]`
+    }
   }
 
   let dataUrl: string | undefined

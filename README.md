@@ -207,6 +207,36 @@ that `Esc` stops the request.
   default 600). Graphs already on screen redraw when it changes. Each graph also
   carries a plain-text reading (window, values along the curve, marked points) for
   screen readers.
+- **Reading PDFs** — attach a PDF like any file. The models only take text and
+  images, so Mint converts it to Markdown on your device first (headings, paragraphs,
+  lists and simple tables, with `*Page n*` markers; up to 100 pages and 200,000
+  characters) and sends that text. The file itself is never uploaded. Scanned PDFs
+  with no selectable text, and password-protected ones, cannot be read; the model is
+  told so instead. The reader is pdf.js (`pdfjs-dist`, legacy build for older
+  browsers), loaded only when a PDF is attached.
+- **Reading other documents** — `.docx`, `.pptx`, `.odt`, `.odp`, `.ods`, `.epub`
+  and `.rtf` are converted to Markdown on your device the same way (headings, lists,
+  tables, one `## Slide n` section per slide with its speaker notes, spreadsheets as
+  tables). They are read straight from the file's XML with the browser's built-in
+  decompression, so there is no extra library. `.xlsx` and `.csv` work as before.
+  The old binary formats (`.doc`, `.ppt`, `.xls`, Apple Pages and Numbers) cannot
+  be read; the model is told to ask for a `.docx`, `.pptx`, `.xlsx` or `.pdf` copy.
+  Images inside documents are not read.
+- **Reading code and text files** — source files in the common languages (JavaScript,
+  TypeScript, Python, C/C++, C#, Java, Kotlin, Swift, Go, Rust, Ruby, PHP, Lua, R,
+  Dart, Scala, shell and PowerShell, SQL, Vue, Svelte and many more), config and
+  markup (JSON, YAML, TOML, INI, XML, Markdown, LaTeX, diffs), extensionless names such
+  as `Dockerfile` and `Makefile`, and Jupyter notebooks (`.ipynb`: prose, code and text
+  output; images are dropped) are read as text. UTF-16 files work. A file with an
+  unfamiliar extension is still read if its content is text; a binary one is reported
+  as such. Long files are cut at 200,000 characters, with a note saying so
+  (`src/lib/sourceFiles.ts`).
+- **Making PDFs** — ask for a worksheet, study guide or printable notes and the model
+  answers with a fenced `pdf` spec (title, then headings, text, bullet and numbered
+  lists, tables and rules). The browser lays it out and writes an A4 PDF locally
+  (`src/lib/pdfWriter.ts`, built-in Helvetica, no dependency) behind a Download
+  button. Text is limited to Latin letters and common punctuation; other scripts
+  print as `?`.
 - **Enter** sends; **Shift + Enter** adds a line; **Esc** stops generation.
 - **Export all chats** (Settings → Privacy) downloads one JSON file.
 - **Stop** ends a streamed answer; **Regenerate** re-runs the last response.
@@ -334,6 +364,11 @@ src/
     storage.ts               IndexedDB persistence and usage estimate
     nvidia.ts                browser-side SSE parser for /api/chat
     plotSpec.ts              plot spec validation and the safe equation parser
+    pdfSpec.ts               pdf spec validation (blocks, safe file name)
+    pdfWriter.ts             lays out and writes the PDF bytes in the browser
+    pdfToMarkdown.ts         reads an attached PDF with pdf.js and rebuilds it as Markdown
+    sourceFiles.ts           code/text file types, notebooks, text sniffing, UTF-16
+    documents.ts             ZIP reader and docx/pptx/odf/epub/rtf to Markdown converters
     web.ts                   link reading and web search client
     agent.ts                 tool call parsing, calculator and tool status
     files.ts                 attachment kinds, reading, validation
