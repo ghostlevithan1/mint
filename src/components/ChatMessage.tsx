@@ -26,6 +26,7 @@ import type { Attachment } from '../lib/files'
 import { formatBytes } from '../lib/privacy'
 import { extractImageLinks } from '../lib/imageLinks'
 import { downloadAnswerPdf } from '../lib/exportChat'
+import { saveBlob } from '../lib/download'
 import { blockKindFor, formatCountdown, type BlockKind } from '../lib/blocks'
 import { useBlock, useNow } from '../hooks/useBlock'
 import { useShowThinking } from '../hooks/useShowThinking'
@@ -326,13 +327,10 @@ export const ChatMessageView = memo(
   }
 
   const exportAnswer = () => {
-    const blob = new Blob([message.content], { type: 'text/markdown;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const anchor = document.createElement('a')
-    anchor.href = url
-    anchor.download = `mint-${model?.id ?? 'answer'}.md`
-    anchor.click()
-    window.setTimeout(() => URL.revokeObjectURL(url), 4000)
+    saveBlob(
+      new Blob([message.content], { type: 'text/markdown;charset=utf-8' }),
+      `mint-${model?.id ?? 'answer'}.md`,
+    )
   }
 
   const stats = message.stats

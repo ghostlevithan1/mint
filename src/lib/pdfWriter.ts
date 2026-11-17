@@ -6,6 +6,7 @@
  */
 
 import type { PdfDocument } from './pdfSpec'
+import { saveBlob } from './download'
 
 type Font = 'regular' | 'bold'
 
@@ -283,11 +284,5 @@ export function buildPdf(doc: PdfDocument): Uint8Array {
 }
 
 export function downloadPdf(doc: PdfDocument) {
-  const blob = new Blob([buildPdf(doc) as BlobPart], { type: 'application/pdf' })
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = doc.filename
-  anchor.click()
-  window.setTimeout(() => URL.revokeObjectURL(url), 4000)
+  saveBlob(new Blob([buildPdf(doc) as BlobPart], { type: 'application/pdf' }), doc.filename)
 }

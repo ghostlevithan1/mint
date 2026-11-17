@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { Conversation } from '../src/lib/chat.ts'
-import { chatToMarkdown, chatToPdf, hasUnprintableText, markdownToPdfBlocks, plainInline } from '../src/lib/exportChat.ts'
+import { chatToMarkdown, chatToPdf, hasUnprintableText, markdownToPdfBlocks, plainInline, answerToPdf } from '../src/lib/exportChat.ts'
 import { readAttachment } from '../src/lib/files.ts'
 import { buildPdf } from '../src/lib/pdfWriter.ts'
 import { pdfToMarkdown } from '../src/lib/pdfToMarkdown.ts'
@@ -87,6 +87,49 @@ test('a chat exports as a PDF that reads back', async () => {
 test('unprintable scripts are detected so the menu can warn', () => {
   assert.equal(hasUnprintableText('Hello café “quoted” – ok'), false)
   assert.equal(hasUnprintableText('你好'), true)
+})
+
+const generatedDoc =
+  'Here is your sheet:\n```pdf\n' +
+  JSON.stringify({
+    title: 'Cell revision sheet',
+    filename: 'cells',
+    blocks: [
+      { type: 'heading', text: 'The cell' },
+      { type: 'text', text: 'Cells are the building blocks of life.' },
+      { type: 'bullets', items: ['Nucleus', 'Cytoplasm'] },
+    ],
+  }) +
+  '\n```'
+
+test('a generated PDF document is included when an answer is saved as PDF', () => {
+  const doc = answerToPdf(generatedDoc, 'Mint answer')
+  assert.equal(doc.title, 'Cell revision sheet')
+  assert.equal(doc.filename, 'cells.pdf')
+  assert.ok(doc.blocks.some((block) => block.type === 'text' && block.text === 'Here is your sheet:'))
+  assert.ok(doc.blocks.some((block) => block.type === 'heading' && block.text === 'The cell'))
+  // The document title is the PDF's title, so it is not repeated as a block.
+  assert.equal(doc.blocks.filter((block) => block.type === 'heading' && block.text === 'Cell revision sheet').length, 0)
+  assert.ok(doc.blocks.some((block) => block.type === 'text' && block.text.includes('building blocks')))
+  assert.ok(doc.blocks.some((block) => block.type === 'bullets' && block.items.includes('Nucleus')))
+  assert.ok(!JSON.stringify(doc.blocks).includes('appears here in the app'))
+})
+
+test('a chat export includes the content of a generated PDF document', () => {
+  const withDoc: Conversation = {
+    ...chat,
+    messages: [{ id: 'a', role: 'assistant', content: generatedDoc, createdAt: 0, phase: 'done' }],
+  }
+  const doc = chatToPdf(withDoc, () => 'Model X')
+  assert.ok(doc.blocks.some((block) => block.type === 'text' && block.text.includes('building blocks')))
+  assert.ok(!JSON.stringify(doc.blocks).includes('appears here in the app'))
+})
+
+test('a broken PDF fence keeps a visible placeholder instead of failing', () => {
+  const doc = answerToPdf('```pdf\nnot json\n```', 'Saved answer')
+  assert.equal(doc.title, 'Saved answer')
+  assert.equal(doc.filename, 'Saved-answer.pdf')
+  assert.ok(doc.blocks.some((block) => block.type === 'text' && block.text.includes('appears here in the app')))
 })
 
 test('files the reader cannot open carry a warning, readable ones do not', async () => {

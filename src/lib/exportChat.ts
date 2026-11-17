@@ -4,8 +4,9 @@
  */
 
 import type { ChatMessage, Conversation } from './chat'
-import { pdfFilename, type PdfBlock, type PdfDocument } from './pdfSpec'
+import { parsePdfSpec, pdfFilename, type PdfBlock, type PdfDocument } from './pdfSpec'
 import { downloadPdf } from './pdfWriter'
+import { saveBlob } from './download'
 
 /** Inline Markdown as plain text: no asterisks or backticks in the PDF. */
 export function plainInline(text: string): string {
@@ -20,10 +21,51 @@ export function plainInline(text: string): string {
     .trim()
 }
 
-const VISUAL_FENCES: Record<string, string> = { plot: 'graph', diagram: 'diagram', pdf: 'PDF file' }
+const VISUAL_FENCES: Record<string, string> = { plot: 'graph', diagram: 'diagram' }
+
+/**
+ * A generated PDF fence carries a real document. Its blocks are copied into
+ * the export so a saved answer or chat is complete, not a placeholder note.
+ */
+function pdfFenceBlocks(body: string[], skipTitle?: string): PdfBlock[] {
+  try {
+    const doc = parsePdfSpec(body.join('\n'))
+    const blocks: PdfBlock[] = []
+    if (doc.title && doc.title !== skipTitle) blocks.push({ type: 'heading', text: doc.title, level: 1 })
+    blocks.push(...doc.blocks)
+    return blocks
+  } catch {
+    return [{ type: 'text', text: '[A PDF file appears here in the app.]' }]
+  }
+}
+
+/** The first valid generated PDF document inside a markdown answer, if any. */
+export function embeddedPdf(markdown: string): PdfDocument | null {
+  const lines = markdown.replace(/\r\n?/g, '\n').split('\n')
+  for (let index = 0; index < lines.length; index += 1) {
+    const trimmed = lines[index].trim()
+    if (!trimmed.startsWith('```') && !trimmed.startsWith('~~~')) continue
+    const fence = trimmed.slice(0, 3)
+    const language = trimmed.slice(3).trim().split(/\s+/)[0]?.toLowerCase() ?? ''
+    const body: string[] = []
+    let cursor = index + 1
+    while (cursor < lines.length && !lines[cursor].trim().startsWith(fence)) {
+      body.push(lines[cursor])
+      cursor += 1
+    }
+    index = cursor
+    if (language !== 'pdf') continue
+    try {
+      return parsePdfSpec(body.join('\n'))
+    } catch {
+      // Keep looking: a later fence may be the complete document.
+    }
+  }
+  return null
+}
 
 /** A model answer as PDF blocks. Graphs and diagrams are drawn by the app, so the PDF names them instead. */
-export function markdownToPdfBlocks(markdown: string): PdfBlock[] {
+export function markdownToPdfBlocks(markdown: string, skipPdfTitle?: string): PdfBlock[] {
   const lines = markdown.replace(/\r\n?/g, '\n').split('\n')
   const blocks: PdfBlock[] = []
   let paragraph: string[] = []
@@ -52,7 +94,8 @@ export function markdownToPdfBlocks(markdown: string): PdfBlock[] {
         cursor += 1
       }
       index = cursor
-      if (VISUAL_FENCES[language]) blocks.push({ type: 'text', text: `[A ${VISUAL_FENCES[language]} appears here in the app.]` })
+      if (language === 'pdf') blocks.push(...pdfFenceBlocks(body, skipPdfTitle))
+      else if (VISUAL_FENCES[language]) blocks.push({ type: 'text', text: `[A ${VISUAL_FENCES[language]} appears here in the app.]` })
       else if (body.some((line) => line.trim())) blocks.push({ type: 'text', text: body.join('\n').replace(/\t/g, '    ') })
       continue
     }
@@ -129,6 +172,16 @@ export function markdownToPdfBlocks(markdown: string): PdfBlock[] {
 }
 
 export function answerToPdf(markdown: string, title: string): PdfDocument {
+  const document = embeddedPdf(markdown)
+  if (document) {
+    // The answer is (mostly) a generated document: keep its own name so the
+    // saved file matches the card, and include any prose around it.
+    return {
+      title: document.title || title,
+      filename: document.filename || pdfFilename('', title),
+      blocks: markdownToPdfBlocks(markdown, document.title),
+    }
+  }
   return { title, filename: pdfFilename('', title), blocks: markdownToPdfBlocks(markdown) }
 }
 
@@ -195,13 +248,7 @@ export function hasUnprintableText(text: string): boolean {
 }
 
 function saveText(filename: string, text: string) {
-  const blob = new Blob([text], { type: 'text/markdown;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = filename
-  anchor.click()
-  window.setTimeout(() => URL.revokeObjectURL(url), 4000)
+  saveBlob(new Blob([text], { type: 'text/markdown;charset=utf-8' }), filename)
 }
 
 export function downloadChatMarkdown(chat: Conversation, modelName: (id?: string) => string) {

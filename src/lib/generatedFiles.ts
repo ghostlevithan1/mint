@@ -1,3 +1,5 @@
+import { saveBlob } from './download'
+
 const LANGUAGE_EXTENSIONS: Record<string, string> = {
   typescript: 'ts',
   ts: 'ts',
@@ -112,12 +114,5 @@ export function isTextFile(extension: string): boolean {
 }
 
 export function downloadTextFile(filename: string, text: string, extension: string) {
-  const blob = new Blob([text], { type: mimeForFile(extension) })
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = filename
-  anchor.click()
-  // Give the browser a moment to start the download before the blob URL dies.
-  window.setTimeout(() => URL.revokeObjectURL(url), 4000)
+  saveBlob(new Blob([text], { type: mimeForFile(extension) }), filename)
 }

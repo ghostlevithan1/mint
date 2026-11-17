@@ -42,7 +42,6 @@ export const PdfCard = memo(function PdfCard({ spec, streaming = false }: { spec
         <span className="file-card-actions">
           <button
             type="button"
-            disabled={streaming}
             onClick={() => downloadPdf(doc)}
             title={`Download ${doc.filename}`}
           >
