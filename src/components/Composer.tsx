@@ -77,7 +77,11 @@ export function Composer({
         )
         .join(' ')
     : ''
-  const composerError = [uploadError, imageWarning].filter(Boolean).join(' ')
+  const readWarning = attachments
+    .filter((file) => file.warning)
+    .map((file) => `${file.name}: ${file.warning}`)
+    .join(' ')
+  const composerError = [uploadError, imageWarning, readWarning].filter(Boolean).join(' ')
   const canSend =
     (text.trim().length > 0 || attachments.length > 0) &&
     !reading &&
@@ -119,9 +123,9 @@ export function Composer({
           <div className="composer-files">
             {attachments.map((file) => (
               <span
-                className={`composer-file${file.kind === 'image' && !file.dataUrl ? ' is-error' : ''}`}
+                className={`composer-file${file.kind === 'image' && !file.dataUrl ? ' is-error' : file.warning ? ' is-warn' : ''}`}
                 key={file.id}
-                title={file.imageError}
+                title={file.imageError ?? file.warning}
               >
                 <span className={`composer-file-glyph ${file.kind}`}>
                   <FileGlyph kind={file.kind} />
@@ -134,9 +138,11 @@ export function Composer({
                       ? file.dataUrl
                         ? 'vision ready'
                         : 'not sendable'
-                      : file.text
-                        ? 'read locally'
-                        : 'held locally'}
+                      : file.warning
+                        ? 'not readable'
+                        : file.text
+                          ? 'read locally'
+                          : 'held locally'}
                   </small>
                 </span>
                 <button

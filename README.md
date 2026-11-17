@@ -238,6 +238,15 @@ that `Esc` stops the request.
   (`src/lib/pdfWriter.ts`, built-in Helvetica, no dependency) behind a Download
   button. Text is limited to Latin letters and common punctuation; other scripts
   print as `?`.
+- **Saving answers and chats** — each answer has **Export** (Markdown) and **PDF**
+  buttons, and the download icon in the top bar saves the whole chat as a PDF or
+  Markdown file (failed turns and context notes are left out; graphs and diagrams
+  are noted by name in the PDF because the app draws them). Letters outside the
+  Latin range print as `?` in PDFs, and the menu says so when a chat has any.
+- **Unreadable files are flagged** — if an attached file cannot be read (a binary
+  file, a damaged or scanned PDF, an old `.doc`), its chip turns amber and says
+  "not readable" before you send, with the reason above the composer, instead of
+  claiming it was read.
 - **Enter** sends; **Shift + Enter** adds a line; **Esc** stops generation.
 - **Export all chats** (Settings → Privacy) downloads one JSON file.
 - **Stop** ends a streamed answer; **Regenerate** re-runs the last response.
@@ -383,6 +392,7 @@ src/
     plotSpec.ts              plot spec validation and the safe equation parser
     pdfSpec.ts               pdf spec validation (blocks, safe file name)
     pdfWriter.ts             lays out and writes the PDF bytes in the browser
+    exportChat.ts            answer and chat export (Markdown, PDF), Markdown to PDF blocks
     pdfToMarkdown.ts         reads an attached PDF with pdf.js and rebuilds it as Markdown
     sourceFiles.ts           code/text file types, notebooks, text sniffing, UTF-16
     documents.ts             ZIP reader and docx/pptx/odf/epub/rtf to Markdown converters

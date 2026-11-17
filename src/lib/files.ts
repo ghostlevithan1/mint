@@ -29,6 +29,8 @@ export type Attachment = {
   height?: number
   /** Present when an image could not be decoded on this device. */
   imageError?: string
+  /** Present when the file's contents could not be read, so the AI will only see a note about it. */
+  warning?: string
 }
 
 export type ReadAttachmentOptions = {
@@ -453,6 +455,7 @@ export async function readAttachment(
   const extension = extensionOf(file.name)
   let kind = kindOf(extension, file.type)
   let text = ''
+  let warning: string | undefined
   if (TEXT_EXTENSIONS.has(extension)) {
     try {
       text = await readTextFile(file, extension)
@@ -463,6 +466,7 @@ export async function readAttachment(
     text = (await extractXlsxText(file)) ?? ''
     if (!text) {
       text = `[Spreadsheet "${file.name}": could not be read as an Office .xlsx file. Export it as .csv or .txt and attach that, or convert sheets to images.]`
+      warning = 'Could not be read. Export it as .csv and attach that.'
     }
   } else if (extension === 'pdf') {
     // The models only take text and images, so every PDF is converted to
@@ -476,6 +480,7 @@ export async function readAttachment(
     } catch (error) {
       const reason = error instanceof Error && error.name === 'PdfReadError' ? error.message : 'This PDF could not be read.'
       text = `[PDF "${file.name}": ${reason} Paste the text, or attach pages as images.]`
+      warning = `${reason} The AI will not see its contents.`
     }
   } else if (DOCUMENT_EXTENSIONS.has(extension) && !XLSX_EXTENSIONS.has(extension)) {
     // Word, PowerPoint, OpenDocument, EPUB and RTF files become Markdown on
@@ -483,11 +488,13 @@ export async function readAttachment(
     text = (await documentToMarkdown(new Uint8Array(await file.arrayBuffer()), extension)) ?? ''
     if (!text) {
       text = `[Document "${file.name}": no readable text was found in this .${extension} file (it may be empty, protected or damaged). Paste the text, or attach pages as images.]`
+      warning = 'No readable text was found. The AI will not see its contents.'
     }
   } else if (kind === 'document' || (kind === 'sheet' && UNREADABLE_DOCUMENT_EXTENSIONS.has(extension))) {
     // No trustworthy client-side extractor for these. Say so in the context
     // instead of silently attaching a filename the model can't use.
     text = `[Document "${file.name}": this older or proprietary format cannot be read here. Save it as .docx, .pptx, .xlsx or .pdf (or export .txt / .csv), or convert pages to images.]`
+    warning = 'This older format cannot be read. Save it as .docx, .pptx, .xlsx or .pdf.'
   } else if (kind === 'other') {
     // An unfamiliar extension can still be source code or text. Read it when
     // the content says so; otherwise tell the model it is binary.
@@ -502,6 +509,7 @@ export async function readAttachment(
     }
     if (!text) {
       text = `[File "${file.name}": this looks like a binary file, so its contents cannot be read.]`
+      warning = 'Looks like a binary file, so the AI cannot read it.'
     }
   }
 
@@ -561,6 +569,7 @@ export async function readAttachment(
     width,
     height,
     imageError,
+    warning,
   }
 }
 

@@ -25,6 +25,7 @@ import type { ChatMessage } from '../lib/chat'
 import type { Attachment } from '../lib/files'
 import { formatBytes } from '../lib/privacy'
 import { extractImageLinks } from '../lib/imageLinks'
+import { downloadAnswerPdf } from '../lib/exportChat'
 import { blockKindFor, formatCountdown, type BlockKind } from '../lib/blocks'
 import { useBlock, useNow } from '../hooks/useBlock'
 import { useShowThinking } from '../hooks/useShowThinking'
@@ -42,6 +43,16 @@ type ChatMessageProps = {
   canInspect: boolean
   onRegenerate: (id: string) => void
   onInspect: () => void
+}
+
+/** A PDF's title: the answer's first heading or sentence, kept short. */
+function answerTitle(content: string): string {
+  const first = content
+    .split('\n')
+    .map((line) => line.replace(/^#+\s*/, '').replace(/[*_`>#-]+/g, ' ').trim())
+    .find((line) => line.length > 2 && !line.startsWith('```'))
+  const title = (first ?? 'Mint answer').replace(/\s+/g, ' ')
+  return title.length > 70 ? `${title.slice(0, 70).trimEnd()}…` : title
 }
 
 const PAUSE_TITLE: Record<BlockKind, string> = {
@@ -480,6 +491,12 @@ export const ChatMessageView = memo(
             </button>
             <button onClick={exportAnswer} aria-label="Export answer as Markdown">
               <Download size={14} /> Export
+            </button>
+            <button
+              onClick={() => downloadAnswerPdf(message.content, answerTitle(message.content))}
+              aria-label="Save answer as PDF"
+            >
+              <FileText size={14} /> PDF
             </button>
             <button
               onClick={() => onRegenerate(message.id)}

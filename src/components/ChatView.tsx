@@ -34,6 +34,7 @@ import { ChatMessageView } from './ChatMessage'
 import { Composer } from './Composer'
 import { LimitBanner } from './LimitBanner'
 import { ContextMeter } from './ContextMeter'
+import { ExportMenu } from './ExportMenu'
 import { ModelMenu } from './ModelMenu'
 import { ModelSwitchModal } from './ModelSwitchModal'
 
@@ -344,6 +345,7 @@ export function ChatView({
             compacting={isCompacting}
             onCompact={onCompact}
           />
+          {!isEmpty && <ExportMenu chat={chat} disabled={isGenerating} />}
           <button
             className="icon-button"
             onClick={() => onOpenSettings('general')}
