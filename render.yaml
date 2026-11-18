@@ -3,7 +3,7 @@ services:
     name: mint-private-ai
     runtime: node
     plan: free
-    buildCommand: npm ci --include=dev && npm run build
+    buildCommand: npm ci --include=dev --no-audit --no-fund && npm run build
     startCommand: npm start
     healthCheckPath: /healthz
     autoDeploy: true

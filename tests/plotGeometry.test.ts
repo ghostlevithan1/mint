@@ -13,6 +13,7 @@ import {
   sameSpan,
   squareView,
   uncoveredRegions,
+  viewTransform,
   zoomView,
   type View,
 } from '../src/lib/plotGeometry'
@@ -158,6 +159,45 @@ test('equal spans are reused; a zoom is a new picture', () => {
   const a: View = { x0: 0, x1: 10, y0: 0, y1: 10 }
   assert.equal(sameSpan(a, { x0: 3, x1: 13, y0: -2, y1: 8 }), true)
   assert.equal(sameSpan(a, { x0: 0, x1: 5, y0: 0, y1: 10 }), false)
+})
+
+test('a settled frame moves as a sprite during a pan and a zoom', () => {
+  const drawn: View = { x0: 0, x1: 10, y0: 0, y1: 10 }
+  const identity = viewTransform(drawn, drawn, 50, 20, 200, 100)
+  assert.deepEqual(identity, { scaleX: 1, scaleY: 1, translateX: 0, translateY: 0 })
+
+  // Panned 2 units right: everything shifts left by a fifth of the width.
+  const pan = viewTransform(drawn, { x0: 2, x1: 12, y0: 0, y1: 10 }, 50, 20, 200, 100)
+  close(pan.scaleX, 1)
+  close(pan.translateX, -40)
+  close(pan.translateY, 0)
+
+  // Zoomed 2x around the centre: the picture doubles about the plot's centre.
+  const zoom = viewTransform(drawn, { x0: 2.5, x1: 7.5, y0: 2.5, y1: 7.5 }, 50, 20, 200, 100)
+  close(zoom.scaleX, 2)
+  close(zoom.scaleY, 2)
+  close(zoom.translateX, 50 * (1 - 2) + ((-2.5) / 5) * 200)
+  // The drawn pixels for the new window's edges land on the plot's edges.
+  close(zoom.translateX + zoom.scaleX * 100, 50)
+  close(zoom.translateY + zoom.scaleY * 45, 20)
+
+  // Every data point lands on the pixel the current window gives it.
+  const point = { x: 3, y: 7 }
+  const drawnX = 50 + ((point.x - drawn.x0) / 10) * 200
+  const drawnY = 20 + (1 - (point.y - drawn.y0) / 10) * 100
+  const liveX = 50 + ((point.x - 2) / 10) * 200
+  close(pan.translateX + pan.scaleX * drawnX, liveX)
+  close(pan.translateY + pan.scaleY * drawnY, drawnY)
+})
+
+test('a degenerate sprite transform changes nothing', () => {
+  const view: View = { x0: 0, x1: 10, y0: 0, y1: 10 }
+  assert.deepEqual(viewTransform(view, { x0: 1, x1: 1, y0: 0, y1: 10 }, 0, 0, 100, 100), {
+    scaleX: 1,
+    scaleY: 1,
+    translateX: 0,
+    translateY: 0,
+  })
 })
 
 const area = { left: 52, right: 620, top: 16, bottom: 320 }

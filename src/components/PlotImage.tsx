@@ -5,7 +5,7 @@ import { usePlotDetail } from '../hooks/usePlotDetail'
 import { createFieldPainter, type FieldPainter } from '../lib/complexField'
 import { traceImplicit, type Traced } from '../lib/implicit'
 import { sampleCurve, describePlot, formatTick, implicitFunction, isCategoryLine, niceTicks, parsePlotSpec, PlotError, PLOT_COLORS as SERIES, sharedTicks, type ImplicitEquation, type PlotData } from '../lib/plotSpec'
-import { clampLabel, estimateTextWidth, insideArea, nearestOnSegment, panView, placeMarkerLabels, placeReadout, projectViewRect, sameSpan, squareView, uncoveredRegions, zoomView, type View } from '../lib/plotGeometry'
+import { clampLabel, estimateTextWidth, insideArea, nearestOnSegment, panView, placeMarkerLabels, placeReadout, projectViewRect, sameSpan, squareView, uncoveredRegions, viewTransform, zoomView, type View } from '../lib/plotGeometry'
 import { DataChart } from './DataChart'
 
 const W = 640
@@ -47,6 +47,26 @@ function shadePath(
     const top = sy(view.y0 + (row + 1) * dy)
     const bottom = sy(view.y0 + row * dy)
     d += `M${left.toFixed(1)} ${top.toFixed(1)}h${Math.max(0, right - left).toFixed(1)}v${Math.max(0, bottom - top).toFixed(1)}h-${Math.max(0, right - left).toFixed(1)}Z`
+  }
+  return d
+}
+
+/** The polyline for `points`, broken at gaps, poles and undefined values. */
+function buildPath(
+  points: [number, number][],
+  sx: (x: number) => number,
+  sy: (y: number) => number,
+  inside: (y: number) => boolean,
+): string {
+  let d = ''
+  let pen = false
+  for (const [x, y] of points) {
+    if (!Number.isFinite(y) || !inside(y)) {
+      pen = false
+      continue
+    }
+    d += `${pen ? 'L' : 'M'}${sx(x).toFixed(1)} ${sy(y).toFixed(1)}`
+    pen = true
   }
   return d
 }
@@ -243,23 +263,9 @@ function Chart({ data, detail }: { data: PlotData; detail: number }) {
     // so its axes keep their own scales. The extra room goes to the smaller axis.
     return interactive && data.chart !== 'sequence' ? squareView(base, IW / IH) : base
   }, [data, interactive])
-  // Equation curves are sampled over the starting window, which square units
-  // may widen, so the drawn curve reaches the edges of the plot.
-  const lines = useMemo(() => {
-    if (!interactive) return data.lines
-    const samples = Math.max(2, detail)
-    return data.lines.map((line) => {
-      if (!line.expr || line.points.length < 2) return line
-      try {
-        return { ...line, points: sampleCurve(line.expr, line.params ?? {}, samples, initial.x0, initial.x1, line.part) }
-      } catch {
-        return line
-      }
-    })
-  }, [data.lines, detail, initial, interactive])
   // Implicit curves and the picture are rebuilt for the window on screen, so
   // zooming keeps a circle a circle instead of revealing the sample grid.
-  const [traced, setTraced] = useState<{ eq: ImplicitEquation; traced: Traced; key: string }[]>([])
+  const [traced, setTraced] = useState<{ eq: ImplicitEquation; traced: Traced; key: string; view: View }[]>([])
   const painter = useMemo<FieldPainter | null>(() => {
     if (!data.field) return null
     try {
@@ -285,6 +291,7 @@ function Chart({ data, detail }: { data: PlotData; detail: number }) {
   // A new spec (a different graph) starts from its own default window.
   useEffect(() => {
     setView(initial)
+    setSettledView(initial)
     setSelection(null)
     setBarPick(null)
   }, [initial])
@@ -295,9 +302,49 @@ function Chart({ data, detail }: { data: PlotData; detail: number }) {
     return () => window.clearTimeout(timer)
   }, [view])
 
-  useEffect(() => {
-    setSettledView(initial)
-  }, [initial])
+  // Curves are sampled for the settled window only. While the window is still
+  // moving, the existing curve is carried as a sprite by viewTransform below;
+  // new areas are calculated once, after the drag or zoom stops.
+  const lines = useMemo(() => {
+    if (!interactive) return data.lines
+    const samples = Math.max(2, detail)
+    return data.lines.map((line) => {
+      if (!line.expr || line.points.length < 2) return line
+      try {
+        return { ...line, points: sampleCurve(line.expr, line.params ?? {}, samples, settledView.x0, settledView.x1, line.part) }
+      } catch {
+        return line
+      }
+    })
+  }, [data.lines, detail, interactive, settledView])
+
+  // Paths are built for the settled window, then moved by one SVG transform
+  // during a drag. Rebuilding thousands of points on every pointer move is
+  // what makes a graph feel heavy.
+  const sprite = viewTransform(settledView, view, M.left, M.top, IW, IH)
+  const spriteTransform =
+    sprite.scaleX === 1 && sprite.scaleY === 1 && sprite.translateX === 0 && sprite.translateY === 0
+      ? undefined
+      : `translate(${sprite.translateX.toFixed(2)} ${sprite.translateY.toFixed(2)}) scale(${sprite.scaleX.toFixed(4)} ${sprite.scaleY.toFixed(4)})`
+  const settledSx = useCallback(
+    (x: number) => M.left + ((x - settledView.x0) / (settledView.x1 - settledView.x0)) * IW,
+    [settledView],
+  )
+  const settledSy = useCallback(
+    (y: number) => M.top + (1 - (y - settledView.y0) / (settledView.y1 - settledView.y0)) * IH,
+    [settledView],
+  )
+  const settledInside = useCallback(
+    (y: number) => y >= settledView.y0 - (settledView.y1 - settledView.y0) && y <= settledView.y1 + (settledView.y1 - settledView.y0),
+    [settledView],
+  )
+  const curvePaths = useMemo(
+    () =>
+      lines.map((line) =>
+        line.expr && line.mode !== 'scatter' ? buildPath(line.points, settledSx, settledSy, settledInside) : null,
+      ),
+    [lines, settledSx, settledSy, settledInside],
+  )
 
   const implicitEquations = data.implicit
   useEffect(() => {
@@ -308,7 +355,7 @@ function Chart({ data, detail }: { data: PlotData; detail: number }) {
     const key = `${settledView.x0},${settledView.y0},${settledView.x1},${settledView.y1}`
     const next = implicitEquations.flatMap((eq) => {
       try {
-        return [{ eq, key, traced: traceImplicit(implicitFunction(eq), settledView, eq.relation) }]
+        return [{ eq, key, view: settledView, traced: traceImplicit(implicitFunction(eq), settledView, eq.relation) }]
       } catch {
         return []
       }
@@ -494,26 +541,33 @@ function Chart({ data, detail }: { data: PlotData; detail: number }) {
   const inside = (y: number) => y >= y0 - (y1 - y0) && y <= y1 + (y1 - y0)
 
   // Breaks the path at gaps, so asymptotes and undefined regions are not joined.
-  const path = (points: [number, number][], breakAtZero = false) => {
-    let d = ''
-    let pen = false
-    let previous: number | null = null
-    for (const [x, y] of points) {
-      // A cobweb's staircase must not be joined across y = x, only back to it.
-      if (breakAtZero && previous !== null && Math.abs(y) < 1e-12 && previous !== 0) {
-        d += `${pen ? 'L' : 'M'}${sx(x).toFixed(1)} ${sy(y).toFixed(1)}`
-        pen = true
-      }
-      previous = y
-      if (!Number.isFinite(y) || !inside(y)) {
-        pen = false
-        continue
-      }
-      d += `${pen ? 'L' : 'M'}${sx(x).toFixed(1)} ${sy(y).toFixed(1)}`
-      pen = true
-    }
-    return d
-  }
+  const path = (points: [number, number][]) => buildPath(points, sx, sy, inside)
+
+  // Implicit curves are traced once per settled window, so their geometry is
+  // built in that window's pixels and moved with the rest of the sprite. The
+  // window they were traced for travels with them, so a settle never shifts
+  // last frame's shape before the new trace arrives.
+  const implicitShapes = useMemo(
+    () =>
+      traced.map(({ eq, traced: piece, view: drawn }) => {
+        const px = (x: number) => M.left + ((x - drawn.x0) / (drawn.x1 - drawn.x0)) * IW
+        const py = (y: number) => M.top + (1 - (y - drawn.y0) / (drawn.y1 - drawn.y0)) * IH
+        let curve = ''
+        for (let at = 0; at + 3 < piece.segments.length; at += 4) {
+          curve += `M${px(piece.segments[at]).toFixed(1)} ${py(piece.segments[at + 1]).toFixed(1)}L${px(piece.segments[at + 2]).toFixed(1)} ${py(piece.segments[at + 3]).toFixed(1)}`
+        }
+        const move = viewTransform(drawn, view, M.left, M.top, IW, IH)
+        const identity = move.scaleX === 1 && move.scaleY === 1 && move.translateX === 0 && move.translateY === 0
+        return {
+          shade: eq.relation === '=' || !piece.runs.length ? null : shadePath(piece, drawn, px, py),
+          curve,
+          transform: identity
+            ? undefined
+            : `translate(${move.translateX.toFixed(2)} ${move.translateY.toFixed(2)}) scale(${move.scaleX.toFixed(4)} ${move.scaleY.toFixed(4)})`,
+        }
+      }),
+    [traced, view],
+  )
 
   const band = isBars ? IW / Math.max(1, data.bars.length) : 0
   const showEveryLabel = data.bars.length <= 12
@@ -627,30 +681,28 @@ function Chart({ data, detail }: { data: PlotData; detail: number }) {
 
         <g clipPath={`url(#${clipId})`}>
           {/* Inequalities shade the cells where they hold. */}
-          {traced.map(({ eq, traced: piece }, index) =>
-            eq.relation === '=' ? null : (
+          {implicitShapes.map((shape, index) =>
+            shape.shade === null ? null : (
               <path
                 key={`shade${index}`}
                 className="plot-shade"
-                d={piece.runs.length ? shadePath(piece, view, sx, sy) : undefined}
+                d={shape.shade}
+                transform={shape.transform}
                 fill={SERIES[(lines.length + index) % SERIES.length]}
               />
             ),
           )}
-          {traced.map(({ traced: piece }, index) => {
-            let d = ''
-            for (let at = 0; at + 3 < piece.segments.length; at += 4) {
-              d += `M${sx(piece.segments[at]).toFixed(1)} ${sy(piece.segments[at + 1]).toFixed(1)}L${sx(piece.segments[at + 2]).toFixed(1)} ${sy(piece.segments[at + 3]).toFixed(1)}`
-            }
-            return (
-              <path
-                key={`implicit${index}`}
-                className="plot-line"
-                d={d}
-                stroke={SERIES[(lines.length + index) % SERIES.length]}
-              />
-            )
-          })}
+          {implicitShapes.map((shape, index) => (
+            <path
+              key={`implicit${index}`}
+              className="plot-line"
+              d={shape.curve}
+              transform={shape.transform}
+              // A sprite is scaled, but the pen should stay the same thickness.
+              vectorEffect="non-scaling-stroke"
+              stroke={SERIES[(lines.length + index) % SERIES.length]}
+            />
+          ))}
 
           {isBars &&
             data.bars.map((bar, i) => {
@@ -688,7 +740,11 @@ function Chart({ data, detail }: { data: PlotData; detail: number }) {
               <path
                 key={i}
                 className={`plot-line${line.style ? ` is-${line.style}` : ''}`}
-                d={path(line.points)}
+                // Equation curves are drawn for the settled window and moved as
+                // one sprite; short data paths are cheap enough to place live.
+                d={line.expr ? (curvePaths[i] ?? '') : path(line.points)}
+                transform={line.expr ? spriteTransform : undefined}
+                vectorEffect={line.expr ? 'non-scaling-stroke' : undefined}
                 stroke={SERIES[i % SERIES.length]}
               />
             ),

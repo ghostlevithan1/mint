@@ -84,6 +84,30 @@ test('sums, integrals, derivatives, differences and factorials calculate', () =>
   assert.throws(() => compileComplex(parseMath('sum(n, 1, 3)', ['z']), ['z']), /only works on real numbers/)
 })
 
+test('constant calculus is evaluated once, while running totals still vary', () => {
+  // A definite integral with fixed bounds is the same number for every x.
+  const definite = compileReal(parseMath('integral(sin(x), 0, pi)', ['x']), ['x'])
+  close(definite([0]), 2)
+  close(definite([123]), 2)
+  // An x in a bound is the running total, so it must keep following x.
+  const running = compileReal(parseMath('integral(1, 0, x)', ['x']), ['x'])
+  close(running([5]), 5)
+  close(running([7]), 7)
+  // A fixed-point derivative is constant; one taken at a moving point is not.
+  const atThree = compileReal(parseMath('derivative(x^2, 3)', ['x']), ['x'])
+  close(atThree([0]), 6)
+  close(atThree([100]), 6)
+  const atX = compileReal(parseMath('derivative(x^2, x)', ['x']), ['x'])
+  close(atX([4]), 8)
+  // A sum that reads the graph's x still varies; one that does not stays put.
+  const folded = compileReal(parseMath('sum(n^2, 1, 4)', ['x']), ['x'])
+  close(folded([1]), 30)
+  close(folded([9]), 30)
+  const withX = compileReal(parseMath('sum(x*n, 1, 5)', ['x']), ['x'])
+  close(withX([2]), 30)
+  close(withX([3]), 45)
+})
+
 test('complex arithmetic matches known values', () => {
   // i^2 = -1, and a whole-number power stays exact.
   const square = complex('z^2', 0, 1)

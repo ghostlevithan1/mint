@@ -378,6 +378,28 @@ function copyValues(values: ArrayLike<number>, into: number[]): number[] {
   return into
 }
 
+/** True when `node` reads any of `vars`, except the slot named by `skipIndex`. */
+function readsAny(node: MathNode, vars: readonly string[], skipIndex = -1): boolean {
+  return vars.some((name, index) => index !== skipIndex && usesVar(node, name))
+}
+
+/**
+ * Wraps a calculation that cannot change with its inputs, so a curve is not
+ * integrated or summed once per sample. A definite integral such as
+ * integral(sin(x), 0, pi) is one number, however many points the graph asks for.
+ */
+function cacheOnce(fn: RealFn): RealFn {
+  let ready = false
+  let result = 0
+  return (values) => {
+    if (!ready) {
+      result = fn(values)
+      ready = true
+    }
+    return result
+  }
+}
+
 /**
  * Compiles the calls that evaluate another expression repeatedly. Each one
  * keeps its own scratch inputs, so three nested calls can share a compiled
@@ -411,7 +433,7 @@ function compileSum(node: Extract<MathNode, { t: 'call' }>, vars: readonly strin
   const from = compileReal(node.args[1], vars)
   const to = compileReal(node.args[2], vars)
   const scratch = new Array<number>(innerVars.length).fill(0)
-  return (values) => {
+  const evaluate = (values: ArrayLike<number>) => {
     const first = Math.ceil(from(values))
     const last = Math.floor(to(values))
     if (!Number.isFinite(first) || !Number.isFinite(last) || last < first) return 0
@@ -425,6 +447,9 @@ function compileSum(node: Extract<MathNode, { t: 'call' }>, vars: readonly strin
     }
     return total
   }
+  // sum(n^2, 1, 10) has the same value at every x; only sum(x*n, 1, 10) varies.
+  const constant = !readsAny(node.args[0], innerVars, slot) && !readsAny(node.args[1], vars) && !readsAny(node.args[2], vars)
+  return constant ? cacheOnce(evaluate) : evaluate
 }
 
 /** integral(expr, a, b): the area under expr, integrated over the first input. */
@@ -434,7 +459,7 @@ function compileIntegral(node: Extract<MathNode, { t: 'call' }>, vars: readonly 
   const from = compileReal(node.args[1], vars)
   const to = compileReal(node.args[2], vars)
   const scratch = new Array<number>(vars.length).fill(0)
-  return (values) => {
+  const evaluate = (values: ArrayLike<number>) => {
     const a = from(values)
     const b = to(values)
     if (!Number.isFinite(a) || !Number.isFinite(b)) return Number.NaN
@@ -452,6 +477,9 @@ function compileIntegral(node: Extract<MathNode, { t: 'call' }>, vars: readonly 
     }
     return (total * step) / 3
   }
+  // integral(sin(x), 0, pi) is a number; integral(1, 0, x) is a running total.
+  const constant = !readsAny(node.args[0], vars, 0) && !readsAny(node.args[1], vars) && !readsAny(node.args[2], vars)
+  return constant ? cacheOnce(evaluate) : evaluate
 }
 
 /** derivative(expr, at): the slope of expr at that point, by a central difference. */
@@ -460,7 +488,7 @@ function compileDerivative(node: Extract<MathNode, { t: 'call' }>, vars: readonl
   const fn = compileReal(node.args[0], vars)
   const where = compileReal(node.args[1], vars)
   const scratch = new Array<number>(vars.length).fill(0)
-  return (values) => {
+  const evaluate = (values: ArrayLike<number>) => {
     const x = where(values)
     if (!Number.isFinite(x)) return Number.NaN
     copyValues(values, scratch)
@@ -476,6 +504,9 @@ function compileDerivative(node: Extract<MathNode, { t: 'call' }>, vars: readonl
     // Richardson extrapolation removes the h² error term, so a cubic is exact.
     return (4 * slope(step / 2) - slope(step)) / 3
   }
+  // The slope of a curve at a fixed point is a number, not a new curve.
+  const constant = !readsAny(node.args[0], vars, 0) && !readsAny(node.args[1], vars)
+  return constant ? cacheOnce(evaluate) : evaluate
 }
 
 /** difference(expr, at, h = 1): the forward difference f(x + h) - f(x). */
@@ -485,7 +516,7 @@ function compileDifference(node: Extract<MathNode, { t: 'call' }>, vars: readonl
   const where = compileReal(node.args[1], vars)
   const span = node.args[2] ? compileReal(node.args[2], vars) : null
   const scratch = new Array<number>(vars.length).fill(0)
-  return (values) => {
+  const evaluate = (values: ArrayLike<number>) => {
     const x = where(values)
     const step = span ? span(values) : 1
     if (!Number.isFinite(x) || !Number.isFinite(step) || step === 0) return Number.NaN
@@ -496,6 +527,10 @@ function compileDifference(node: Extract<MathNode, { t: 'call' }>, vars: readonl
     const ahead = fn(scratch)
     return ahead - here
   }
+  // A forward difference at a fixed point is one value, however many samples a curve takes.
+  const constant =
+    !readsAny(node.args[0], vars, 0) && !readsAny(node.args[1], vars) && !(node.args[2] && readsAny(node.args[2], vars))
+  return constant ? cacheOnce(evaluate) : evaluate
 }
 
 // ---------- complex numbers ----------

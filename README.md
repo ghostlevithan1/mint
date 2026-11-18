@@ -38,12 +38,13 @@ npm start
 ```
 
 `npm start` runs the production server on `PORT` (default `3000`; Render injects
-`10000`). `npm run build` compiles the server to plain JavaScript
-(`dist-server/index.js`) and writes Brotli and gzip copies of the app, so the
-server starts on bare Node, holds the whole app in memory and never compresses
-at request time. `npm run start:source` runs the TypeScript server directly
-through tsx, for trying server changes without a build. `npm run preview` still
-works for a quick static check.
+`10000`). `npm run build` (`scripts/build.mjs`) type-checks while the client
+bundle builds, then builds the server and precompresses the client in parallel.
+It compiles the server to plain JavaScript (`dist-server/index.js`) and writes
+Brotli and gzip copies of the app, so the server starts on bare Node, holds the
+whole app in memory and never compresses at request time. `npm run start:source`
+runs the TypeScript server directly through tsx, for trying server changes
+without a build. `npm run preview` still works for a quick static check.
 
 ## Access
 
@@ -196,7 +197,9 @@ that `Esc` stops the request.
   browser draws as an SVG graph, with marked points for roots and turning points.
   Line and scatter graphs use square units, like a Desmos window: one data unit is
   the same length on both axes, so shapes are never stretched. Scroll to zoom, drag
-  to pan, and click a curve for exact values. Specs are
+  to pan, and click a curve for exact values. While a pan or zoom is in progress
+  the drawn graph is carried as a sprite; curves are sampled again, and the
+  picture paints only the newly exposed area, once the movement stops. Specs are
   validated and equations go through a whitelist parser, so the model never runs
   code. No server or Python is involved. Equations use `x`, and `y` on the plane,
   `z` in a complex graph, `i` for the imaginary unit, and `n` in a sequence;
@@ -204,7 +207,10 @@ that `Esc` stops the request.
   and implicit multiplication (`2x`, `xy`, `3sin(x)`, `2π`); and the functions
   `sin cos tan asin acos atan sinh cosh tanh exp log ln log2 log10 sqrt cbrt abs
   floor ceil round sign fract min max pow atan2 mod re im conj arg`. Angles are in
-  radians. Named constants can be given in `"params"`.
+  radians. `sum`/`summation`, `integral`/`integrate`, `derivative`/`deriv`,
+  `difference`/`fdiff`, `factorial`, `gamma` and `lgamma` also work; a definite
+  integral or a sum that does not read `x` is worked out once, not once per sample.
+  Named constants can be given in `"params"`.
   Charts are `line`, `scatter`, `bar`, `histogram`, `pie`, `cobweb`, `sequence`,
   `complex` and `fractal`:
   - **Equations in x and y**, such as `x^2 + y^2 = 1` or `y > x^2`, are traced over
@@ -217,8 +223,10 @@ that `Esc` stops the request.
     f(z) as a hue and its size as brightness (zeros dark, poles white); a complex
     `f(x)` in a line chart draws its real and imaginary parts as two curves.
   - **Fractals**: `fractal` with `mode` mandelbrot, julia or newton, an `expr`, the
-    Julia constant `c` and `maxIterations`. They zoom 4096×; a wheel zoom paints in
-    slices so the page stays responsive (`src/lib/complexField.ts`).
+    Julia constant `c` and `maxIterations`. They zoom 4096×. Pixels already painted
+    are kept in an offscreen frame, so a pan or zoom slides them into place as a
+    sprite and only the newly exposed strips are calculated after the movement
+    settles (`src/lib/complexField.ts`, `src/components/PlotImage.tsx`).
   **Graph detail** (Settings → General → Graphs) sets how many points are worked out
   along each equation curve before they are joined with straight lines (20 to 2,000;
   default 600). Graphs already on screen redraw when it changes. Each graph also
@@ -363,8 +371,9 @@ variables in the dashboard (they are `sync: false`, so they are never committed)
 - `MINT_DEVICE_SECRET` — signs the device cookie and the bans written into it; any
   random string of 16+ characters. Keep it fixed (`render.yaml` generates one)
 
-Build with `npm ci --include=dev && npm run build`, start with `npm start`. The
-health check is `/healthz`. Every endpoint is public: `/api/status` only reports
+Build with `npm ci --include=dev --no-audit --no-fund && npm run build`, start
+with `npm start`. The health check is `/healthz`. Every endpoint is public:
+`/api/status` only reports
 configuration (and whether this device is banned), while `/api/chat`, `/api/web` and
 `/api/search` are limited per device.
 

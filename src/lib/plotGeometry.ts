@@ -109,6 +109,40 @@ export function projectViewRect(cached: View, view: View, w: number, h: number):
   }
 }
 
+/** An SVG transform: point p drawn for `drawn` becomes translate + scale * p. */
+export type ViewTransform = { scaleX: number; scaleY: number; translateX: number; translateY: number }
+
+/**
+ * Where a frame drawn for `drawn` lands in the plot while the window shows
+ * `view`. It lets an interaction slide and scale already-drawn curves (a
+ * sprite) until the new view settles, instead of rebuilding every path on
+ * each pointer move. `left`/`top` and `width`/`height` are the plot area's
+ * offset and size in viewBox units.
+ */
+export function viewTransform(
+  drawn: View,
+  view: View,
+  left: number,
+  top: number,
+  width: number,
+  height: number,
+): ViewTransform {
+  const spanX = view.x1 - view.x0
+  const spanY = view.y1 - view.y0
+  if (!(spanX > 0) || !(spanY > 0) || !(width > 0) || !(height > 0)) {
+    return { scaleX: 1, scaleY: 1, translateX: 0, translateY: 0 }
+  }
+  const scaleX = (drawn.x1 - drawn.x0) / spanX
+  const scaleY = (drawn.y1 - drawn.y0) / spanY
+  return {
+    scaleX,
+    scaleY,
+    translateX: left * (1 - scaleX) + ((drawn.x0 - view.x0) / spanX) * width,
+    // View y grows upwards while SVG y grows downwards, so the sign flips.
+    translateY: top * (1 - scaleY) + ((view.y1 - drawn.y1) / spanY) * height,
+  }
+}
+
 /**
  * The parts of a w x h frame a rectangle does not cover: at most four bands
  * (above, below, left and right). Painting only these is what makes a pan cost

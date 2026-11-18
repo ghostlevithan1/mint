@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build && vite build --config vite.server.config.ts && node scripts/precompress.mjs",
+    "build": "node scripts/build.mjs",
     "preview": "vite preview",
     "start": "node --max-old-space-size=320 dist-server/index.js",
     "start:source": "tsx server/index.ts",
