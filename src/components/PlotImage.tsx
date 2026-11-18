@@ -5,7 +5,7 @@ import { usePlotDetail } from '../hooks/usePlotDetail'
 import { createFieldPainter, type FieldPainter } from '../lib/complexField'
 import { traceImplicit, type Traced } from '../lib/implicit'
 import { sampleCurve, describePlot, formatTick, implicitFunction, isCategoryLine, niceTicks, parsePlotSpec, PlotError, PLOT_COLORS as SERIES, sharedTicks, type ImplicitEquation, type PlotData } from '../lib/plotSpec'
-import { clampLabel, estimateTextWidth, insideArea, nearestOnSegment, panView, placeMarkerLabels, placeReadout, squareView, zoomView, type View } from '../lib/plotGeometry'
+import { clampLabel, estimateTextWidth, insideArea, nearestOnSegment, panView, placeMarkerLabels, placeReadout, projectViewRect, sameSpan, squareView, uncoveredRegions, zoomView, type View } from '../lib/plotGeometry'
 import { DataChart } from './DataChart'
 
 const W = 640
@@ -52,13 +52,55 @@ function shadePath(
 }
 
 /**
- * The picture behind a complex graph or fractal. It is painted in row chunks,
- * yielding between them, so a deep zoom never freezes the page; panning paints
- * fewer rows and the still frame fills in the rest.
+ * The picture behind a complex graph or fractal. Pixels already painted are
+ * kept in an offscreen frame: panning slides that frame into place at once and
+ * only the freshly exposed strips are calculated, once the window settles.
+ * Painting is done in row chunks, yielding between them, so a deep zoom never
+ * freezes the page.
  */
-function FieldCanvas({ painter, view, quick }: { painter: FieldPainter; view: View; quick: boolean }) {
+
+/** The colour behind a field while its newly exposed strips are still blank. */
+const FIELD_BACKGROUND = '#0b0b0c'
+
+type CachedFrame = { canvas: HTMLCanvasElement; view: View }
+
+/** Draws the cached picture where `view` puts it, leaving the rest blank. */
+function blitFrame(
+  context: CanvasRenderingContext2D,
+  source: HTMLCanvasElement,
+  rect: { left: number; top: number; right: number; bottom: number },
+  width: number,
+  height: number,
+) {
+  context.fillStyle = FIELD_BACKGROUND
+  context.fillRect(0, 0, width, height)
+  const left = Math.max(0, rect.left)
+  const right = Math.min(width, rect.right)
+  const top = Math.max(0, rect.top)
+  const bottom = Math.min(height, rect.bottom)
+  const spanX = rect.right - rect.left
+  const spanY = rect.bottom - rect.top
+  if (right <= left || bottom <= top || !(spanX > 0) || !(spanY > 0)) return
+  context.imageSmoothingEnabled = false
+  context.drawImage(
+    source,
+    ((left - rect.left) / spanX) * source.width,
+    ((top - rect.top) / spanY) * source.height,
+    ((right - left) / spanX) * source.width,
+    ((bottom - top) / spanY) * source.height,
+    left,
+    top,
+    right - left,
+    bottom - top,
+  )
+  context.imageSmoothingEnabled = true
+}
+
+function FieldCanvas({ painter, view, settled }: { painter: FieldPainter; view: View; settled: boolean }) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const cacheRef = useRef<CachedFrame | null>(null)
+  const bufferRef = useRef<{ data: ImageData; width: number; height: number } | null>(null)
   const [size, setSize] = useState({ w: 0, h: 0 })
 
   useEffect(() => {
@@ -74,37 +116,105 @@ function FieldCanvas({ painter, view, quick }: { painter: FieldPainter; view: Vi
     return () => observer.disconnect()
   }, [])
 
+  // A different equation is a different picture, so nothing cached applies.
+  useEffect(() => {
+    cacheRef.current = null
+  }, [painter])
+
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas || size.w < 2 || size.h < 2) return
     const ratio = Math.min(2, window.devicePixelRatio || 1)
-    const width = Math.round(size.w * ratio)
-    const height = Math.round(size.h * ratio)
-    canvas.width = width
-    canvas.height = height
+    const width = Math.max(1, Math.round(size.w * ratio))
+    const height = Math.max(1, Math.round(size.h * ratio))
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width
+      canvas.height = height
+      cacheRef.current = null
+    }
     const context = canvas.getContext('2d')
     if (!context) return
-    const image = context.createImageData(width, height)
+
+    const cached = cacheRef.current
+    const usable = cached !== null && cached.canvas.width === width && cached.canvas.height === height
+    // Where the picture already painted belongs in the new window.
+    const covered = usable && cached ? projectViewRect(cached.view, view, width, height) : null
+    if (covered && cached) blitFrame(context, cached.canvas, covered, width, height)
+    else context.clearRect(0, 0, width, height)
+
+    // While the window is still moving, the carried picture is the whole frame.
+    // The pixels that scrolled into view wait until the user lets go.
+    if (!settled && covered) return
+
+    // Zooming changes the meaning of every pixel, so only a pan can reuse them.
+    const reusable = covered !== null && usable && cached !== null && sameSpan(cached.view, view)
+    const regions = reusable
+      ? uncoveredRegions(covered, width, height)
+      : [{ left: 0, top: 0, right: width, bottom: height }]
+
+    let image = bufferRef.current
+    if (!image || image.width !== width || image.height !== height) {
+      image = { data: context.createImageData(width, height), width, height }
+      bufferRef.current = image
+    }
+    const pixels = image.data.data
+
     let cancelled = false
     let timer = 0
-    let painted = 0
+    let regionIndex = 0
+    let row = Math.floor(regions[0]?.top ?? 0)
     // Rows are painted in slices, yielding between them, so the page stays responsive.
-    // While panning the slices are bigger, so a rough frame lands almost at once.
-    const chunk = Math.max(1, Math.ceil(height / (quick ? 3 : 20)))
+    const chunk = Math.max(1, Math.ceil(height / (settled ? 20 : 4)))
+
+    const remember = () => {
+      let cache = cacheRef.current?.canvas
+      if (!cache || cache.width !== width || cache.height !== height) {
+        cache = document.createElement('canvas')
+        cache.width = width
+        cache.height = height
+      }
+      const cacheContext = cache.getContext('2d')
+      if (!cacheContext) return
+      cacheContext.clearRect(0, 0, width, height)
+      cacheContext.drawImage(canvas, 0, 0)
+      cacheRef.current = { canvas: cache, view }
+    }
+
     const paintNext = () => {
       if (cancelled) return
-      const to = Math.min(height, painted + chunk)
-      painter.paint(view, width, height, painted, to, image.data)
-      painted = to
-      context.putImageData(image, 0, 0, 0, 0, width, painted)
-      if (painted < height) timer = window.setTimeout(paintNext, 0)
+      let rowsLeft = chunk
+      while (rowsLeft > 0 && regionIndex < regions.length) {
+        const region = regions[regionIndex]
+        // Whole pixels only, so the dirty rectangle matches what was painted.
+        const left = Math.max(0, Math.floor(region.left))
+        const right = Math.min(width, Math.ceil(region.right))
+        const from = Math.max(Math.floor(region.top), row)
+        const to = Math.min(Math.ceil(region.bottom), from + rowsLeft)
+        if (to <= from || right <= left) {
+          regionIndex += 1
+          row = Math.floor(regions[regionIndex]?.top ?? 0)
+          continue
+        }
+        painter.paintRect(view, width, height, left, from, right, to, pixels)
+        context.putImageData(image.data, 0, 0, left, from, right - left, to - from)
+        rowsLeft -= to - from
+        row = to
+        if (row >= region.bottom) {
+          regionIndex += 1
+          row = Math.floor(regions[regionIndex]?.top ?? 0)
+        }
+      }
+      if (regionIndex < regions.length) timer = window.setTimeout(paintNext, 0)
+      // The frame is whole now; the next pan can slide it instead of repainting.
+      else remember()
     }
+
     paintNext()
     return () => {
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [painter, view, size, quick])
+  }, [painter, view, size, settled])
 
   return (
     <div className="plot-field" ref={wrapRef}>
@@ -410,6 +520,13 @@ function Chart({ data, detail }: { data: PlotData; detail: number }) {
   const pickedBar = barPick !== null ? data.bars[barPick] : null
   const zoomed =
     x1 - x0 < initial.x1 - initial.x0 - 1e-9 || y1 - y0 < initial.y1 - initial.y0 - 1e-9
+  // The field painter follows the live window while it moves, and fills the
+  // newly exposed pixels once the debounced window matches it again.
+  const fieldSettled =
+    settledView.x0 === view.x0 &&
+    settledView.x1 === view.x1 &&
+    settledView.y0 === view.y0 &&
+    settledView.y1 === view.y1
 
   const dotX = selection ? sx(selection.x) : 0
   const dotY = selection ? sy(selection.y) : 0
@@ -461,7 +578,7 @@ function Chart({ data, detail }: { data: PlotData; detail: number }) {
             height: `${(IH / H) * 100}%`,
           }}
         >
-          <FieldCanvas painter={painter} view={settledView} quick={dragging} />
+          <FieldCanvas painter={painter} view={view} settled={fieldSettled} />
         </div>
       )}
       <svg

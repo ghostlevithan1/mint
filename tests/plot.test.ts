@@ -122,7 +122,21 @@ test('every equation name the prompt allows is supported by the parser', () => {
   const listed = SYSTEM_PROMPT.match(/Allowed names: ([^.]+)\./)?.[1]
   assert.ok(listed, 'the prompt lists the equation names')
   // Names that take more than one value, so the check calls them correctly.
-  const arity: Record<string, number> = { min: 2, max: 2, pow: 2, atan2: 2, mod: 2 }
+  const arity: Record<string, number> = {
+    min: 2,
+    max: 2,
+    pow: 2,
+    atan2: 2,
+    mod: 2,
+    sum: 3,
+    summation: 3,
+    integral: 3,
+    integrate: 3,
+    derivative: 2,
+    deriv: 2,
+    difference: 2,
+    fdiff: 2,
+  }
   // Inputs are checked where they are meaningful: y only exists on the plane, z in a complex graph.
   const varsFor: Record<string, string[]> = { y: ['x', 'y'], z: ['z', 'x', 'y'], n: ['n', 'x'], i: ['i', 'z'] }
   const constants = new Set(['x', 'pi', 'π', 'e', 'tau', 'τ'])

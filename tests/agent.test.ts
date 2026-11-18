@@ -42,6 +42,12 @@ test('native tool-call markup a model prints beside the tool block is hidden too
 test('the calculator is exact and refuses code', () => {
   assert.equal(runCalculator('(3.2*10^5) / 4.8'), '(3.2*10^5) / 4.8 = 66666.6666667')
   assert.equal(runCalculator('12 × 3 ÷ 4'), '12 × 3 ÷ 4 = 9')
+  assert.equal(runCalculator('sum(n^2, 1, 10)'), 'sum(n^2, 1, 10) = 385')
+  assert.equal(runCalculator('factorial(5) + 3'), 'factorial(5) + 3 = 123')
+  assert.equal(runCalculator('derivative(x^3, 2)'), 'derivative(x^3, 2) = 12')
+  assert.match(runCalculator('integral(sin(x), 0, pi)'), /^integral\(sin\(x\), 0, pi\) = /)
+  const integral = Number(runCalculator('integral(sin(x), 0, pi)').split(' = ')[1])
+  assert.ok(Math.abs(integral - 2) < 1e-8, `integral gave ${integral}`)
   assert.match(runCalculator('process.exit()'), /^Could not calculate/)
   assert.match(runCalculator('1/0'), /no finite value/)
 })

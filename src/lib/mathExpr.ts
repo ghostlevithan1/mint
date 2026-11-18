@@ -16,10 +16,53 @@ export type MathNode =
   | { t: 'bin'; op: '+' | '-' | '*' | '/' | '^'; a: MathNode; b: MathNode }
   | { t: 'call'; name: string; args: MathNode[] }
 
-type FnSpec = { fn: (...args: number[]) => number; min: number; max: number }
+type FnSpec = { fn?: (...args: number[]) => number; min: number; max: number }
 
 const one = (fn: (value: number) => number): FnSpec => ({ fn, min: 1, max: 1 })
 const two = (fn: (a: number, b: number) => number): FnSpec => ({ fn, min: 2, max: 2 })
+
+/**
+ * The Lanczos coefficients (g = 7, n = 9). With them, gammaValue matches the
+ * true gamma function to about 15 significant digits for ordinary inputs, which
+ * is enough for graphs and for the calculator.
+ */
+const LANCZOS = [
+  0.99999999999980993, 676.5203681218851, -1259.1392167224028, 771.32342877765313,
+  -176.61502916214059, 12.507343278686905, -0.13857109526572012, 9.9843695780195716e-6,
+  1.5056327351493116e-7,
+]
+
+/** The gamma function Γ(x) for real x. Poles at 0, -1, -2 ... are NaN. */
+export function gammaValue(x: number): number {
+  if (!Number.isFinite(x)) return x
+  if (Number.isInteger(x)) return x > 0 ? factorialValue(x - 1) : Number.NaN
+  // Reflection keeps the series below in its accurate range for negative x.
+  if (x < 0.5) return Math.PI / (Math.sin(Math.PI * x) * gammaValue(1 - x))
+  const z = x - 1
+  let series = LANCZOS[0]
+  for (let index = 1; index < LANCZOS.length; index += 1) series += LANCZOS[index] / (z + index)
+  const t = z + 7.5
+  return Math.sqrt(2 * Math.PI) * Math.pow(t, z + 0.5) * Math.exp(-t) * series
+}
+
+/** n! for whole n, and Γ(n + 1) for other values, as on a scientific calculator. */
+export function factorialValue(n: number): number {
+  if (!Number.isFinite(n)) return Number.NaN
+  if (Number.isInteger(n)) {
+    if (n < 0) return Number.NaN
+    if (n > 170) return Number.POSITIVE_INFINITY
+    let product = 1
+    for (let step = 2; step <= n; step += 1) product *= step
+    return product
+  }
+  return gammaValue(n + 1)
+}
+
+/** ln|Γ(x)|, for values whose factorial overflows a double. */
+export function lgammaValue(x: number): number {
+  const gamma = gammaValue(x)
+  return Number.isFinite(gamma) ? Math.log(Math.abs(gamma)) : gamma
+}
 
 /** Every function the parser knows, with how many values each takes. */
 const FUNCTIONS: Record<string, FnSpec> = {
@@ -35,6 +78,18 @@ const FUNCTIONS: Record<string, FnSpec> = {
   pow: two(Math.pow),
   atan2: two(Math.atan2),
   mod: two((a, b) => ((a % b) + b) % b),
+  // Calculus and sequences. The first argument is the expression; see compileSpecial.
+  sum: { min: 3, max: 3 },
+  summation: { min: 3, max: 3 },
+  integral: { min: 3, max: 3 },
+  integrate: { min: 3, max: 3 },
+  derivative: { min: 2, max: 2 },
+  deriv: { min: 2, max: 2 },
+  difference: { min: 2, max: 3 },
+  fdiff: { min: 2, max: 3 },
+  factorial: one(factorialValue),
+  gamma: one(gammaValue),
+  lgamma: one(lgammaValue),
   // Real-valued stand-ins, so an equation written for complex numbers also runs on reals.
   re: one((value) => value),
   im: one(() => 0),
@@ -58,6 +113,9 @@ export const RESERVED_NAMES = new Set([
   ...FUNCTION_NAMES, ...Object.keys(CONSTANTS), 'x', 'y', 'z', 'n', 't', 'i', 'p', 'c',
 ])
 
+/** Calls that bind an index of their own, valid only inside their expression. */
+const BINDER_NAMES: Record<string, string> = { sum: 'n', summation: 'n' }
+
 const SYMBOLS: Record<string, string> = {
   'π': ' pi ', 'τ': ' tau ', '−': ' - ', '–': ' - ', '—': ' - ',
   '×': ' * ', '·': ' * ', '⋅': ' * ', '÷': ' / ',
@@ -68,7 +126,7 @@ function normalize(expr: string): string {
 }
 
 function tokenize(expr: string): string[] {
-  return normalize(expr).trim().replace(/\*\*/g, '^').match(/\d*\.?\d+(?:e[+-]?\d+)?|[a-z_][a-z0-9_]*|[-+*/^(),]|\S/gi) ?? []
+  return normalize(expr).trim().replace(/\*\*/g, '^').match(/\d*\.?\d+(?:e[+-]?\d+)?|[a-z_][a-z0-9_]*|[-+*/^(),!]|\S/gi) ?? []
 }
 
 /**
@@ -117,6 +175,8 @@ export function parseMath(expr: string, vars: readonly string[], params: Record<
   })
 
   let pos = 0
+  // Names bound by a surrounding call, such as the n in sum(n^2, 1, 10).
+  let bound = new Set<string>()
   const peek = () => tokens[pos]
   const take = () => tokens[pos++]
   const expect = (token: string) => {
@@ -163,7 +223,12 @@ export function parseMath(expr: string, vars: readonly string[], params: Record<
   }
 
   const power = (): MathNode => {
-    const base = primary()
+    let base = primary()
+    // Postfix factorial, as in 5! or x!: it binds tighter than a power.
+    while (peek() === '!') {
+      take()
+      base = { t: 'call', name: 'factorial', args: [base] }
+    }
     if (peek() !== '^') return base
     take()
     return { t: 'bin', op: '^', a: base, b: unary() }
@@ -183,12 +248,17 @@ export function parseMath(expr: string, vars: readonly string[], params: Record<
       return { t: 'num', v: value }
     }
     const name = token.toLowerCase()
-    if (vars.includes(name) || name === 'i') return { t: 'var', name }
+    if (vars.includes(name) || bound.has(name) || name === 'i') return { t: 'var', name }
     if (Object.hasOwn(params, name)) return { t: 'num', v: params[name] }
     if (Object.hasOwn(CONSTANTS, name)) return { t: 'num', v: CONSTANTS[name] }
     if (Object.hasOwn(FUNCTIONS, name) && peek() === '(') {
       take()
+      // A summation names its own index, so n is valid inside its expression.
+      const binder = BINDER_NAMES[name]
+      const outer = bound
+      if (binder) bound = new Set([...bound, binder])
       const args: MathNode[] = [expression()]
+      bound = outer
       while (peek() === ',') {
         take()
         args.push(expression())
@@ -277,7 +347,10 @@ export function compileReal(node: MathNode, vars: readonly string[]): RealFn {
       break
     }
     case 'call': {
+      const special = compileSpecial(node, vars)
+      if (special) return special
       const { fn } = FUNCTIONS[node.name]
+      if (!fn) throw new PlotError(`${node.name} is not supported here.`)
       const args = node.args.map((arg) => compileReal(arg, vars))
       if (args.length === 1) {
         const [a] = args
@@ -291,6 +364,138 @@ export function compileReal(node: MathNode, vars: readonly string[]): RealFn {
     }
   }
   throw new PlotError('The equation is not valid math syntax.')
+}
+
+// ---------- sums, integrals, derivatives and forward differences ----------
+
+/** The most terms one summation evaluates, so a graph can never lock the page. */
+const MAX_SUM_TERMS = 20_000
+/** Simpson's rule with 256 panels, enough for the curves a school graph shows. */
+const INTEGRAL_STEPS = 256
+
+function copyValues(values: ArrayLike<number>, into: number[]): number[] {
+  for (let index = 0; index < into.length; index += 1) into[index] = values[index]
+  return into
+}
+
+/**
+ * Compiles the calls that evaluate another expression repeatedly. Each one
+ * keeps its own scratch inputs, so three nested calls can share a compiled
+ * equation without overwriting each other's x.
+ */
+function compileSpecial(node: Extract<MathNode, { t: 'call' }>, vars: readonly string[]): RealFn | null {
+  switch (node.name) {
+    case 'sum':
+    case 'summation':
+      return compileSum(node, vars)
+    case 'integral':
+    case 'integrate':
+      return compileIntegral(node, vars)
+    case 'derivative':
+    case 'deriv':
+      return compileDerivative(node, vars)
+    case 'difference':
+    case 'fdiff':
+      return compileDifference(node, vars)
+    default:
+      return null
+  }
+}
+
+/** sum(expr, from, to): expr is evaluated for every whole n from `from` to `to`. */
+function compileSum(node: Extract<MathNode, { t: 'call' }>, vars: readonly string[]): RealFn {
+  const existing = vars.indexOf('n')
+  const innerVars = existing >= 0 ? vars : [...vars, 'n']
+  const slot = existing >= 0 ? existing : innerVars.length - 1
+  const term = compileReal(node.args[0], innerVars)
+  const from = compileReal(node.args[1], vars)
+  const to = compileReal(node.args[2], vars)
+  const scratch = new Array<number>(innerVars.length).fill(0)
+  return (values) => {
+    const first = Math.ceil(from(values))
+    const last = Math.floor(to(values))
+    if (!Number.isFinite(first) || !Number.isFinite(last) || last < first) return 0
+    // An unbounded sum is capped instead of stalling; a student never needs more.
+    const end = Math.min(last, first + MAX_SUM_TERMS - 1)
+    copyValues(values, scratch)
+    let total = 0
+    for (let n = first; n <= end; n += 1) {
+      scratch[slot] = n
+      total += term(scratch)
+    }
+    return total
+  }
+}
+
+/** integral(expr, a, b): the area under expr, integrated over the first input. */
+function compileIntegral(node: Extract<MathNode, { t: 'call' }>, vars: readonly string[]): RealFn {
+  if (!vars.length) throw new PlotError('integral needs a variable, such as x.')
+  const fn = compileReal(node.args[0], vars)
+  const from = compileReal(node.args[1], vars)
+  const to = compileReal(node.args[2], vars)
+  const scratch = new Array<number>(vars.length).fill(0)
+  return (values) => {
+    const a = from(values)
+    const b = to(values)
+    if (!Number.isFinite(a) || !Number.isFinite(b)) return Number.NaN
+    const step = (b - a) / INTEGRAL_STEPS
+    if (step === 0) return 0
+    copyValues(values, scratch)
+    const at = (x: number) => {
+      scratch[0] = x
+      return fn(scratch)
+    }
+    // Simpson's rule: 1, 4, 2, 4 ... 4, 1.
+    let total = at(a) + at(b)
+    for (let index = 1; index < INTEGRAL_STEPS; index += 1) {
+      total += at(a + index * step) * (index % 2 ? 4 : 2)
+    }
+    return (total * step) / 3
+  }
+}
+
+/** derivative(expr, at): the slope of expr at that point, by a central difference. */
+function compileDerivative(node: Extract<MathNode, { t: 'call' }>, vars: readonly string[]): RealFn {
+  if (!vars.length) throw new PlotError('derivative needs a variable, such as x.')
+  const fn = compileReal(node.args[0], vars)
+  const where = compileReal(node.args[1], vars)
+  const scratch = new Array<number>(vars.length).fill(0)
+  return (values) => {
+    const x = where(values)
+    if (!Number.isFinite(x)) return Number.NaN
+    copyValues(values, scratch)
+    // A step that shrinks with x keeps the difference accurate far from zero.
+    const step = 1e-4 * Math.max(1, Math.abs(x))
+    const slope = (h: number) => {
+      scratch[0] = x + h
+      const ahead = fn(scratch)
+      scratch[0] = x - h
+      const behind = fn(scratch)
+      return (ahead - behind) / (2 * h)
+    }
+    // Richardson extrapolation removes the h² error term, so a cubic is exact.
+    return (4 * slope(step / 2) - slope(step)) / 3
+  }
+}
+
+/** difference(expr, at, h = 1): the forward difference f(x + h) - f(x). */
+function compileDifference(node: Extract<MathNode, { t: 'call' }>, vars: readonly string[]): RealFn {
+  if (!vars.length) throw new PlotError('difference needs a variable, such as x.')
+  const fn = compileReal(node.args[0], vars)
+  const where = compileReal(node.args[1], vars)
+  const span = node.args[2] ? compileReal(node.args[2], vars) : null
+  const scratch = new Array<number>(vars.length).fill(0)
+  return (values) => {
+    const x = where(values)
+    const step = span ? span(values) : 1
+    if (!Number.isFinite(x) || !Number.isFinite(step) || step === 0) return Number.NaN
+    copyValues(values, scratch)
+    scratch[0] = x
+    const here = fn(scratch)
+    scratch[0] = x + step
+    const ahead = fn(scratch)
+    return ahead - here
+  }
 }
 
 // ---------- complex numbers ----------

@@ -48,6 +48,42 @@ test('unknown names, symbols and wrong argument counts are refused', () => {
   )
 })
 
+test('sums, integrals, derivatives, differences and factorials calculate', () => {
+  // Summation binds its own n, and can still use the graph's x.
+  assert.equal(real('sum(n, 1, 10)', []), 55)
+  assert.equal(real('sum(n^2, 1, 10)', []), 385)
+  assert.equal(real('sum(x*n, 1, 5)', [2]), 30)
+  assert.equal(real('summation(n, 1, 4)', []), 10)
+  // Bounds are inclusive whole numbers, even when written with fractions.
+  assert.equal(real('sum(n, 1.5, 3.2)', []), 5)
+  assert.equal(real('sum(n, 5, 1)', []), 0)
+
+  // Simpson's rule handles polynomials and trigonometry.
+  close(real('integral(x^2, 0, 3)', []), 9, 1e-9)
+  close(real('integrate(sin(x), 0, pi)', []), 2, 1e-9)
+  close(real('integral(2x + 1, 0, 4)', []), 20, 1e-9)
+
+  // A central difference is exact for a cubic.
+  close(real('derivative(x^3, 2)', []), 12, 1e-3)
+  close(real('deriv(sin(x), 0)', []), 1, 1e-4)
+
+  // The forward difference is f(x + h) - f(x), h defaulting to 1.
+  assert.equal(real('difference(x^2, 3)', []), 7)
+  assert.equal(real('fdiff(x^2, 3, 0.5)', []), 3.25)
+
+  // Factorial and gamma, including the postfix form.
+  assert.equal(real('factorial(5)', []), 120)
+  assert.equal(real('5!', []), 120)
+  assert.equal(real('factorial(0)', []), 1)
+  close(real('factorial(0.5)', []), Math.sqrt(Math.PI) / 2, 1e-9)
+  assert.equal(real('gamma(5)', []), 24)
+  close(real('gamma(0.5)', []), Math.sqrt(Math.PI), 1e-9)
+  close(real('lgamma(10)', []), Math.log(362880), 1e-6)
+  assert.ok(Number.isNaN(real('gamma(-1)', [])))
+  // These are real-number tools; a complex graph refuses them clearly.
+  assert.throws(() => compileComplex(parseMath('sum(n, 1, 3)', ['z']), ['z']), /only works on real numbers/)
+})
+
 test('complex arithmetic matches known values', () => {
   // i^2 = -1, and a whole-number power stays exact.
   const square = complex('z^2', 0, 1)
@@ -205,6 +241,18 @@ test('the domain colouring has a value everywhere, and reads out z and f(z)', ()
   const distinct = new Set<string>()
   for (let index = 0; index < rgba.length; index += 4) distinct.add(`${rgba[index]},${rgba[index + 1]}`)
   assert.ok(distinct.size > 3)
+})
+
+test('paintRect fills only the newly exposed pixels', () => {
+  const painter = createFieldPainter({ kind: 'mandelbrot', expr: 'z^2 + c', c: [0, 0], maxIter: 30 })
+  const rgba = new Uint8ClampedArray(4 * 8 * 4)
+  painter.paintRect({ x0: -2, x1: 1, y0: -1.5, y1: 1.5 }, 8, 4, 0, 0, 3, 2, rgba)
+  for (let row = 0; row < 4; row += 1) {
+    for (let col = 0; col < 8; col += 1) {
+      const alpha = rgba[(row * 8 + col) * 4 + 3]
+      assert.equal(alpha, row < 2 && col < 3 ? 255 : 0, `pixel ${col},${row}`)
+    }
+  }
 })
 
 test('a complex chart parses and draws two curves for a complex f(x)', () => {

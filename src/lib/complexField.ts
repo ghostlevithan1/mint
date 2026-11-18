@@ -46,6 +46,17 @@ function complexText(re: number, im: number): string {
 export type FieldPainter = {
   /** Paints rows [from, to) of a w x h image of `view` into `rgba`. */
   paint(view: View, w: number, h: number, from: number, to: number, rgba: Uint8ClampedArray): void
+  /** Paints one pixel rectangle, so a pan can fill only the newly exposed strip. */
+  paintRect(
+    view: View,
+    w: number,
+    h: number,
+    left: number,
+    top: number,
+    right: number,
+    bottom: number,
+    rgba: Uint8ClampedArray,
+  ): void
   /** Plain-text facts about one point, for the click readout. */
   at(re: number, im: number): string[]
 }
@@ -163,22 +174,45 @@ export function createFieldPainter(spec: FieldSpec, params: Record<string, numbe
 
   const colourAt = spec.kind === 'domain' ? colourDomain : colourIteration
 
+  /** Paints pixels [left, right) x [top, bottom) of the frame into a full-size buffer. */
+  const paintPixels = (
+    view: View,
+    w: number,
+    h: number,
+    left: number,
+    right: number,
+    top: number,
+    bottom: number,
+    rgba: Uint8ClampedArray,
+  ) => {
+    const stepX = (view.x1 - view.x0) / w
+    const stepY = (view.y1 - view.y0) / h
+    for (let row = top; row < bottom; row += 1) {
+      const im = view.y1 - (row + 0.5) * stepY
+      let offset = (row * w + left) * 4
+      for (let col = left; col < right; col += 1) {
+        colourAt(view.x0 + (col + 0.5) * stepX, im)
+        rgba[offset] = rgb[0]
+        rgba[offset + 1] = rgb[1]
+        rgba[offset + 2] = rgb[2]
+        rgba[offset + 3] = 255
+        offset += 4
+      }
+    }
+  }
+
   return {
     paint(view, w, h, from, to, rgba) {
-      const stepX = (view.x1 - view.x0) / w
-      const stepY = (view.y1 - view.y0) / h
-      for (let row = from; row < to; row += 1) {
-        const im = view.y1 - (row + 0.5) * stepY
-        let offset = row * w * 4
-        for (let col = 0; col < w; col += 1) {
-          colourAt(view.x0 + (col + 0.5) * stepX, im)
-          rgba[offset] = rgb[0]
-          rgba[offset + 1] = rgb[1]
-          rgba[offset + 2] = rgb[2]
-          rgba[offset + 3] = 255
-          offset += 4
-        }
-      }
+      paintPixels(view, w, h, 0, w, from, to, rgba)
+    },
+
+    paintRect(view, w, h, left, top, right, bottom, rgba) {
+      const l = Math.max(0, Math.floor(left))
+      const r = Math.min(w, Math.ceil(right))
+      const t = Math.max(0, Math.floor(top))
+      const b = Math.min(h, Math.ceil(bottom))
+      if (r <= l || b <= t) return
+      paintPixels(view, w, h, l, r, t, b, rgba)
     },
 
     at(re, im) {

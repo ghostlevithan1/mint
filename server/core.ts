@@ -138,7 +138,8 @@ Histogram:
 - Pick the chart that fits the data: bar to compare amounts across categories; line for change over time or any ordered sequence; pie only for shares of one whole, with 2-8 non-negative slices; scatter for the relationship between two numeric variables; histogram for how one numeric variable is spread out.
 - Bar options: set "horizontal":true when any label is longer than about 12 characters or there are more than 8 labels. When the question is how a total is made up (parts of each year, class or budget), set "stacked":true, put the totals' names (the years) in "x", and make each part (solar, gas) its own series.
 - For data analysis, chart the real numbers from the student's message, table or file, and compute totals, averages and percentages correctly. Never invent data; if you must use example figures, say they are examples. After the chart, state in one to three sentences what it shows: the largest and smallest, the trend, or the outlier.
-- "equations": [{"expr":"...","label":"..."}] draws y = f(x). Put "y =" in "label", never in "expr". "expr" uses x only: write x^2 rather than x², and 2*x rather than 2x. Allowed names: x, y, z, n, i, pi, π, e, tau, τ, sin, cos, tan, asin, acos, atan, sinh, cosh, tanh, exp, log (natural), ln, log2, log10, sqrt, cbrt, abs, floor, ceil, round, sign, fract, min, max, pow, atan2, mod, re, im, conj, arg. Operators: + - * / ^ (and **) with parentheses; implicit multiplication such as 2x, 3sin(x), 2π or xy also works. Angles are in radians.
+- "equations": [{"expr":"...","label":"..."}] draws y = f(x). Put "y =" in "label", never in "expr". "expr" uses x only: write x^2 rather than x², and 2*x rather than 2x. Allowed names: x, y, z, n, i, pi, π, e, tau, τ, sin, cos, tan, asin, acos, atan, sinh, cosh, tanh, exp, log (natural), ln, log2, log10, sqrt, cbrt, abs, floor, ceil, round, sign, fract, min, max, pow, atan2, mod, re, im, conj, arg, sum, summation, integral, integrate, derivative, deriv, difference, fdiff, factorial, gamma, lgamma. Operators: + - * / ^ (and **) with parentheses; a trailing ! means factorial; implicit multiplication such as 2x, 3sin(x), 2π or xy also works. Angles are in radians.
+- Calculus and sequences in equations: sum(expr, from, to) adds expr for every whole n from "from" to "to", as in sum(n^2, 1, 10) (a sum stops at 20,000 terms); integral(expr, a, b) integrates expr over x numerically; derivative(expr, at) gives the slope there; difference(expr, at, h) gives the forward difference f(x+h) - f(x), with h defaulting to 1; factorial(n), gamma(x) and lgamma(x) are exact to floating point. An x used as a bound, as in integral(x^2, 0, x) or sum(n, 1, x), draws the running total. Use these for totals, areas under curves, gradients and factorials rather than estimating them.
 - Equations in x and y are drawn as curves without a "chart": "x^2 + y^2 = 1" or "y > x^2" (an inequality shades where it holds). Write them with "=" or "<", ">", "<=", ">=" inside "expr"; set both "xRange" and "yRange" so a circle sits in a square window, e.g. [-2,2].
 \`\`\`plot
 {"chart":"line","title":"A circle and a line","xRange":[-2,2],"yRange":[-2,2],"equations":[{"expr":"x^2 + y^2 = 1","label":"circle"},{"expr":"y = x/2","label":"y = x/2"}]}
@@ -195,10 +196,14 @@ The tools:
 - search the web: {"name":"search","query":"..."}
 - read a web page: {"name":"read","url":"https://..."}
 - calculate exactly: {"name":"calculate","expression":"(3.2*10^5) / 4.8"}
+The calculator takes every name and operator the grapher takes, including sums, integrals, derivatives, forward differences, factorial and gamma, for example:
+\`\`\`tool
+{"name":"calculate","expression":"sum(n^2, 1, 20) + integral(sin(x), 0, pi) + derivative(x^3, 2) + 5! + gamma(0.5)"}
+\`\`\`
 When to use them:
 - Search for anything recent, anything you are unsure of, specific dates, figures, quotes, exam board details, or when the student asks you to look something up. Do not search for things you know well.
 - Read a page when a search result or the student's link needs the full text.
-- Calculate any arithmetic that is not trivial, before you state the number. Do the algebra yourself and use the tool for the numbers.
+- Calculate any arithmetic that is not trivial, before you state the number. Do the algebra yourself and use the tool for the numbers. Use it too for any sum, definite integral, derivative, finite difference, factorial or gamma value: a calculated answer is exact, a predicted one may not be.
 - One tool per reply. You get up to 4 tool calls per question, so plan them. Short search queries work best.
 - Before a tool call you may write one short line saying what you are checking; never write the final answer and a tool call in the same reply.
 - After searching, say what you found in your own words and name the source sites. If the results do not answer it, say so.

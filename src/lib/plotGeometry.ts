@@ -78,6 +78,58 @@ export function panView(view: View, dx: number, dy: number, bounds: View): View 
   return { x0, x1: x0 + spanX, y0, y1: y0 + spanY }
 }
 
+/** A rectangle in canvas pixels: x grows right, y grows down. */
+export type PixelRect = { left: number; top: number; right: number; bottom: number }
+
+/** True when two windows show the same spans, so cached pixels are one-for-one. */
+export function sameSpan(a: View, b: View): boolean {
+  const spanX = Math.abs(a.x1 - a.x0)
+  const spanY = Math.abs(a.y1 - a.y0)
+  const otherX = Math.abs(b.x1 - b.x0)
+  const otherY = Math.abs(b.y1 - b.y0)
+  return (
+    Math.abs(spanX - otherX) <= 1e-9 * Math.max(1, spanX) &&
+    Math.abs(spanY - otherY) <= 1e-9 * Math.max(1, spanY)
+  )
+}
+
+/**
+ * Where a picture of `cached` lands in a w x h frame now showing `view`.
+ * View y grows upwards, pixels grow downwards, so a cached top edge moves
+ * down as the window moves up.
+ */
+export function projectViewRect(cached: View, view: View, w: number, h: number): PixelRect {
+  const scaleX = w / (view.x1 - view.x0)
+  const scaleY = h / (view.y1 - view.y0)
+  return {
+    left: (cached.x0 - view.x0) * scaleX,
+    right: (cached.x1 - view.x0) * scaleX,
+    top: (view.y1 - cached.y1) * scaleY,
+    bottom: (view.y1 - cached.y0) * scaleY,
+  }
+}
+
+/**
+ * The parts of a w x h frame a rectangle does not cover: at most four bands
+ * (above, below, left and right). Painting only these is what makes a pan cost
+ * a strip of new pixels instead of a whole new picture.
+ */
+export function uncoveredRegions(rect: PixelRect, w: number, h: number): PixelRect[] {
+  const left = Math.max(0, Math.min(w, rect.left))
+  const right = Math.max(0, Math.min(w, rect.right))
+  const top = Math.max(0, Math.min(h, rect.top))
+  const bottom = Math.max(0, Math.min(h, rect.bottom))
+  if (right <= left || bottom <= top) return [{ left: 0, top: 0, right: w, bottom: h }]
+
+  const regions: PixelRect[] = []
+  if (top > 0) regions.push({ left: 0, top: 0, right: w, bottom: top })
+  if (bottom < h) regions.push({ left: 0, top: bottom, right: w, bottom: h })
+  // The side strips stop at the covered rows, so no pixel is painted twice.
+  if (left > 0) regions.push({ left: 0, top, right: left, bottom })
+  if (right < w) regions.push({ left: right, top, right: w, bottom })
+  return regions
+}
+
 export type PointHit = Point & { distance: number; t: number }
 
 /** Closest point on segment AB to `target`, in whatever space the inputs use. */

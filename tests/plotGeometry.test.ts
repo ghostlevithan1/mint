@@ -9,7 +9,10 @@ import {
   panView,
   placeMarkerLabels,
   placeReadout,
+  projectViewRect,
+  sameSpan,
   squareView,
+  uncoveredRegions,
   zoomView,
   type View,
 } from '../src/lib/plotGeometry'
@@ -127,6 +130,34 @@ test('zooming and panning keep the units square', () => {
   closeRatio(zoomed, 1.868)
   const panned = panView(zoomed, 3, -4, square)
   closeRatio(panned, 1.868)
+})
+
+test('a panned cached frame projects into place and leaves only strips to paint', () => {
+  const cached: View = { x0: 0, x1: 10, y0: 0, y1: 10 }
+  // Panned 5 units right: the old picture starts half a frame to the left.
+  const shifted = projectViewRect(cached, { x0: 5, x1: 15, y0: 0, y1: 10 }, 100, 100)
+  close(shifted.left, -50)
+  close(shifted.right, 50)
+  close(shifted.top, 0)
+  close(shifted.bottom, 100)
+  assert.deepEqual(uncoveredRegions(shifted, 100, 100), [{ left: 50, top: 0, right: 100, bottom: 100 }])
+
+  // Panned 2 units down: the old picture sits lower, exposing a top strip.
+  const down = projectViewRect(cached, { x0: 0, x1: 10, y0: 2, y1: 12 }, 100, 100)
+  close(down.top, 20)
+  close(down.bottom, 120)
+  assert.deepEqual(uncoveredRegions(down, 100, 100), [{ left: 0, top: 0, right: 100, bottom: 20 }])
+
+  // A frame that is entirely new exposes the whole canvas.
+  assert.deepEqual(uncoveredRegions({ left: 200, top: 200, right: 300, bottom: 300 }, 100, 100), [
+    { left: 0, top: 0, right: 100, bottom: 100 },
+  ])
+})
+
+test('equal spans are reused; a zoom is a new picture', () => {
+  const a: View = { x0: 0, x1: 10, y0: 0, y1: 10 }
+  assert.equal(sameSpan(a, { x0: 3, x1: 13, y0: -2, y1: 8 }), true)
+  assert.equal(sameSpan(a, { x0: 0, x1: 5, y0: 0, y1: 10 }), false)
 })
 
 const area = { left: 52, right: 620, top: 16, bottom: 320 }
